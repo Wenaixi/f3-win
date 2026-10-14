@@ -75,6 +75,8 @@ impl Default for AppState {
             selected_path: PathBuf::from(r"E:\"),
             selected_device: None,
             devices: Vec::new(),
+            volumes: Vec::new(),
+            selected_volume_index: 0,
             salt: 0,
             use_random_salt: false,
             chunk_size_mb: 1,

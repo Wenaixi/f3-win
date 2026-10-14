@@ -1,3 +1,4 @@
+const DRIVE_REMOVABLE: u32 = 2;
 use std::ffi::c_void;
 use std::mem::size_of;
 use windows::core::PCWSTR;
@@ -259,7 +260,6 @@ fn extract_sz(buf: &[u8], offset: usize) -> String {
 use std::path::PathBuf;
 use windows::Win32::Storage::FileSystem::{
     GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW,
-    DRIVE_REMOVABLE, DRIVE_FIXED,
 };
 
 #[derive(Debug, Clone)]
