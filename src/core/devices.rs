@@ -256,3 +256,112 @@ fn extract_sz(buf: &[u8], offset: usize) -> String {
     let end = slice.iter().position(|&b| b == 0).unwrap_or(slice.len());
     String::from_utf8_lossy(&slice[..end]).trim().to_string()
 }
+use std::path::PathBuf;
+use windows::Win32::Storage::FileSystem::{
+    GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW,
+    DRIVE_REMOVABLE, DRIVE_FIXED,
+};
+
+#[derive(Debug, Clone)]
+pub struct VolumeInfo {
+    pub drive_letter: char,
+    pub root_path: PathBuf,
+    pub label: String,
+    pub file_system: String,
+    pub is_removable: bool,
+    pub free_bytes: u64,
+    pub total_bytes: u64,
+}
+
+impl VolumeInfo {
+    pub fn display_name(&self) -> String {
+        let kind = if self.is_removable {
+            "可移动 U 盘"
+        } else {
+            "本地硬盘"
+        };
+        let label_part = if !self.label.is_empty() {
+            format!(" [{}]", self.label)
+        } else {
+            String::new()
+        };
+        format!(
+            "[{}] {}:\\{} ({}) - {:.1} GB 可用 / {:.1} GB 总计",
+            kind,
+            self.drive_letter,
+            label_part,
+            self.file_system,
+            self.free_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
+            self.total_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
+        )
+    }
+
+    // 枚举系统中所有已挂载逻辑盘符并获取其详细属性
+    pub fn enumerate_volumes() -> Vec<VolumeInfo> {
+        let mut volumes = Vec::new();
+        let mask = unsafe { GetLogicalDrives() };
+
+        for i in 0..26 {
+            if (mask & (1 << i)) != 0 {
+                let letter = (b'A' + i as u8) as char;
+                let root_str = format!("{}:\\\0", letter);
+                let wide: Vec<u16> = root_str.encode_utf16().collect();
+
+                let drive_type = unsafe { GetDriveTypeW(PCWSTR(wide.as_ptr())) };
+                if drive_type == 0 || drive_type == 1 { // UNKNOWN or NO_ROOT_DIR
+                    continue;
+                }
+
+                let is_removable = drive_type == DRIVE_REMOVABLE;
+
+                let mut vol_name = [0u16; 260];
+                let mut fs_name = [0u16; 260];
+                let _ = unsafe {
+                    GetVolumeInformationW(
+                        PCWSTR(wide.as_ptr()),
+                        Some(&mut vol_name),
+                        None,
+                        None,
+                        None,
+                        Some(&mut fs_name),
+                    )
+                };
+
+                let label = String::from_utf16_lossy(&vol_name)
+                    .trim_matches('\0')
+                    .trim()
+                    .to_string();
+                let file_system = String::from_utf16_lossy(&fs_name)
+                    .trim_matches('\0')
+                    .trim()
+                    .to_string();
+
+                let mut free_avail = 0u64;
+                let mut total_bytes = 0u64;
+                let mut total_free = 0u64;
+                let _ = unsafe {
+                    GetDiskFreeSpaceExW(
+                        PCWSTR(wide.as_ptr()),
+                        Some(&mut free_avail),
+                        Some(&mut total_bytes),
+                        Some(&mut total_free),
+                    )
+                };
+
+                volumes.push(VolumeInfo {
+                    drive_letter: letter,
+                    root_path: PathBuf::from(format!("{}:\\", letter)),
+                    label,
+                    file_system,
+                    is_removable,
+                    free_bytes: free_avail,
+                    total_bytes,
+                });
+            }
+        }
+
+        // 优先将可移动介质排在最前面
+        volumes.sort_by_key(|v| !v.is_removable);
+        volumes
+    }
+}

@@ -4,7 +4,7 @@ use std::time::Instant;
 use crossbeam_channel::unbounded;
 use eframe::egui::{self, Color32, ProgressBar, RichText};
 
-use crate::core::devices::PhysicalDeviceInfo;
+use crate::core::devices::{PhysicalDeviceInfo, VolumeInfo};
 use crate::core::fix::F3FixPlan;
 use crate::core::probe::{F3Probe, F3ProbeConfig};
 use crate::core::reader::{F3Reader, F3ReaderConfig};
@@ -25,6 +25,14 @@ impl F3App {
         let mut state = AppState::default();
         state.devices = PhysicalDeviceInfo::enumerate_devices();
         state.selected_device = state.devices.iter().find(|d| d.is_safe_target).cloned();
+        state.volumes = VolumeInfo::enumerate_volumes();
+        if let Some(first_removable) = state.volumes.iter().position(|v| v.is_removable) {
+            state.selected_volume_index = first_removable;
+            state.selected_path = state.volumes[first_removable].root_path.clone();
+        } else if !state.volumes.is_empty() {
+            state.selected_volume_index = 0;
+            state.selected_path = state.volumes[0].root_path.clone();
+        }
 
         Self {
             state,
@@ -165,7 +173,33 @@ impl F3App {
         ui.separator();
 
         ui.horizontal(|ui| {
-            ui.label("测试目录路径:");
+            ui.label("目标磁盘:");
+            let current_label = if self.state.selected_volume_index < self.state.volumes.len() {
+                self.state.volumes[self.state.selected_volume_index].display_name()
+            } else {
+                "自定义路径".to_string()
+            };
+
+            egui::ComboBox::from_id_salt("write_vol_combo")
+                .selected_text(current_label)
+                .width(420.0)
+                .show_ui(ui, |ui| {
+                    for (idx, vol) in self.state.volumes.iter().enumerate() {
+                        let is_selected = self.state.selected_volume_index == idx;
+                        if ui.selectable_label(is_selected, vol.display_name()).clicked() {
+                            self.state.selected_volume_index = idx;
+                            self.state.selected_path = vol.root_path.clone();
+                        }
+                    }
+                });
+
+            if ui.button("刷新磁盘").clicked() {
+                self.state.volumes = VolumeInfo::enumerate_volumes();
+            }
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("测试写入路径:");
             let mut path_str = self.state.selected_path.to_string_lossy().to_string();
             if ui.text_edit_singleline(&mut path_str).changed() {
                 self.state.selected_path = PathBuf::from(path_str);
@@ -205,7 +239,33 @@ impl F3App {
         ui.separator();
 
         ui.horizontal(|ui| {
-            ui.label("目标目录路径:");
+            ui.label("目标磁盘:");
+            let current_label = if self.state.selected_volume_index < self.state.volumes.len() {
+                self.state.volumes[self.state.selected_volume_index].display_name()
+            } else {
+                "自定义路径".to_string()
+            };
+
+            egui::ComboBox::from_id_salt("read_vol_combo")
+                .selected_text(current_label)
+                .width(420.0)
+                .show_ui(ui, |ui| {
+                    for (idx, vol) in self.state.volumes.iter().enumerate() {
+                        let is_selected = self.state.selected_volume_index == idx;
+                        if ui.selectable_label(is_selected, vol.display_name()).clicked() {
+                            self.state.selected_volume_index = idx;
+                            self.state.selected_path = vol.root_path.clone();
+                        }
+                    }
+                });
+
+            if ui.button("刷新磁盘").clicked() {
+                self.state.volumes = VolumeInfo::enumerate_volumes();
+            }
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("测试读取路径:");
             let mut path_str = self.state.selected_path.to_string_lossy().to_string();
             if ui.text_edit_singleline(&mut path_str).changed() {
                 self.state.selected_path = PathBuf::from(path_str);

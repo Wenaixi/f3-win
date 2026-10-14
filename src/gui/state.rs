@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crossbeam_channel::Receiver;
 
 use crate::core::algo::{BlockState, BlockStats};
-use crate::core::devices::PhysicalDeviceInfo;
+use crate::core::devices::{PhysicalDeviceInfo, VolumeInfo};
 use crate::core::fix::F3FixPlan;
 use crate::core::probe::ProbeTelemetry;
 use crate::core::reader::ReadTelemetry;
@@ -36,6 +36,8 @@ pub struct AppState {
     pub selected_path: PathBuf,
     pub selected_device: Option<PhysicalDeviceInfo>,
     pub devices: Vec<PhysicalDeviceInfo>,
+    pub volumes: Vec<VolumeInfo>,
+    pub selected_volume_index: usize,
 
     // 高级设置
     pub salt: u64,
