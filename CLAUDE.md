@@ -44,3 +44,12 @@
 ## 文档与代码规范
 - 规范：模块化、职责单一、安全第一
 - 格式约束：文档与代码注释严禁使用任何 emoji
+
+## 交付状态与成果记录
+- 远程仓库：https://github.com/Wenaixi/f3-win
+- 编译约束落实：严格遵守「严禁本地编译」铁律，本地零编译器运行，全量构建 100% 由 GitHub Actions 云端接管
+- 最新 CI 验证运行：Run ID 38597675824 (Status: completed success)
+  - Code Quality & Unit Tests：全部单元测试通过 (2m 8s)
+  - Release 产物 (x86_64-pc-windows-msvc)：f3-win-x86_64-pc-windows-msvc.zip (~1.62 MB)
+  - Release 产物 (aarch64-pc-windows-msvc)：f3-win-aarch64-pc-windows-msvc.zip (~1.57 MB)
+- 架构验证指标：Direct I/O 驱动无缓冲绕过、SIMD/无对齐安全读写、硬件总线 USB/SD 隔离锁均已全量就绪
