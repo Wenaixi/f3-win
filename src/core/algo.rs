@@ -43,21 +43,21 @@ pub fn next_random_number(random_number: u64) -> u64 {
     random_number.wrapping_mul(LCG_MULTIPLIER).wrapping_add(LCG_INCREMENT)
 }
 
-// 填充单个 512 字节扇区
+// 填充单个 512 字节扇区 (安全且对齐无关，单指令吞吐)
 #[inline]
 pub fn fill_sector(buf: &mut [u8; SECTOR_SIZE], offset: u64, salt: u64) {
-    let int64_array = unsafe {
-        std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u64, NUM_INT64_PER_SECTOR)
-    };
+    let mut chunks = buf.chunks_exact_mut(8);
 
     // 扇区第一个 64 位存放 offset
-    int64_array[0] = offset;
+    if let Some(first) = chunks.next() {
+        first.copy_from_slice(&offset.to_ne_bytes());
+    }
 
     // 后续 63 个 64 位依次填充伪随机数
     let mut random_number = offset ^ salt;
-    for slot in int64_array.iter_mut().skip(1) {
+    for chunk in chunks {
         random_number = next_random_number(random_number);
-        *slot = random_number;
+        chunk.copy_from_slice(&random_number.to_ne_bytes());
     }
 }
 
@@ -74,24 +74,25 @@ pub fn fill_sectors(buf: &mut [u8], start_offset: u64, salt: u64) {
     }
 }
 
-// 校验单个 512 字节扇区
+// 校验单个 512 字节扇区 (安全且对齐无关)
 #[inline]
 pub fn validate_sector(
     buf: &[u8; SECTOR_SIZE],
     expected_offset: u64,
     salt: u64,
 ) -> (BlockState, u64) {
-    let int64_array = unsafe {
-        std::slice::from_raw_parts(buf.as_ptr() as *const u64, NUM_INT64_PER_SECTOR)
+    let mut chunks = buf.chunks_exact(8);
+    let found_offset = match chunks.next() {
+        Some(first) => u64::from_ne_bytes(first.try_into().unwrap()),
+        None => return (BlockState::Bad, 0),
     };
 
-    let found_offset = int64_array[0];
     let mut random_number = found_offset ^ salt;
     let mut bit_error_count = 0u32;
 
-    // 优化：先尝试快速整字比对，遇到不一致时才计算 popcount
-    for &val in int64_array.iter().skip(1) {
+    for chunk in chunks {
         random_number = next_random_number(random_number);
+        let val = u64::from_ne_bytes(chunk.try_into().unwrap());
         if val != random_number {
             bit_error_count += (val ^ random_number).count_ones();
             if bit_error_count > BIT_ERROR_TOLERANCE {
