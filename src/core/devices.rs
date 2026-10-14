@@ -74,7 +74,7 @@ impl PhysicalDeviceInfo {
         let mut devices = Vec::new();
 
         for i in 0..32 {
-            let path_str = format!("\\.\PhysicalDrive{}", i);
+            let path_str = format!(r"\\.\PhysicalDrive{}", i);
             let wide: Vec<u16> = path_str.encode_utf16().chain(std::iter::once(0)).collect();
 
             let handle = unsafe {
@@ -181,7 +181,7 @@ impl PhysicalDeviceInfo {
 
     // 尝试锁定并卸载该磁盘上所有卷的挂载点
     pub fn lock_and_dismount_volume(drive_letter: char) -> Result<HANDLE, String> {
-        let vol_path = format!("\\.\{}:", drive_letter);
+        let vol_path = format!(r"\\.\{}:", drive_letter);
         let wide: Vec<u16> = vol_path.encode_utf16().chain(std::iter::once(0)).collect();
 
         let handle = unsafe {

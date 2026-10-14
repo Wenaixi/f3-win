@@ -70,7 +70,7 @@ impl Default for AppState {
             current_tab: AppTab::WriteTest,
             status: TaskStatus::Idle,
             status_message: "就绪".to_string(),
-            selected_path: PathBuf::from("E:\\"),
+            selected_path: PathBuf::from(r"E:\"),
             selected_device: None,
             devices: Vec::new(),
             salt: 0,
