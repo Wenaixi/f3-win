@@ -1,0 +1,15 @@
+# 编译器输出与构建缓存
+/target/
+*.exe
+*.dll
+*.pdb
+*.zip
+*.sha256
+
+// 本地下载产物临时目录
+/artifacts_*/
+/artifacts/
+
+// 临时文件
+*.diskpart
+*.tmp
