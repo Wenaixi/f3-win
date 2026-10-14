@@ -48,7 +48,7 @@ impl F3Writer {
 
         let mut buf_a = match AlignedBuffer::new(chunk_size) {
             Ok(b) => b,
-            Err(_e) => {
+            Err(e) => {
                 let _ = tx.send(WriteTelemetry {
                     current_file_index: 0,
                     total_bytes_written: 0,
@@ -83,7 +83,7 @@ impl F3Writer {
 
             let mut direct_file = match DirectIoFile::create_write(&file_path) {
                 Ok(f) => f,
-                Err(_e) => {
+                Err(e) => {
                     // 若创建失败可能是磁盘已满
                     let _ = tx.send(WriteTelemetry {
                         current_file_index: file_index + 1,
@@ -145,7 +145,7 @@ impl F3Writer {
                             });
                         }
                     }
-                    Err(e) => {
+                    Err(_) => {
                         // 写入失败说明当前分区物理空间彻底见底
                         file_full = true;
                         if file_offset > 0 {
