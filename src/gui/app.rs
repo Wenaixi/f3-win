@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
@@ -420,7 +419,7 @@ impl F3App {
             if let Ok(bytes) = std::fs::read(path) {
                 fonts.font_data.insert(
                     "chinese_font".to_owned(),
-                    Arc::new(egui::FontData::from_owned(bytes)),
+                    egui::FontData::from_owned(bytes),
                 );
 
                 if let Some(prop) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
