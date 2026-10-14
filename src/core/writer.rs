@@ -1,10 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use crossbeam_channel::Sender;
 
-use crate::core::algo::{fill_sectors, SECTOR_SIZE};
+use crate::core::algo::fill_sectors;
 use crate::core::aligned_buf::AlignedBuffer;
 use crate::core::direct_io::DirectIoFile;
 
@@ -48,7 +48,7 @@ impl F3Writer {
 
         let mut buf_a = match AlignedBuffer::new(chunk_size) {
             Ok(b) => b,
-            Err(e) => {
+            Err(_e) => {
                 let _ = tx.send(WriteTelemetry {
                     current_file_index: 0,
                     total_bytes_written: 0,
@@ -83,7 +83,7 @@ impl F3Writer {
 
             let mut direct_file = match DirectIoFile::create_write(&file_path) {
                 Ok(f) => f,
-                Err(e) => {
+                Err(_e) => {
                     // 若创建失败可能是磁盘已满
                     let _ = tx.send(WriteTelemetry {
                         current_file_index: file_index + 1,

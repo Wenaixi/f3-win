@@ -1,11 +1,9 @@
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::time::Instant;
 use crossbeam_channel::unbounded;
 use eframe::egui::{self, Color32, ProgressBar, RichText};
 
-use crate::core::algo::BlockState;
 use crate::core::devices::PhysicalDeviceInfo;
 use crate::core::fix::F3FixPlan;
 use crate::core::probe::{F3Probe, F3ProbeConfig};
@@ -382,7 +380,8 @@ impl F3App {
     }
 
     fn start_probe_task(&mut self) {
-        if let Some(ref dev) = self.state.selected_device {
+        let dev_opt = self.state.selected_device.clone();
+        if let Some(dev) = dev_opt {
             self.state.reset_telemetry();
             self.state.status = TaskStatus::Running;
             self.state.status_message = "正在启动跳跃探针探测...".to_string();
@@ -391,7 +390,7 @@ impl F3App {
             self.state.probe_rx = Some(rx);
 
             let config = F3ProbeConfig {
-                physical_device_path: dev.path.clone(),
+                physical_device_path: dev.path,
                 total_sectors: dev.total_bytes / 512,
             };
 

@@ -22,7 +22,7 @@ pub fn render_device_selector(
             None => "请选择存储设备...".to_string(),
         };
 
-        egui::ComboBox::from_id_source("device_combo")
+        egui::ComboBox::from_id_salt("device_combo")
             .selected_text(current_text)
             .width(450.0)
             .show_ui(ui, |ui| {

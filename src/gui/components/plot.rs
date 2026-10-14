@@ -8,7 +8,7 @@ pub fn render_speed_plot(ui: &mut Ui, history: &[[f64; 2]], title: &str) {
         let points: PlotPoints = history.iter().map(|&[t, s]| [t, s]).collect();
         let line = Line::new(points)
             .color(egui::Color32::from_rgb(0, 190, 255))
-            .width(2.0)
+            .width(2.0_f32)
             .name("实时速率 (MB/s)");
 
         Plot::new("speed_plot")

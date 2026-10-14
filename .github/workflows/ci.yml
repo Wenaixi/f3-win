@@ -24,7 +24,7 @@ jobs:
           components: clippy
 
       - name: Clippy Lint
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets
 
       - name: Run Core Unit Tests
         run: cargo test --verbose

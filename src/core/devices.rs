@@ -1,6 +1,5 @@
 use std::ffi::c_void;
 use std::mem::size_of;
-use std::path::PathBuf;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows::Win32::Storage::FileSystem::{
@@ -150,7 +149,7 @@ impl PhysicalDeviceInfo {
         }
 
         let desc = unsafe { &*(buffer.as_ptr() as *const STORAGE_DEVICE_DESCRIPTOR) };
-        let bus_type = StorageBusType::from_raw(desc.BusType as u32);
+        let bus_type = StorageBusType::from_raw(desc.BusType.0 as u32);
         let is_removable = desc.RemovableMedia.as_bool();
 
         let vendor_id = extract_sz(&buffer, desc.VendorIdOffset as usize);
