@@ -1,0 +1,82 @@
+name: CI & Release Pipeline
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-test:
+    name: Code Quality & Unit Tests
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rustfmt Check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy Lint
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run Core Unit Tests
+        run: cargo test --verbose
+
+  build-release:
+    name: Build Release Binaries
+    needs: check-and-test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          - aarch64-pc-windows-msvc
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build Binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Artifact
+        shell: pwsh
+        run: |
+          $Target = "${{ matrix.target }}"
+          $ExePath = "target/$Target/release/f3-win.exe"
+          $ZipName = "f3-win-$Target.zip"
+          Compress-Archive -Path $ExePath -DestinationPath $ZipName
+          $Hash = (Get-FileHash -Path $ZipName -Algorithm SHA256).Hash
+          "$Hash  $ZipName" | Out-File -FilePath "$ZipName.sha256" -Encoding ascii
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: f3-win-${{ matrix.target }}
+          path: |
+            f3-win-${{ matrix.target }}.zip
+            f3-win-${{ matrix.target }}.zip.sha256
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            f3-win-${{ matrix.target }}.zip
+            f3-win-${{ matrix.target }}.zip.sha256

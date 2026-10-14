@@ -1,0 +1,37 @@
+[package]
+name = "f3-win"
+version = "0.1.0"
+edition = "2021"
+authors = ["F3-Win Contributors"]
+description = "Fight Flash Fraud for Windows - Ultra-high-performance flash drive capacity and speed test GUI"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+# 界面与绘图引擎 (纯 Rust，轻量零系统依赖)
+eframe = { version = "0.29", default-features = false, features = ["default_fonts", "glow"] }
+egui = "0.29"
+egui_plot = "0.29"
+
+# Windows 原生 Win32 API 绑定
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Memory",
+    "Win32_System_Ioctl",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Security"
+] }
+
+# 线程通信与并发
+crossbeam-channel = "0.5"
+parking_lot = "0.12"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[profile.release]
+opt-level = "z"        # 极值体积优化
+lto = true             # 开启跨 Crate 链接时优化
+codegen-units = 1      # 最大化编译器分析与内联
+panic = "abort"        # 剔除 panic 展开堆栈体积
+strip = true           # 剥离符号表

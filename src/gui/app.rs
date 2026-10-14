@@ -1,0 +1,407 @@
+use std::path::PathBuf;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Instant;
+use crossbeam_channel::unbounded;
+use eframe::egui::{self, Color32, ProgressBar, RichText};
+
+use crate::core::algo::BlockState;
+use crate::core::devices::PhysicalDeviceInfo;
+use crate::core::fix::F3FixPlan;
+use crate::core::probe::{F3Probe, F3ProbeConfig};
+use crate::core::reader::{F3Reader, F3ReaderConfig};
+use crate::core::writer::{F3Writer, F3WriterConfig};
+use crate::gui::components::device_selector::render_device_selector;
+use crate::gui::components::heatmap::render_heatmap;
+use crate::gui::components::plot::render_speed_plot;
+use crate::gui::state::{AppState, AppTab, TaskStatus};
+
+pub struct F3App {
+    state: AppState,
+    start_instant: Option<Instant>,
+}
+
+impl F3App {
+    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        let mut state = AppState::default();
+        state.devices = PhysicalDeviceInfo::enumerate_devices();
+        state.selected_device = state.devices.iter().find(|d| d.is_safe_target).cloned();
+
+        Self {
+            state,
+            start_instant: None,
+        }
+    }
+
+    fn poll_telemetry(&mut self) {
+        // 1. 轮询写入遥测
+        if let Some(ref rx) = self.state.write_rx {
+            while let Ok(msg) = rx.try_recv() {
+                self.state.total_bytes_processed = msg.total_bytes_written;
+                self.state.current_speed_mb = msg.current_speed_bps / (1024.0 * 1024.0);
+                self.state.eta_seconds = msg.eta_seconds;
+
+                if let Some(start) = self.start_instant {
+                    let elapsed = start.elapsed().as_secs_f64();
+                    self.state.speed_history.push([elapsed, self.state.current_speed_mb]);
+                }
+
+                if msg.is_finished {
+                    self.state.status = if msg.error.is_some() {
+                        TaskStatus::Error
+                    } else {
+                        TaskStatus::Finished
+                    };
+                    self.state.status_message = msg.error.unwrap_or_else(|| "写入测试完成".to_string());
+                    self.state.write_rx = None;
+                    break;
+                }
+            }
+        }
+
+        // 2. 轮询读取遥测
+        if let Some(ref rx) = self.state.read_rx {
+            while let Ok(msg) = rx.try_recv() {
+                self.state.total_bytes_processed = msg.total_bytes_read;
+                self.state.current_speed_mb = msg.current_speed_bps / (1024.0 * 1024.0);
+                self.state.stats = msg.stats;
+
+                if let Some((idx, state_val)) = msg.heatmap_sample {
+                    if idx < self.state.heatmap_blocks.len() {
+                        self.state.heatmap_blocks[idx] = state_val;
+                    }
+                }
+
+                if let Some(start) = self.start_instant {
+                    let elapsed = start.elapsed().as_secs_f64();
+                    self.state.speed_history.push([elapsed, self.state.current_speed_mb]);
+                }
+
+                if msg.is_finished {
+                    self.state.status = if msg.error.is_some() {
+                        TaskStatus::Error
+                    } else {
+                        TaskStatus::Finished
+                    };
+                    self.state.status_message = msg.error.unwrap_or_else(|| "校验测试完成".to_string());
+                    self.state.read_rx = None;
+                    break;
+                }
+            }
+        }
+
+        // 3. 轮询探针探测遥测
+        if let Some(ref rx) = self.state.probe_rx {
+            while let Ok(msg) = rx.try_recv() {
+                self.state.progress_pct = msg.progress_pct;
+                self.state.status_message = msg.current_phase.clone();
+
+                if msg.is_finished {
+                    self.state.status = if msg.error.is_some() {
+                        TaskStatus::Error
+                    } else {
+                        TaskStatus::Finished
+                    };
+                    let is_fake = msg.is_fake;
+                    let announced = msg.announced_size_bytes;
+                    let real = msg.real_size_bytes;
+                    self.state.probe_result = Some(msg);
+
+                    if is_fake {
+                        if let Some(ref dev) = self.state.selected_device {
+                            self.state.fix_plan = Some(F3FixPlan::new(dev.drive_index, announced, real));
+                        }
+                    }
+                    self.state.probe_rx = None;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+impl eframe::App for F3App {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_telemetry();
+        ctx.request_repaint(); // 保证动画与采样平滑
+
+        egui::TopBottomPanel::top("top_nav").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading(RichText::new("F3-Win 极致闪存测试与自愈终端").strong().color(Color32::from_rgb(0, 200, 255)));
+                ui.separator();
+
+                ui.selectable_value(&mut self.state.current_tab, AppTab::WriteTest, "全盘写入 (f3write)");
+                ui.selectable_value(&mut self.state.current_tab, AppTab::ReadVerify, "全盘读取 (f3read)");
+                ui.selectable_value(&mut self.state.current_tab, AppTab::RapidProbe, "闪电探测 (f3probe)");
+                ui.selectable_value(&mut self.state.current_tab, AppTab::PartitionFix, "分区自愈 (f3fix)");
+                ui.selectable_value(&mut self.state.current_tab, AppTab::Settings, "防作弊设置");
+            });
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            match self.state.current_tab {
+                AppTab::WriteTest => self.render_write_tab(ui),
+                AppTab::ReadVerify => self.render_read_tab(ui),
+                AppTab::RapidProbe => self.render_probe_tab(ui),
+                AppTab::PartitionFix => self.render_fix_tab(ui),
+                AppTab::Settings => self.render_settings_tab(ui),
+            }
+        });
+
+        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(format!("状态: {}", self.state.status_message));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label("Direct I/O 无缓冲模式: 已激活");
+                });
+            });
+        });
+    }
+}
+
+impl F3App {
+    fn render_write_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("文件系统级写入测试 (f3write)");
+        ui.label("在指定磁盘空闲空间中写入标准 .h2w 数据文件，直通写入并测试极限物理写速。");
+        ui.separator();
+
+        ui.horizontal(|ui| {
+            ui.label("测试目录路径:");
+            let mut path_str = self.state.selected_path.to_string_lossy().to_string();
+            if ui.text_edit_singleline(&mut path_str).changed() {
+                self.state.selected_path = PathBuf::from(path_str);
+            }
+        });
+
+        ui.add_space(10.0);
+
+        if self.state.status != TaskStatus::Running {
+            if ui.button(RichText::new("开始极速写入测试").size(16.0).color(Color32::GREEN)).clicked() {
+                self.start_write_task();
+            }
+        } else {
+            if ui.button(RichText::new("停止写入").size(16.0).color(Color32::RED)).clicked() {
+                self.state.cancel_flag.store(true, Ordering::Relaxed);
+            }
+        }
+
+        ui.add_space(10.0);
+
+        // 仪表盘指标
+        ui.horizontal(|ui| {
+            ui.label(format!("当前写入速度: {:.2} MB/s", self.state.current_speed_mb));
+            ui.separator();
+            ui.label(format!("已写入: {:.2} GB", self.state.total_bytes_processed as f64 / (1024.0 * 1024.0 * 1024.0)));
+            ui.separator();
+            ui.label(format!("预计剩余时间 (ETA): {} 秒", self.state.eta_seconds));
+        });
+
+        ui.add_space(10.0);
+        render_speed_plot(ui, &self.state.speed_history, "写入");
+    }
+
+    fn render_read_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("全盘读取与坏块校验 (f3read)");
+        ui.label("回读现存的 .h2w 文件，逐扇区比对 LCG 序列，发现虚标回绕与闪存物理坏道。");
+        ui.separator();
+
+        ui.horizontal(|ui| {
+            ui.label("目标目录路径:");
+            let mut path_str = self.state.selected_path.to_string_lossy().to_string();
+            if ui.text_edit_singleline(&mut path_str).changed() {
+                self.state.selected_path = PathBuf::from(path_str);
+            }
+        });
+
+        ui.add_space(10.0);
+
+        if self.state.status != TaskStatus::Running {
+            if ui.button(RichText::new("开始读取校验").size(16.0).color(Color32::GREEN)).clicked() {
+                self.start_read_task();
+            }
+        } else {
+            if ui.button(RichText::new("停止读取").size(16.0).color(Color32::RED)).clicked() {
+                self.state.cancel_flag.store(true, Ordering::Relaxed);
+            }
+        }
+
+        ui.add_space(10.0);
+
+        // 校验统计计数
+        ui.horizontal(|ui| {
+            ui.colored_label(Color32::from_rgb(46, 204, 113), format!("健康 (Good): {}", self.state.stats.good));
+            ui.separator();
+            ui.colored_label(Color32::from_rgb(231, 76, 60), format!("损坏 (Bad): {}", self.state.stats.bad));
+            ui.separator();
+            ui.colored_label(Color32::from_rgb(241, 196, 15), format!("变异 (Changed): {}", self.state.stats.changed));
+            ui.separator();
+            ui.colored_label(Color32::from_rgb(155, 89, 182), format!("回绕覆写 (Overwritten): {}", self.state.stats.overwritten));
+        });
+
+        ui.add_space(10.0);
+        render_speed_plot(ui, &self.state.speed_history, "读取");
+        ui.add_space(10.0);
+        render_heatmap(ui, &self.state.heatmap_blocks);
+    }
+
+    fn render_probe_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("闪电裸盘跳跃探测 (f3probe)");
+        ui.colored_label(Color32::YELLOW, "警告：本功能直接读写底层物理扇区，在 1~3 分钟内揭露虚标真面目，运行前会自动卸载卷！");
+        ui.separator();
+
+        let devices = self.state.devices.clone();
+        let mut selected = self.state.selected_device.clone();
+        render_device_selector(ui, &devices, &mut selected, || {});
+        self.state.selected_device = selected;
+
+        ui.add_space(15.0);
+
+        if self.state.status != TaskStatus::Running {
+            if ui.button(RichText::new("启动裸盘闪电探测").size(16.0).color(Color32::RED)).clicked() {
+                self.start_probe_task();
+            }
+        } else {
+            if ui.button(RichText::new("终止探测").size(16.0)).clicked() {
+                self.state.cancel_flag.store(true, Ordering::Relaxed);
+            }
+        }
+
+        ui.add_space(15.0);
+        ui.add(ProgressBar::new(self.state.progress_pct).show_percentage());
+
+        if let Some(ref res) = self.state.probe_result {
+            ui.group(|ui| {
+                ui.heading("探测诊断报告:");
+                ui.label(format!("设备标称容量: {:.2} GB", res.announced_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)));
+                ui.label(format!("物理真实容量: {:.2} GB", res.real_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)));
+
+                if res.is_fake {
+                    ui.colored_label(Color32::RED, "结论：确认为虚标扩容假盘！强烈建议前往「分区自愈」页面进行安全截断修复！");
+                } else {
+                    ui.colored_label(Color32::GREEN, "结论：物理容量完全合规，未检测到扇区回绕欺骗！");
+                }
+            });
+        }
+    }
+
+    fn render_fix_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("扩容盘分区自愈修复 (f3fix)");
+        ui.label("根据探测到的真实容量边界，重写安全分区表，让扩容假盘变回稳定耐用的小容量真盘。");
+        ui.separator();
+
+        if let Some(ref plan) = self.state.fix_plan {
+            ui.group(|ui| {
+                ui.label(format!("目标物理磁盘: PhysicalDrive{}", plan.disk_index));
+                ui.label(format!("真实可用容量: {:.2} GB", plan.real_bytes as f64 / (1024.0 * 1024.0 * 1024.0)));
+                ui.label(format!("建议截断分区大小: {} MB", plan.safe_partition_mb));
+                ui.label(format!("推荐文件系统: {}", plan.file_system));
+
+                ui.add_space(10.0);
+                if ui.button(RichText::new("一键执行全自动安全修复").size(16.0).color(Color32::GREEN)).clicked() {
+                    match plan.execute_auto_fix() {
+                        Ok(msg) => self.state.status_message = format!("修复成功: {}", msg),
+                        Err(e) => self.state.status_message = format!("修复失败: {}", e),
+                    }
+                }
+
+                if ui.button("导出 diskpart 脚本到桌面").clicked() {
+                    let desk = PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("Desktop\\f3_fix.diskpart");
+                    let _ = plan.export_script_to_file(&desk);
+                    self.state.status_message = format!("脚本已导出至 {:?}", desk);
+                }
+            });
+        } else {
+            ui.label("暂无待修复方案，请先在「闪电探测」标签页完成假盘探测。");
+        }
+    }
+
+    fn render_settings_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("高级防伪与性能参数设置");
+        ui.separator();
+
+        ui.checkbox(&mut self.state.use_random_salt, "启用随机加盐防伪模式 (防止恶劣固件针对固定序列作弊)");
+        if !self.state.use_random_salt {
+            ui.label("当前处于标准模式 (Salt = 0)，与 H2testw 和原版 F3 保持 100% 双向兼容。");
+        } else {
+            ui.colored_label(Color32::YELLOW, "注意：启用随机加盐后生成的测试文件只能由本程序或原版 F3 带相同盐值读取！");
+        }
+
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            ui.label("Direct I/O 单次传输块大小:");
+            ui.selectable_value(&mut self.state.chunk_size_mb, 1, "1 MB (标准推荐)");
+            ui.selectable_value(&mut self.state.chunk_size_mb, 2, "2 MB (高速固态)");
+            ui.selectable_value(&mut self.state.chunk_size_mb, 4, "4 MB (极致吞吐)");
+        });
+    }
+
+    fn start_write_task(&mut self) {
+        self.state.reset_telemetry();
+        self.state.status = TaskStatus::Running;
+        self.state.status_message = "正在执行无缓冲直通写入...".to_string();
+        self.start_instant = Some(Instant::now());
+
+        let (tx, rx) = unbounded();
+        self.state.write_rx = Some(rx);
+
+        let config = F3WriterConfig {
+            target_dir: self.state.selected_path.clone(),
+            start_file_num: 0,
+            max_bytes: None,
+            chunk_size: self.state.chunk_size_mb * 1024 * 1024,
+            salt: if self.state.use_random_salt { 0x5A5A_A5A5_1234_5678 } else { 0 },
+        };
+
+        let flag = self.state.cancel_flag.clone();
+        std::thread::spawn(move || {
+            let writer = F3Writer::new(config, flag);
+            writer.run(tx);
+        });
+    }
+
+    fn start_read_task(&mut self) {
+        self.state.reset_telemetry();
+        self.state.status = TaskStatus::Running;
+        self.state.status_message = "正在执行流式校验...".to_string();
+        self.start_instant = Some(Instant::now());
+
+        let (tx, rx) = unbounded();
+        self.state.read_rx = Some(rx);
+
+        let config = F3ReaderConfig {
+            target_dir: self.state.selected_path.clone(),
+            salt: if self.state.use_random_salt { 0x5A5A_A5A5_1234_5678 } else { 0 },
+            chunk_size: self.state.chunk_size_mb * 1024 * 1024,
+        };
+
+        let flag = self.state.cancel_flag.clone();
+        std::thread::spawn(move || {
+            let reader = F3Reader::new(config, flag);
+            reader.run(tx);
+        });
+    }
+
+    fn start_probe_task(&mut self) {
+        if let Some(ref dev) = self.state.selected_device {
+            self.state.reset_telemetry();
+            self.state.status = TaskStatus::Running;
+            self.state.status_message = "正在启动跳跃探针探测...".to_string();
+
+            let (tx, rx) = unbounded();
+            self.state.probe_rx = Some(rx);
+
+            let config = F3ProbeConfig {
+                physical_device_path: dev.path.clone(),
+                total_sectors: dev.total_bytes / 512,
+            };
+
+            let flag = self.state.cancel_flag.clone();
+            std::thread::spawn(move || {
+                let probe = F3Probe::new(config, flag);
+                probe.run(tx);
+            });
+        } else {
+            self.state.status_message = "请先选择一个合规安全的移动设备！".to_string();
+        }
+    }
+}
