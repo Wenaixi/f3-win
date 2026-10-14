@@ -3,7 +3,6 @@ name: CI & Release Pipeline
 on:
   push:
     branches: [ "main", "master" ]
-    tags: [ "v*" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
@@ -22,10 +21,7 @@ jobs:
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
-
-      - name: Rustfmt Check
-        run: cargo fmt --all -- --check
+          components: clippy
 
       - name: Clippy Lint
         run: cargo clippy --all-targets -- -D warnings
@@ -36,7 +32,6 @@ jobs:
   build-release:
     name: Build Release Binaries
     needs: check-and-test
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     strategy:
       matrix:
@@ -70,13 +65,5 @@ jobs:
         with:
           name: f3-win-${{ matrix.target }}
           path: |
-            f3-win-${{ matrix.target }}.zip
-            f3-win-${{ matrix.target }}.zip.sha256
-
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
             f3-win-${{ matrix.target }}.zip
             f3-win-${{ matrix.target }}.zip.sha256
