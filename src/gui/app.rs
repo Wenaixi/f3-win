@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
@@ -20,7 +21,8 @@ pub struct F3App {
 }
 
 impl F3App {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        Self::setup_chinese_fonts(&cc.egui_ctx);
         let mut state = AppState::default();
         state.devices = PhysicalDeviceInfo::enumerate_devices();
         state.selected_device = state.devices.iter().find(|d| d.is_safe_target).cloned();
@@ -401,6 +403,36 @@ impl F3App {
             });
         } else {
             self.state.status_message = "请先选择一个合规安全的移动设备！".to_string();
+        }
+    }
+}
+impl F3App {
+    fn setup_chinese_fonts(ctx: &egui::Context) {
+        let mut fonts = egui::FontDefinitions::default();
+        let font_candidates = [
+            r"C:\Windows\Fonts\msyh.ttc",
+            r"C:\Windows\Fonts\msyhl.ttc",
+            r"C:\Windows\Fonts\simhei.ttf",
+            r"C:\Windows\Fonts\simsun.ttc",
+        ];
+
+        for path in font_candidates {
+            if let Ok(bytes) = std::fs::read(path) {
+                fonts.font_data.insert(
+                    "chinese_font".to_owned(),
+                    Arc::new(egui::FontData::from_owned(bytes)),
+                );
+
+                if let Some(prop) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+                    prop.insert(0, "chinese_font".to_owned());
+                }
+                if let Some(mono) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+                    mono.push("chinese_font".to_owned());
+                }
+
+                ctx.set_fonts(fonts);
+                break;
+            }
         }
     }
 }
