@@ -68,3 +68,14 @@
    - 实现 IOCTL_STORAGE_GET_DEVICE_NUMBER，在 f3probe 选项卡中自动将选中的 G: 盘反查并默认绑定其底层的 PhysicalDrive2
    - 探测启动前自动对该磁盘全部挂载卷调用 FSCTL_DISMOUNT_VOLUME 独占卸载，解决文件系统写冲突
 5. 现代 Bento-Grid 四卡片核心指标看板与一键 Markdown 诊断报告导出
+
+### 终极大成版交付记录 (Run 38762490059)
+- 产物详情：
+  - Windows x64: f3-win.exe (约 3.10 MB, 时间戳 15:47:10)
+  - Windows ARM64: f3-win-arm64.exe (约 2.95 MB)
+- 像素级对齐原版 F3 核心算法：
+  1. f3probe: 避开扇区 0，在 1MB (扇区 2048) 写入基准探针，并在磁盘高位执行 overwhelm_cache 强制排空主控 SRAM/DRAM 缓存，随后通过 2^k + 2048 高位地址镜像回读判定真实扇区回绕
+  2. f3write: 增加 end_file_num 闭区间截断与图形化控件，严格对应原版 --end-at
+  3. f3read: 热力图采样实现 total_read / total_expected_bytes * 1000 全盘百分比线性归一化映射，攻克超 1GB 热力图停滞缺陷；增加 Untested 灰色初始态
+  4. UI 架构重构：抽离公共 render_volume_selector 组件，消除 70+ 行样板代码；折线图引入 1200 点环形缓冲与自适应平滑跟焦
+  5. 进程安全：严格遵守不停止、不干扰任何运行中已有进程的铁律，通过 Windows 原生更名热更新机制平稳落地
