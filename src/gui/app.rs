@@ -220,17 +220,53 @@ impl F3App {
 
         ui.add_space(10.0);
 
-        // 仪表盘指标
+        // 现代 Bento-Grid 四卡片核心指标仪表盘
         ui.horizontal(|ui| {
-            ui.label(format!("当前写入速度: {:.2} MB/s", self.state.current_speed_mb));
-            ui.separator();
-            ui.label(format!("已写入: {:.2} GB", self.state.total_bytes_processed as f64 / (1024.0 * 1024.0 * 1024.0)));
-            ui.separator();
-            ui.label(format!("预计剩余时间 (ETA): {} 秒", self.state.eta_seconds));
+            let card_width = (ui.available_width() - 30.0) / 4.0;
+            
+            // 卡片 1: 瞬时速率
+            ui.group(|ui| {
+                ui.set_width(card_width);
+                ui.label(RichText::new("瞬时写入速率").weak().size(12.0));
+                ui.label(RichText::new(format!("{:.2} MB/s", self.state.current_speed_mb)).strong().size(20.0).color(Color32::from_rgb(0, 200, 255)));
+            });
+
+            // 卡片 2: 已写入数据
+            ui.group(|ui| {
+                ui.set_width(card_width);
+                ui.label(RichText::new("累计已写入容量").weak().size(12.0));
+                ui.label(RichText::new(format!("{:.2} GB", self.state.total_bytes_processed as f64 / (1024.0 * 1024.0 * 1024.0))).strong().size(20.0));
+            });
+
+            // 卡片 3: 动态 ETA 倒计时
+            ui.group(|ui| {
+                ui.set_width(card_width);
+                ui.label(RichText::new("预计剩余时间 (ETA)").weak().size(12.0));
+                let eta_str = if self.state.status == TaskStatus::Running {
+                    format_eta(self.state.eta_seconds)
+                } else {
+                    "空闲就绪".to_string()
+                };
+                ui.label(RichText::new(eta_str).strong().size(20.0).color(Color32::from_rgb(255, 180, 0)));
+            });
+
+            // 卡片 4: I/O 驱动模式
+            ui.group(|ui| {
+                ui.set_width(card_width);
+                ui.label(RichText::new("底层 I/O 模式").weak().size(12.0));
+                ui.label(RichText::new("Direct I/O 直通").strong().size(20.0).color(Color32::GREEN));
+            });
+        });
+
+        // 便捷按钮: 在资源管理器中打开当前测试盘
+        ui.horizontal(|ui| {
+            if ui.button("在文件资源管理器中打开此路径").clicked() {
+                let _ = std::process::Command::new("explorer").arg(&self.state.selected_path).spawn();
+            }
         });
 
         ui.add_space(10.0);
-        render_speed_plot(ui, &self.state.speed_history, "写入");
+        render_speed_plot(ui, &self.state.speed_history, "写入", "write_speed_plot");
     }
 
     fn render_read_tab(&mut self, ui: &mut egui::Ui) {
@@ -297,10 +333,50 @@ impl F3App {
             ui.colored_label(Color32::from_rgb(155, 89, 182), format!("回绕覆写 (Overwritten): {}", self.state.stats.overwritten));
         });
 
+        // 便捷按钮
+        ui.horizontal(|ui| {
+            if ui.button("在文件资源管理器中打开此路径").clicked() {
+                let _ = std::process::Command::new("explorer").arg(&self.state.selected_path).spawn();
+            }
+            if ui.button("前往「全盘写入」开始生成测试文件").clicked() {
+                self.state.current_tab = AppTab::WriteTest;
+            }
+        });
+
         ui.add_space(10.0);
-        render_speed_plot(ui, &self.state.speed_history, "读取");
+        render_speed_plot(ui, &self.state.speed_history, "读取", "read_speed_plot");
         ui.add_space(10.0);
         render_heatmap(ui, &self.state.heatmap_blocks);
+
+        // 测试报告导出面板
+        if self.state.status == TaskStatus::Finished && self.state.stats.good + self.state.stats.bad > 0 {
+            ui.add_space(10.0);
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.heading("测试诊断报告就绪:");
+                    if ui.button(RichText::new("一键复制完整测试诊断报告到剪贴板").color(Color32::GREEN)).clicked() {
+                        let report = format!(
+                            "# F3-Win 闪存检测诊断报告\n\
+                            - 测试路径: {:?}\n\
+                            - 平均读速: {:.2} MB/s\n\
+                            - 健康扇区 (Good): {}\n\
+                            - 损毁扇区 (Bad): {}\n\
+                            - 变异扇区 (Changed): {}\n\
+                            - 回绕覆写 (Overwritten): {}\n\
+                            - 诊断结论: {}\n",
+                            self.state.selected_path,
+                            self.state.current_speed_mb,
+                            self.state.stats.good,
+                            self.state.stats.bad,
+                            self.state.stats.changed,
+                            self.state.stats.overwritten,
+                            if self.state.stats.overwritten > 0 { "确认为虚标扩容假盘！" } else if self.state.stats.bad > 0 { "存在闪存物理坏道！" } else { "全部扇区健康合规！" }
+                        );
+                        ui.output_mut(|o| o.copied_text = report);
+                    }
+                });
+            });
+        }
     }
 
     fn render_probe_tab(&mut self, ui: &mut egui::Ui) {
@@ -308,10 +384,28 @@ impl F3App {
         ui.colored_label(Color32::YELLOW, "警告：本功能直接读写底层物理扇区，在 1~3 分钟内揭露虚标真面目，运行前会自动卸载卷！");
         ui.separator();
 
+        // 智能联动：如果尚未手动选中设备，根据当前选中的卷路径自动定位底层物理磁盘
+        if self.state.selected_device.is_none() {
+            if let Some(first_char) = self.state.selected_path.to_str().and_then(|s| s.chars().next()) {
+                if let Some(target_drive_num) = crate::core::devices::get_physical_drive_number_for_volume(first_char) {
+                    if let Some(found_dev) = self.state.devices.iter().find(|d| d.drive_index == target_drive_num && d.is_safe_target) {
+                        self.state.selected_device = Some(found_dev.clone());
+                    }
+                }
+            }
+        }
+
         let devices = self.state.devices.clone();
         let mut selected = self.state.selected_device.clone();
-        render_device_selector(ui, &devices, &mut selected, || {});
+        let mut trigger_refresh = false;
+        render_device_selector(ui, &devices, &mut selected, || {
+            trigger_refresh = true;
+        });
         self.state.selected_device = selected;
+        if trigger_refresh {
+            self.state.devices = PhysicalDeviceInfo::enumerate_devices();
+            self.state.selected_device = self.state.devices.iter().find(|d| d.is_safe_target).cloned();
+        }
 
         ui.add_space(15.0);
 
@@ -399,6 +493,7 @@ impl F3App {
         self.state.status = TaskStatus::Running;
         self.state.status_message = "正在执行无缓冲直通写入...".to_string();
         self.start_instant = Some(Instant::now());
+        self.state.speed_history.push([0.0, 0.0]);
 
         let (tx, rx) = unbounded();
         self.state.write_rx = Some(rx);
@@ -443,6 +538,11 @@ impl F3App {
     fn start_probe_task(&mut self) {
         let dev_opt = self.state.selected_device.clone();
         if let Some(dev) = dev_opt {
+            // 探测前安全操作：自动尝试锁定并卸载该物理设备上挂载的全部卷，防止 Windows 写冲突
+            for &vol_letter in &dev.mounted_volumes {
+                let _ = PhysicalDeviceInfo::lock_and_dismount_volume(vol_letter);
+            }
+
             self.state.reset_telemetry();
             self.state.status = TaskStatus::Running;
             self.state.status_message = "正在启动跳跃探针探测...".to_string();
@@ -493,5 +593,17 @@ impl F3App {
                 break;
             }
         }
+    }
+}
+
+fn format_eta(seconds: u64) -> String {
+    if seconds == 0 {
+        "计算中...".to_string()
+    } else if seconds < 60 {
+        format!("{} 秒", seconds)
+    } else if seconds < 3600 {
+        format!("{} 分 {} 秒", seconds / 60, seconds % 60)
+    } else {
+        format!("{} 小时 {} 分", seconds / 3600, (seconds % 3600) / 60)
     }
 }
