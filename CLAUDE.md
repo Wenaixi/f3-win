@@ -111,3 +111,21 @@
   4. 选项文案清晰直白（「校验完成后自动删除测试文件」）
   5. 技术文档 README.md 彻底剔除浮夸宣传用语，以中立规范的工程规格交付
   6. 严格执行不停止、不干扰任何运行中已有进程的铁律，平稳落地
+### 全模块深度架构升级与解耦成果记录 (2026-10-16)
+1. BlockIo 最小块 I/O 接缝与离线仿真设备：
+   - 在 direct_io.rs 中定义 trait BlockIo { read_at, write_at, flush }，为 DirectIoFile 实现该 trait
+   - 新增 MemoryBlockDevice 稀疏哈希仿真块设备，精准模拟物理颗粒容量截断与硬件地址回绕（Wrap-around）
+   - 将 F3Probe 解耦为 run_on_device(&self, dev: &mut impl BlockIo, tx: ...)，在脱机 CI 和单测中实现 100% 算法自动化覆盖，无需管理员提权或物理硬件
+2. StorageTarget 与 VolumeLockGuard RAII 卷独占锁闭环：
+   - 彻底解决 app.rs 中丢弃裸 HANDLE 导致的句柄永久泄漏与 FSCTL_LOCK_VOLUME 锁失效 Bug
+   - 实现 VolumeLockGuard RAII 守卫（实现 Drop 自动 CloseHandle），在后台探测任务全程持有排他锁，任务完成/中断/panic 时内核驱动自动平稳恢复挂载
+   - 封装 StorageTarget 与 StorageDeviceManager，将逻辑卷与物理磁盘的映射与 FSCTL 独占卸载完全内聚在底层，GUI 彻底消除裸 Win32 系统调用
+3. SafePartitionFixer 事务型自守卫分区自愈：
+   - 绝对物理防御：硬性拦截 PhysicalDrive0 (系统主盘)，杜绝参数越界或驱动器号漂移抹除操作系统的灾难
+   - 即时现场硬件复核 (Zero-TOCTOU)：通过 query_by_index 实时重新确认物理磁盘的 Usb/Sd/Mmc 移动总线属性，物理隔离内部固定磁盘
+   - 提供 dry_run 预演验证报告，以 CREATE_NO_WINDOW 消除控制台黑框，完善 stdout 错误解析与 RAII 临时脚本自动销毁
+4. H2wSession 深度融合引擎与统一 Telemetry：
+   - 将原本分散在 writer.rs 与 reader.rs 中的 590 行双轨逻辑彻底重构成单一 session.rs（约 300 行），净减少 ~290 行重复代码
+   - 统一 AlignedBuffer 管理、多文件轮转、PRNG 数据生成/比对与平滑速率/ETA 状态机
+   - 统一导出 H2wTelemetry 与单一通道 h2w_rx，支持连续「写入并校验」模式
+   - 将文件自动清理从 UI 主线程移至 Worker 线程的 CleaningUp 阶段，根除慢速 U 盘上主界面短暂卡顿
