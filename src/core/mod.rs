@@ -6,3 +6,4 @@ pub mod reader;
 pub mod probe;
 pub mod fix;
 pub mod devices;
+pub mod session;
