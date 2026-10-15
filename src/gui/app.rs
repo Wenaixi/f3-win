@@ -9,7 +9,7 @@ use crate::core::fix::F3FixPlan;
 use crate::core::probe::{F3Probe, F3ProbeConfig};
 use crate::core::reader::{F3Reader, F3ReaderConfig};
 use crate::core::writer::{F3Writer, F3WriterConfig};
-use crate::gui::components::device_selector::render_device_selector;
+use crate::gui::components::device_selector::{render_device_selector, render_volume_selector};
 use crate::gui::components::heatmap::render_heatmap;
 use crate::gui::components::plot::render_speed_plot;
 use crate::gui::state::{AppState, AppTab, TaskStatus};
@@ -172,39 +172,18 @@ impl F3App {
         ui.label("在指定磁盘空闲空间中写入标准 .h2w 数据文件，直通写入并测试极限物理写速。");
         ui.separator();
 
-        ui.horizontal(|ui| {
-            ui.label("目标磁盘:");
-            let current_label = if self.state.selected_volume_index < self.state.volumes.len() {
-                self.state.volumes[self.state.selected_volume_index].display_name()
-            } else {
-                "自定义路径".to_string()
-            };
-
-            egui::ComboBox::from_id_salt("write_vol_combo")
-                .selected_text(current_label)
-                .width(420.0)
-                .show_ui(ui, |ui| {
-                    for (idx, vol) in self.state.volumes.iter().enumerate() {
-                        let is_selected = self.state.selected_volume_index == idx;
-                        if ui.selectable_label(is_selected, vol.display_name()).clicked() {
-                            self.state.selected_volume_index = idx;
-                            self.state.selected_path = vol.root_path.clone();
-                        }
-                    }
-                });
-
-            if ui.button("刷新磁盘").clicked() {
-                self.state.volumes = VolumeInfo::enumerate_volumes();
-            }
-        });
-
-        ui.horizontal(|ui| {
-            ui.label("测试写入路径:");
-            let mut path_str = self.state.selected_path.to_string_lossy().to_string();
-            if ui.text_edit_singleline(&mut path_str).changed() {
-                self.state.selected_path = PathBuf::from(path_str);
-            }
-        });
+        let mut do_refresh = false;
+        render_volume_selector(
+            ui,
+            "write_vol_combo",
+            &self.state.volumes,
+            &mut self.state.selected_volume_index,
+            &mut self.state.selected_path,
+            || { do_refresh = true; }
+        );
+        if do_refresh {
+            self.state.volumes = VolumeInfo::enumerate_volumes();
+        }
 
         ui.add_space(10.0);
 
@@ -274,39 +253,18 @@ impl F3App {
         ui.label("回读现存的 .h2w 文件，逐扇区比对 LCG 序列，发现虚标回绕与闪存物理坏道。");
         ui.separator();
 
-        ui.horizontal(|ui| {
-            ui.label("目标磁盘:");
-            let current_label = if self.state.selected_volume_index < self.state.volumes.len() {
-                self.state.volumes[self.state.selected_volume_index].display_name()
-            } else {
-                "自定义路径".to_string()
-            };
-
-            egui::ComboBox::from_id_salt("read_vol_combo")
-                .selected_text(current_label)
-                .width(420.0)
-                .show_ui(ui, |ui| {
-                    for (idx, vol) in self.state.volumes.iter().enumerate() {
-                        let is_selected = self.state.selected_volume_index == idx;
-                        if ui.selectable_label(is_selected, vol.display_name()).clicked() {
-                            self.state.selected_volume_index = idx;
-                            self.state.selected_path = vol.root_path.clone();
-                        }
-                    }
-                });
-
-            if ui.button("刷新磁盘").clicked() {
-                self.state.volumes = VolumeInfo::enumerate_volumes();
-            }
-        });
-
-        ui.horizontal(|ui| {
-            ui.label("测试读取路径:");
-            let mut path_str = self.state.selected_path.to_string_lossy().to_string();
-            if ui.text_edit_singleline(&mut path_str).changed() {
-                self.state.selected_path = PathBuf::from(path_str);
-            }
-        });
+        let mut do_refresh = false;
+        render_volume_selector(
+            ui,
+            "read_vol_combo",
+            &self.state.volumes,
+            &mut self.state.selected_volume_index,
+            &mut self.state.selected_path,
+            || { do_refresh = true; }
+        );
+        if do_refresh {
+            self.state.volumes = VolumeInfo::enumerate_volumes();
+        }
 
         ui.add_space(10.0);
 
@@ -486,6 +444,24 @@ impl F3App {
             ui.selectable_value(&mut self.state.chunk_size_mb, 2, "2 MB (高速固态)");
             ui.selectable_value(&mut self.state.chunk_size_mb, 4, "4 MB (极致吞吐)");
         });
+
+        ui.add_space(10.0);
+        ui.group(|ui| {
+            ui.label(RichText::new("F3 原版高级区间测试选项 (类似 --start-at / --end-at):").strong());
+            ui.horizontal(|ui| {
+                ui.label("起始文件编号:");
+                ui.add(egui::DragValue::new(&mut self.state.start_file_num).range(0..=10000).prefix("从第 ").suffix(" 个文件开始写入 (断点续测)"));
+            });
+            ui.horizontal(|ui| {
+                let mut limit_enabled = self.state.max_test_gb.is_some();
+                if ui.checkbox(&mut limit_enabled, "限制最大测试容量 (GB):").changed() {
+                    self.state.max_test_gb = if limit_enabled { Some(16) } else { None };
+                }
+                if let Some(ref mut gb) = self.state.max_test_gb {
+                    ui.add(egui::DragValue::new(gb).range(1..=4096).suffix(" GB"));
+                }
+            });
+        });
     }
 
     fn start_write_task(&mut self) {
@@ -498,10 +474,11 @@ impl F3App {
         let (tx, rx) = unbounded();
         self.state.write_rx = Some(rx);
 
+        let max_b = self.state.max_test_gb.map(|gb| gb * 1024 * 1024 * 1024);
         let config = F3WriterConfig {
             target_dir: self.state.selected_path.clone(),
-            start_file_num: 0,
-            max_bytes: None,
+            start_file_num: self.state.start_file_num,
+            max_bytes: max_b,
             chunk_size: self.state.chunk_size_mb * 1024 * 1024,
             salt: if self.state.use_random_salt { 0x5A5A_A5A5_1234_5678 } else { 0 },
         };

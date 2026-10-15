@@ -79,3 +79,49 @@ pub fn render_device_selector(
         }
     });
 }
+
+use crate::core::devices::VolumeInfo;
+use std::path::PathBuf;
+
+pub fn render_volume_selector(
+    ui: &mut Ui,
+    id_salt: &str,
+    volumes: &[VolumeInfo],
+    selected_idx: &mut usize,
+    selected_path: &mut PathBuf,
+    on_refresh: impl FnOnce(),
+) {
+    ui.horizontal(|ui| {
+        ui.label("目标磁盘:");
+        let current_label = if *selected_idx < volumes.len() {
+            volumes[*selected_idx].display_name()
+        } else {
+            "自定义路径".to_string()
+        };
+
+        egui::ComboBox::from_id_salt(id_salt)
+            .selected_text(current_label)
+            .width(420.0)
+            .show_ui(ui, |ui| {
+                for (idx, vol) in volumes.iter().enumerate() {
+                    let is_selected = *selected_idx == idx;
+                    if ui.selectable_label(is_selected, vol.display_name()).clicked() {
+                        *selected_idx = idx;
+                        *selected_path = vol.root_path.clone();
+                    }
+                }
+            });
+
+        if ui.button("刷新磁盘").clicked() {
+            on_refresh();
+        }
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("测试路径:");
+        let mut path_str = selected_path.to_string_lossy().to_string();
+        if ui.text_edit_singleline(&mut path_str).changed() {
+            *selected_path = PathBuf::from(path_str);
+        }
+    });
+}
