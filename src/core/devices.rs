@@ -559,3 +559,162 @@ fn extract_sz(buf: &[u8], offset: usize) -> String {
     let end = slice.iter().position(|&b| b == 0).unwrap_or(slice.len());
     String::from_utf8_lossy(&slice[..end]).trim().to_string()
 }
+// 存储设备资产清单 (StorageInventory)
+// 深层领域模块：内聚管理逻辑卷、物理磁盘、安全移动介质白名单以及卷与底层的双向关联
+#[derive(Debug, Clone, Default)]
+pub struct StorageInventory {
+    volumes: Vec<VolumeInfo>,
+    devices: Vec<PhysicalDeviceInfo>,
+    selected_volume_index: usize,
+    selected_device_index: Option<usize>,
+}
+
+impl StorageInventory {
+    // 实例化并初始化枚举，自动优选首个安全可移动设备及对应卷
+    pub fn new() -> Self {
+        let mut inv = Self {
+            volumes: VolumeInfo::enumerate_volumes(),
+            devices: PhysicalDeviceInfo::enumerate_devices(),
+            selected_volume_index: 0,
+            selected_device_index: None,
+        };
+        inv.auto_bind_initial_selection();
+        inv
+    }
+
+    // 刷新系统设备与卷列表，尽量维持当前选中的设备与卷
+    pub fn refresh(&mut self) {
+        let prev_volume_letter = self.selected_volume().map(|v| v.drive_letter);
+        let prev_device_index = self.selected_device().map(|d| d.drive_index);
+
+        self.volumes = VolumeInfo::enumerate_volumes();
+        self.devices = PhysicalDeviceInfo::enumerate_devices();
+
+        // 尝试恢复先前的卷选中
+        if let Some(letter) = prev_volume_letter {
+            if let Some(pos) = self.volumes.iter().position(|v| v.drive_letter == letter) {
+                self.selected_volume_index = pos;
+            } else if !self.volumes.is_empty() {
+                self.selected_volume_index = 0;
+            }
+        } else if !self.volumes.is_empty() {
+            self.selected_volume_index = 0;
+        }
+
+        // 尝试恢复先前的物理磁盘选中，或根据当前卷重新联动绑定
+        if let Some(disk_idx) = prev_device_index {
+            self.selected_device_index = self.devices.iter().position(|d| d.drive_index == disk_idx && d.is_safe_target);
+        }
+        if self.selected_device_index.is_none() {
+            self.sync_device_with_selected_volume();
+        }
+    }
+
+    // 自动联动：选择逻辑卷时，自动反查并选中其底层的物理磁盘
+    pub fn select_volume(&mut self, index: usize) {
+        if index < self.volumes.len() {
+            self.selected_volume_index = index;
+            self.sync_device_with_selected_volume();
+        }
+    }
+
+    // 选择指定物理设备
+    pub fn select_device(&mut self, index: usize) {
+        if index < self.devices.len() {
+            self.selected_device_index = Some(index);
+        }
+    }
+
+    // 获取当前选中的逻辑卷
+    pub fn selected_volume(&self) -> Option<&VolumeInfo> {
+        self.volumes.get(self.selected_volume_index)
+    }
+
+    pub fn selected_volume_index(&self) -> usize {
+        self.selected_volume_index
+    }
+
+    // 获取当前选中的物理磁盘
+    pub fn selected_device(&self) -> Option<&PhysicalDeviceInfo> {
+        self.selected_device_index.and_then(|i| self.devices.get(i))
+    }
+
+    pub fn selected_device_index(&self) -> Option<usize> {
+        self.selected_device_index
+    }
+
+    // 获取当前选中的测试路径（根目录）
+    pub fn selected_path(&self) -> PathBuf {
+        self.selected_volume()
+            .map(|v| v.root_path.clone())
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
+    pub fn volumes(&self) -> &[VolumeInfo] {
+        &self.volumes
+    }
+
+    pub fn devices(&self) -> &[PhysicalDeviceInfo] {
+        &self.devices
+    }
+
+    // 构建测试目标 StorageTarget，自动附带该物理磁盘上挂载的全部逻辑卷以备独占卸载
+    pub fn active_target(&self) -> Option<StorageTarget> {
+        let dev = self.selected_device()?;
+        if !dev.is_safe_target {
+            return None;
+        }
+
+        // 收集该物理磁盘下的所有卷
+        let target_vols: Vec<char> = self.volumes.iter()
+            .filter(|v| get_physical_drive_number_for_volume(v.drive_letter) == Some(dev.drive_index))
+            .map(|v| v.drive_letter)
+            .collect();
+
+        Some(StorageTarget::new(dev.clone(), target_vols))
+    }
+
+    // 内部初次启动自动选优
+    fn auto_bind_initial_selection(&mut self) {
+        if let Some(pos) = self.volumes.iter().position(|v| v.is_removable) {
+            self.selected_volume_index = pos;
+        } else if !self.volumes.is_empty() {
+            self.selected_volume_index = 0;
+        }
+        self.sync_device_with_selected_volume();
+
+        // 如果依然没有匹配到物理磁盘，选第一个安全移动介质
+        if self.selected_device_index.is_none() {
+            self.selected_device_index = self.devices.iter().position(|d| d.is_safe_target);
+        }
+    }
+
+    // 内部根据当前选中的卷反查物理磁盘并更新
+    fn sync_device_with_selected_volume(&mut self) {
+        if let Some(vol) = self.selected_volume() {
+            if let Some(drive_num) = get_physical_drive_number_for_volume(vol.drive_letter) {
+                if let Some(pos) = self.devices.iter().position(|d| d.drive_index == drive_num && d.is_safe_target) {
+                    self.selected_device_index = Some(pos);
+                    return;
+                }
+            }
+        }
+        // 如果当前卷无法反查（或属于非移动硬盘安全隔离），保持原状或优先移动设备
+        if self.selected_device_index.is_none() {
+            self.selected_device_index = self.devices.iter().position(|d| d.is_safe_target);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_storage_inventory_defaults() {
+        let inv = StorageInventory::default();
+        assert_eq!(inv.selected_volume_index(), 0);
+        assert_eq!(inv.selected_device_index(), None);
+        assert_eq!(inv.selected_path(), PathBuf::from("."));
+    }
+}
