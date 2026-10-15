@@ -570,7 +570,7 @@ mod tests {
 
     #[test]
     fn test_progress_tracker_calculation() {
-        let mut tracker = ProgressTracker::new(100 * 1024 * 1024);
+        let tracker = ProgressTracker::new(100 * 1024 * 1024);
         assert_eq!(tracker.target_bytes, 100 * 1024 * 1024);
         assert_eq!(tracker.avg_speed(0), 0.0);
     }

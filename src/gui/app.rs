@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use eframe::egui::{self, Color32, ProgressBar, RichText};
 
-use crate::core::controller::{TaskKind, TaskSnapshot, TaskStatus};
+use crate::core::controller::{TaskSnapshot, TaskStatus};
 use crate::core::fix::SafePartitionFixer;
 use crate::core::session::{H2wConfig, H2wMode, H2wSession};
 use crate::gui::components::device_selector::{

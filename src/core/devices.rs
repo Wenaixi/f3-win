@@ -666,9 +666,9 @@ impl StorageInventory {
         }
 
         // 收集该物理磁盘下的所有卷
-        let target_vols: Vec<char> = self.volumes.iter()
+        let target_vols: Vec<VolumeInfo> = self.volumes.iter()
             .filter(|v| get_physical_drive_number_for_volume(v.drive_letter) == Some(dev.drive_index))
-            .map(|v| v.drive_letter)
+            .cloned()
             .collect();
 
         Some(StorageTarget::new(dev.clone(), target_vols))

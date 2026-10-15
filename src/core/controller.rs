@@ -179,7 +179,7 @@ impl EngineController {
     // 单帧轮询：吸收全部后台管道消息并更新快照
     pub fn poll(&mut self) -> &TaskSnapshot {
         // 1. 处理 H2W 会话消息
-        if let Some(ref rx) = self.h2w_rx {
+        if let Some(rx) = self.h2w_rx.clone() {
             while let Ok(msg) = rx.try_recv() {
                 self.snapshot.total_bytes_processed = msg.bytes_processed;
                 self.snapshot.current_speed_mb = msg.speed_bps / (1024.0 * 1024.0);
@@ -222,7 +222,7 @@ impl EngineController {
         }
 
         // 2. 处理探针探测消息
-        if let Some(ref rx) = self.probe_rx {
+        if let Some(rx) = self.probe_rx.clone() {
             while let Ok(msg) = rx.try_recv() {
                 self.snapshot.progress_pct = msg.progress_pct;
                 self.snapshot.status_message = msg.current_phase.clone();
