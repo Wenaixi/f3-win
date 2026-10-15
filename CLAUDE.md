@@ -53,3 +53,18 @@
   - Release 产物 (x86_64-pc-windows-msvc)：f3-win-x86_64-pc-windows-msvc.zip (~1.62 MB)
   - Release 产物 (aarch64-pc-windows-msvc)：f3-win-aarch64-pc-windows-msvc.zip (~1.57 MB)
 - 架构验证指标：Direct I/O 驱动无缓冲绕过、SIMD/无对齐安全读写、硬件总线 USB/SD 隔离锁均已全量就绪
+
+### 深度架构进化与体验升级总结 (Run 38756354852)
+1. 全自动 UAC 管理员提权机制：
+   - 编译期：通过 build.rs 注入 MSVC 链接指令 /MANIFESTUAC:level='requireAdministrator'，生成自带系统级盾牌图标的权威特权二进制
+   - 运行时：main.rs 启动时通过 IsUserAnAdmin() 检测令牌，若未提权自动调用 ShellExecuteW(runas) 自我重启唤起管理员，杜绝物理设备 Access Denied (Error 5)
+2. 动态自适应平滑跟焦速度曲线：
+   - 彻底解决 egui_plot 相机视野脱靶死穴，实时跟踪采样极值注入 include_x(0.0..max_time) 与 include_y(0.0..max_speed)，保证物理写速与颗粒掉速断崖 100% 居中展现
+   - 赋予独立绘图 ID (write_speed_plot / read_speed_plot)，开启缩放与拖拽探索
+3. 真实动态高精度 ETA 倒计时：
+   - 写入端自动通过 Win32 GetDiskFreeSpaceExW 探测剩余可用总字节数作为上限，读取端汇总 .h2w 总容量，彻底消除 0 秒硬编码截断
+   - 人性化格式化为「X小时X分X秒」动态倒计时看板
+4. 逻辑卷与物理磁盘无缝联动：
+   - 实现 IOCTL_STORAGE_GET_DEVICE_NUMBER，在 f3probe 选项卡中自动将选中的 G: 盘反查并默认绑定其底层的 PhysicalDrive2
+   - 探测启动前自动对该磁盘全部挂载卷调用 FSCTL_DISMOUNT_VOLUME 独占卸载，解决文件系统写冲突
+5. 现代 Bento-Grid 四卡片核心指标看板与一键 Markdown 诊断报告导出
