@@ -58,14 +58,36 @@ impl StorageBusType {
             StorageBusType::Usb => "USB",
             StorageBusType::Sd => "SD 卡",
             StorageBusType::Mmc => "MMC",
-            StorageBusType::Sata => "SATA (内部磁盘)",
-            StorageBusType::Nvme => "NVMe (内部磁盘)",
-            StorageBusType::Unknown(_) => "其他总线",
+            StorageBusType::Sata => "SATA (内部固定磁盘)",
+            StorageBusType::Nvme => "NVMe (内部固定磁盘)",
+            StorageBusType::Unknown(_) => "其他未知总线",
         }
     }
 }
 
-// 物理设备描述结构
+// 卷独占锁 RAII 守卫：持有一组已锁定的卷句柄，生命周期结束时自动安全关闭句柄释放独占锁
+pub struct VolumeLockGuard {
+    handles: Vec<HANDLE>,
+    pub locked_volumes: Vec<char>,
+}
+
+unsafe impl Send for VolumeLockGuard {}
+unsafe impl Sync for VolumeLockGuard {}
+
+impl Drop for VolumeLockGuard {
+    fn drop(&mut self) {
+        // 当探测完成、出错退出或线程结束时，自动遍历关闭句柄，通知 Windows 恢复挂载
+        for &h in &self.handles {
+            if h != INVALID_HANDLE_VALUE && !h.is_invalid() {
+                unsafe {
+                    let _ = CloseHandle(h);
+                }
+            }
+        }
+    }
+}
+
+// 物理设备描述结构体
 #[derive(Debug, Clone)]
 pub struct PhysicalDeviceInfo {
     pub drive_index: u32,
@@ -82,61 +104,85 @@ pub struct PhysicalDeviceInfo {
 }
 
 impl PhysicalDeviceInfo {
-    // 枚举系统物理存储磁盘 (PhysicalDrive0 ~ 31)，使用 0 权限查询，确保不被 Access Denied
+    pub fn display_name(&self) -> String {
+        let name = format!("{} {}", self.vendor_id, self.product_id).trim().to_string();
+        let name = if name.is_empty() { "通用存储设备".to_string() } else { name };
+        let gb = self.total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+        let bus = self.bus_type.display_name();
+
+        let vol_str = if !self.mounted_volumes.is_empty() {
+            let letters: Vec<String> = self.mounted_volumes.iter().map(|c| format!("{}:", c)).collect();
+            format!(" [{}]", letters.join(", "))
+        } else {
+            String::new()
+        };
+
+        format!("PhysicalDrive{} ({:.1} GB, {}) - {}{}", self.drive_index, gb, bus, name, vol_str)
+    }
+
+    // 针对指定物理磁盘编号即时查询其硬件属性与总线类型（破坏性操作前复核）
+    pub fn query_by_index(index: u32) -> Option<Self> {
+        let path_str = format!(r"\\.\PhysicalDrive{}", index);
+        let wide: Vec<u16> = path_str.encode_utf16().chain(std::iter::once(0)).collect();
+
+        let handle = unsafe {
+            CreateFileW(
+                PCWSTR(wide.as_ptr()),
+                0, // 仅属性查询，免去特权阻碍
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                None,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                HANDLE::default(),
+            )
+        };
+
+        if let Ok(h) = handle {
+            if h != INVALID_HANDLE_VALUE && !h.is_invalid() {
+                let info = Self::query_device_info(index, &path_str, h);
+                unsafe { let _ = CloseHandle(h); }
+                return info;
+            }
+        }
+        None
+    }
+
+    // 全盘枚举系统中的所有物理存储设备 (0..16)
     pub fn enumerate_devices() -> Vec<PhysicalDeviceInfo> {
         let mut devices = Vec::new();
+        for index in 0..16 {
+            if let Some(dev) = Self::query_by_index(index) {
+                devices.push(dev);
+            }
+        }
+
+        // 将检测到的逻辑卷反查归类到对应的物理磁盘上
         let volumes = VolumeInfo::enumerate_volumes();
-
-        for i in 0..32 {
-            let path_str = format!(r"\\.\PhysicalDrive{}", i);
-            let wide: Vec<u16> = path_str.encode_utf16().chain(std::iter::once(0)).collect();
-
-            // 以 0 (Query access) 权限打开，避免普通用户权限下被 Windows 安全机制报 Error 5
-            let handle = unsafe {
-                CreateFileW(
-                    PCWSTR(wide.as_ptr()),
-                    0,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE,
-                    None,
-                    OPEN_EXISTING,
-                    FILE_ATTRIBUTE_NORMAL,
-                    HANDLE::default(),
-                )
-            };
-
-            if let Ok(h) = handle {
-                if h != INVALID_HANDLE_VALUE && !h.is_invalid() {
-                    if let Some(mut info) = Self::query_device_info(i, &path_str, h) {
-                        // 关联该物理磁盘上挂载的全部逻辑盘符
-                        for vol in &volumes {
-                            if let Some(parent_disk) = get_physical_drive_number_for_volume(vol.drive_letter) {
-                                if parent_disk == i && !info.mounted_volumes.contains(&vol.drive_letter) {
-                                    info.mounted_volumes.push(vol.drive_letter);
-                                }
-                            }
-                        }
-                        devices.push(info);
+        for vol in volumes {
+            if let Some(disk_num) = get_physical_drive_number_for_volume(vol.drive_letter) {
+                if let Some(dev) = devices.iter_mut().find(|d| d.drive_index == disk_num) {
+                    if !dev.mounted_volumes.contains(&vol.drive_letter) {
+                        dev.mounted_volumes.push(vol.drive_letter);
                     }
-                    unsafe { let _ = CloseHandle(h); }
                 }
             }
         }
 
+        devices.sort_by_key(|d| (!d.is_safe_target, d.drive_index));
         devices
     }
 
     fn query_device_info(index: u32, path: &str, handle: HANDLE) -> Option<Self> {
-        // 1. 查询磁盘几何结构与总容量
-        let mut geometry = DISK_GEOMETRY_EX::default();
+        // 1. 查询磁盘几何容量
+        let mut geom = DISK_GEOMETRY_EX::default();
         let mut bytes_returned = 0u32;
-
         let ok_geom = unsafe {
             windows::Win32::System::IO::DeviceIoControl(
                 handle,
                 IOCTL_DISK_GET_DRIVE_GEOMETRY_EX,
                 None,
                 0,
-                Some(&mut geometry as *mut _ as *mut c_void),
+                Some(&mut geom as *mut _ as *mut c_void),
                 size_of::<DISK_GEOMETRY_EX>() as u32,
                 Some(&mut bytes_returned),
                 None,
@@ -144,9 +190,9 @@ impl PhysicalDeviceInfo {
         };
 
         let total_bytes = if ok_geom.is_ok() {
-            geometry.DiskSize as u64
+            geom.DiskSize as u64
         } else {
-            0u64
+            0
         };
 
         // 2. 查询总线属性
@@ -203,7 +249,7 @@ impl PhysicalDeviceInfo {
         })
     }
 
-    // 尝试锁定并卸载该磁盘上所有卷的挂载点
+    // 尝试锁定并卸载单个卷（内置 3 次重试以吸收后台索引器瞬时占用）
     pub fn lock_and_dismount_volume(drive_letter: char) -> Result<HANDLE, String> {
         let vol_path = format!(r"\\.\{}:", drive_letter);
         let wide: Vec<u16> = vol_path.encode_utf16().chain(std::iter::once(0)).collect();
@@ -220,38 +266,143 @@ impl PhysicalDeviceInfo {
             )
         };
 
-        match handle {
-            Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => {
-                let mut dummy = 0u32;
-                unsafe {
-                    // 1. 尝试锁定卷
-                    let _ = windows::Win32::System::IO::DeviceIoControl(
-                        h,
-                        FSCTL_LOCK_VOLUME,
-                        None,
-                        0,
-                        None,
-                        0,
-                        Some(&mut dummy),
-                        None,
-                    );
+        let h = match handle {
+            Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => h,
+            _ => return Err(format!("无法打开卷 {}:，请确认具备管理员权限", drive_letter)),
+        };
 
-                    // 2. 卸载卷文件系统挂载
-                    let _ = windows::Win32::System::IO::DeviceIoControl(
-                        h,
-                        FSCTL_DISMOUNT_VOLUME,
-                        None,
-                        0,
-                        None,
-                        0,
-                        Some(&mut dummy),
-                        None,
-                    );
-                }
-                Ok(h)
+        let mut dummy = 0u32;
+        let mut locked = false;
+
+        // 尝试锁定卷 (带 3 次退避重试)
+        for attempt in 0..3 {
+            let res = unsafe {
+                windows::Win32::System::IO::DeviceIoControl(
+                    h,
+                    FSCTL_LOCK_VOLUME,
+                    None,
+                    0,
+                    None,
+                    0,
+                    Some(&mut dummy),
+                    None,
+                )
+            };
+            if res.is_ok() {
+                locked = true;
+                break;
             }
-            _ => Err(format!("无法打开卷 {}:，请确认管理员权限", drive_letter)),
+            if attempt < 2 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
         }
+
+        if !locked {
+            unsafe { let _ = CloseHandle(h); }
+            return Err(format!("卷 {}: 被其他程序占用，无法独占锁定", drive_letter));
+        }
+
+        // 卸载卷文件系统挂载
+        let _ = unsafe {
+            windows::Win32::System::IO::DeviceIoControl(
+                h,
+                FSCTL_DISMOUNT_VOLUME,
+                None,
+                0,
+                None,
+                0,
+                Some(&mut dummy),
+                None,
+            )
+        };
+
+        Ok(h)
+    }
+}
+
+// 存储目标深模块 (StorageTarget)
+// 封装设备属性、总线安全隔离与独占卷锁准备流程
+#[derive(Debug, Clone)]
+pub struct StorageTarget {
+    pub device: PhysicalDeviceInfo,
+    pub volumes: Vec<VolumeInfo>,
+}
+
+impl StorageTarget {
+    pub fn new(device: PhysicalDeviceInfo, volumes: Vec<VolumeInfo>) -> Self {
+        Self { device, volumes }
+    }
+
+    pub fn is_safe_for_raw_probe(&self) -> bool {
+        self.device.is_safe_target && self.device.drive_index != 0
+    }
+
+    // 执行物理探测前置准备：验证安全性，并独占锁定该磁盘上的全部挂载卷
+    pub fn prepare_for_probe(&self) -> Result<VolumeLockGuard, String> {
+        if !self.is_safe_for_raw_probe() {
+            return Err(format!(
+                "目标磁盘 PhysicalDrive{} 未通过安全核验 (系统主盘或固定磁盘已锁定)",
+                self.device.drive_index
+            ));
+        }
+
+        let mut handles = Vec::new();
+        let mut locked_volumes = Vec::new();
+
+        for &letter in &self.device.mounted_volumes {
+            match PhysicalDeviceInfo::lock_and_dismount_volume(letter) {
+                Ok(h) => {
+                    handles.push(h);
+                    locked_volumes.push(letter);
+                }
+                Err(e) => {
+                    // 若任何一个卷锁定失败，回滚并释放已锁定的卷句柄
+                    for h in handles {
+                        unsafe { let _ = CloseHandle(h); }
+                    }
+                    return Err(format!("准备探测失败: {}", e));
+                }
+            }
+        }
+
+        Ok(VolumeLockGuard {
+            handles,
+            locked_volumes,
+        })
+    }
+}
+
+// 存储设备管理器 (StorageDeviceManager)
+#[derive(Debug, Clone, Default)]
+pub struct StorageDeviceManager {
+    pub devices: Vec<PhysicalDeviceInfo>,
+    pub volumes: Vec<VolumeInfo>,
+}
+
+impl StorageDeviceManager {
+    pub fn new() -> Self {
+        let mut mgr = Self::default();
+        mgr.refresh();
+        mgr
+    }
+
+    pub fn refresh(&mut self) {
+        self.devices = PhysicalDeviceInfo::enumerate_devices();
+        self.volumes = VolumeInfo::enumerate_volumes();
+    }
+
+    pub fn get_target_for_device(&self, device_index: u32) -> Option<StorageTarget> {
+        let dev = self.devices.iter().find(|d| d.drive_index == device_index)?.clone();
+        let child_vols = self.volumes.iter()
+            .filter(|v| dev.mounted_volumes.contains(&v.drive_letter))
+            .cloned()
+            .collect();
+        Some(StorageTarget::new(dev, child_vols))
+    }
+
+    pub fn get_target_for_volume(&self, letter: char) -> Option<StorageTarget> {
+        let disk_num = get_physical_drive_number_for_volume(letter)?;
+        self.get_target_for_device(disk_num)
     }
 }
 

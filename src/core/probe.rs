@@ -4,7 +4,7 @@ use crossbeam_channel::Sender;
 
 use crate::core::algo::SECTOR_SIZE;
 use crate::core::aligned_buf::AlignedBuffer;
-use crate::core::direct_io::DirectIoFile;
+use crate::core::direct_io::{BlockIo, DirectIoFile};
 
 pub const PROBE_MAGIC: u64 = 0xF3_50_52_4F_42_45_00; // "F3PROBE\0"
 
@@ -35,7 +35,7 @@ impl F3Probe {
     }
 
     // 深度复刻 F3 原版 overwhelm_cache: 在磁盘高位区域写入缓冲块，强制排空主控 SRAM/DRAM 缓存
-    fn overwhelm_cache(&self, file: &mut DirectIoFile, buf: &mut AlignedBuffer, scratch_sec: u64, count: u64) {
+    fn overwhelm_cache(&self, file: &mut impl BlockIo, buf: &mut AlignedBuffer, scratch_sec: u64, count: u64) {
         for i in 0..count.min(1024) {
             let target_sec = scratch_sec + i;
             F3Probe::create_probe_block(buf, target_sec ^ 0xAAAA_5555);
@@ -44,24 +44,8 @@ impl F3Probe {
         }
     }
 
-    // 运行跳跃式 2^N 探针算法
+    // 生产环境入口：打开 Windows 物理设备并执行探测
     pub fn run(&self, tx: Sender<ProbeTelemetry>) {
-        let mut buf = match AlignedBuffer::new(SECTOR_SIZE) {
-            Ok(b) => b,
-            Err(e) => {
-                let _ = tx.send(ProbeTelemetry {
-                    current_phase: "初始化失败".to_string(),
-                    progress_pct: 0.0,
-                    announced_size_bytes: 0,
-                    real_size_bytes: 0,
-                    is_fake: false,
-                    is_finished: true,
-                    error: Some(e),
-                });
-                return;
-            }
-        };
-
         let device_path = std::path::Path::new(&self.config.physical_device_path);
         let mut file = match DirectIoFile::open_raw_device(device_path) {
             Ok(f) => f,
@@ -74,6 +58,27 @@ impl F3Probe {
                     is_fake: false,
                     is_finished: true,
                     error: Some(format!("需要以管理员权限访问物理磁盘: {}", e)),
+                });
+                return;
+            }
+        };
+
+        self.run_on_device(&mut file, tx);
+    }
+
+    // 核心算法执行体：接收任意 BlockIo 抽象接缝 (支持生产环境 DirectIoFile 与单测环境 MemoryBlockDevice)
+    pub fn run_on_device(&self, file: &mut impl BlockIo, tx: Sender<ProbeTelemetry>) {
+        let mut buf = match AlignedBuffer::new(SECTOR_SIZE) {
+            Ok(b) => b,
+            Err(e) => {
+                let _ = tx.send(ProbeTelemetry {
+                    current_phase: "初始化失败".to_string(),
+                    progress_pct: 0.0,
+                    announced_size_bytes: 0,
+                    real_size_bytes: 0,
+                    is_fake: false,
+                    is_finished: true,
+                    error: Some(e),
                 });
                 return;
             }
@@ -110,7 +115,7 @@ impl F3Probe {
 
         // 冲刷主控硬件缓存 (在磁盘高位写入临时块)
         let scratch_sec = total_sectors.saturating_sub(4096);
-        self.overwhelm_cache(&mut file, &mut buf, scratch_sec, 256);
+        self.overwhelm_cache(file, &mut buf, scratch_sec, 256);
 
         // 步骤 2: 2^N 幂次方高位镜像回读扫描 (探测地址线回绕)
         let mut power = 4096u64; // 从 2MB 以上开始探测
@@ -186,5 +191,55 @@ impl F3Probe {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::direct_io::MemoryBlockDevice;
+
+    #[test]
+    fn test_f3probe_detects_fake_drive_wrap_around() {
+        // 标称 64GB (134,217,728 扇区)，实际物理容量 4GB (8,388,608 扇区)
+        let total_sectors = 64 * 1024 * 1024 * 1024 / 512;
+        let real_bytes = 4 * 1024 * 1024 * 1024;
+        let mut dev = MemoryBlockDevice::with_fake_wrap(total_sectors * 512, real_bytes);
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let config = F3ProbeConfig {
+            physical_device_path: "mock_drive".to_string(),
+            total_sectors,
+        };
+        let probe = F3Probe::new(config, cancel);
+
+        probe.run_on_device(&mut dev, tx);
+
+        let final_telemetry = rx.into_iter().last().unwrap();
+        assert!(final_telemetry.is_fake);
+        assert_eq!(final_telemetry.real_size_bytes, real_bytes);
+    }
+
+    #[test]
+    fn test_f3probe_verifies_genuine_drive() {
+        // 标称 16GB，实际 16GB 正品盘
+        let total_bytes = 16 * 1024 * 1024 * 1024;
+        let total_sectors = total_bytes / 512;
+        let mut dev = MemoryBlockDevice::new(total_bytes);
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let config = F3ProbeConfig {
+            physical_device_path: "mock_drive".to_string(),
+            total_sectors,
+        };
+        let probe = F3Probe::new(config, cancel);
+
+        probe.run_on_device(&mut dev, tx);
+
+        let final_telemetry = rx.into_iter().last().unwrap();
+        assert!(!final_telemetry.is_fake);
+        assert_eq!(final_telemetry.real_size_bytes, total_bytes);
     }
 }

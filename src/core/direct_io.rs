@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
@@ -12,6 +13,16 @@ use windows::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
 const GENERIC_READ_ACCESS: u32 = 0x8000_0000;
 const GENERIC_WRITE_ACCESS: u32 = 0x4000_0000;
 
+// 存储块 I/O 最小抽象接缝 (BlockIo)
+// 提供脱离硬件与内核绑定的纯净块读写接口，使核心探针与算法具备脱机可测性
+pub trait BlockIo: Send + Sync {
+    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, String>;
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, String>;
+    fn flush(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 pub struct DirectIoFile {
     handle: HANDLE,
     is_write: bool,
@@ -21,7 +32,7 @@ unsafe impl Send for DirectIoFile {}
 unsafe impl Sync for DirectIoFile {}
 
 impl DirectIoFile {
-    // 规范化并转为 Windows Wide 字符串，避免 \?\ 与双反斜杠引发的参数错误 87/123
+    // 规范化并转为 Windows Wide 字符串，避免 \\?\ 与双反斜杠引发的参数错误 87/123
     fn to_wide_path(path: &Path) -> Vec<u16> {
         let path_str = path.to_string_lossy();
         let cleaned = path_str.replace('/', "\\");
@@ -69,7 +80,6 @@ impl DirectIoFile {
             )),
         }
     }
-
 
     // 专门用于打开底层物理磁盘 (\\.\PhysicalDriveX) 或逻辑卷 (\\.\X:)
     // 必须使用 OPEN_EXISTING，且同时赋予 GENERIC_READ 与 GENERIC_WRITE 访问权限
@@ -207,6 +217,21 @@ impl DirectIoFile {
     }
 }
 
+// 生产驱动接入 BlockIo 最小接缝
+impl BlockIo for DirectIoFile {
+    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, String> {
+        self.read_at(buf, offset)
+    }
+
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, String> {
+        self.write_at(buf, offset)
+    }
+
+    fn flush(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 impl Drop for DirectIoFile {
     fn drop(&mut self) {
         if self.handle != INVALID_HANDLE_VALUE && !self.handle.is_invalid() {
@@ -214,5 +239,127 @@ impl Drop for DirectIoFile {
                 let _ = CloseHandle(self.handle);
             }
         }
+    }
+}
+
+// 用于脱机单测与 CI 验证的内存块设备测试桩
+// 支持模拟正常物理存储或带有容量虚标（地址回绕）的扩容闪存
+#[derive(Default)]
+pub struct MemoryBlockDevice {
+    sectors: HashMap<u64, Vec<u8>>,
+    virtual_size_bytes: u64,
+    wrap_around_bytes: Option<u64>,
+}
+
+impl MemoryBlockDevice {
+    pub fn new(virtual_size_bytes: u64) -> Self {
+        Self {
+            sectors: HashMap::new(),
+            virtual_size_bytes,
+            wrap_around_bytes: None,
+        }
+    }
+
+    pub fn with_fake_wrap(virtual_size_bytes: u64, real_size_bytes: u64) -> Self {
+        Self {
+            sectors: HashMap::new(),
+            virtual_size_bytes,
+            wrap_around_bytes: Some(real_size_bytes),
+        }
+    }
+}
+
+impl BlockIo for MemoryBlockDevice {
+    fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, String> {
+        if offset >= self.virtual_size_bytes {
+            return Ok(0);
+        }
+
+        // 真实物理回绕映射
+        let mapped_offset = if let Some(real) = self.wrap_around_bytes {
+            if real > 0 { offset % real } else { offset }
+        } else {
+            offset
+        };
+
+        let sector_idx = mapped_offset / 512;
+        let sector_offset = (mapped_offset % 512) as usize;
+        let to_read = buf.len().min((self.virtual_size_bytes - offset) as usize);
+
+        for (i, byte) in buf[..to_read].iter_mut().enumerate() {
+            let curr_sec = sector_idx + (sector_offset + i) as u64 / 512;
+            let byte_in_sec = (sector_offset + i) % 512;
+            if let Some(sec_data) = self.sectors.get(&curr_sec) {
+                *byte = sec_data[byte_in_sec];
+            } else {
+                *byte = 0;
+            }
+        }
+        Ok(to_read)
+    }
+
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, String> {
+        let mapped_offset = if let Some(real) = self.wrap_around_bytes {
+            if real > 0 { offset % real } else { offset }
+        } else {
+            offset
+        };
+
+        let sector_idx = mapped_offset / 512;
+        let sector_offset = (mapped_offset % 512) as usize;
+
+        for (i, &byte) in buf.iter().enumerate() {
+            let curr_sec = sector_idx + (sector_offset + i) as u64 / 512;
+            let byte_in_sec = (sector_offset + i) % 512;
+            let sec_data = self.sectors.entry(curr_sec).or_insert_with(|| vec![0u8; 512]);
+            sec_data[byte_in_sec] = byte;
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_memory_block_device_read_write() {
+        let mut dev = MemoryBlockDevice::new(1024 * 1024); // 1MB 虚拟设备
+        let test_data = vec![0xABu8; 512];
+        let write_len = dev.write_at(&test_data, 2048 * 512).unwrap();
+        assert_eq!(write_len, 512);
+
+        let mut read_buf = vec![0u8; 512];
+        let read_len = dev.read_at(&mut read_buf, 2048 * 512).unwrap();
+        assert_eq!(read_len, 512);
+        assert_eq!(read_buf, test_data);
+    }
+
+    #[test]
+    fn test_memory_block_device_fake_wrap_around() {
+        // 虚拟 64GB 磁盘，真实物理容量仅 4GB (4 * 1024 * 1024 * 1024)
+        let virtual_size = 64 * 1024 * 1024 * 1024u64;
+        let real_size = 4 * 1024 * 1024 * 1024u64;
+        let mut dev = MemoryBlockDevice::with_fake_wrap(virtual_size, real_size);
+
+        // 写入物理基准扇区 (例如 1MB 偏移处)
+        let mut base_data = vec![0u8; 512];
+        base_data[0] = 0x55;
+        base_data[511] = 0xAA;
+        dev.write_at(&base_data, 1024 * 1024).unwrap();
+
+        // 探测读取高位偏移量处：基准偏移量 + 真实容量 (发生地址回绕，应当读取到 base_data)
+        let mut wrapped_buf = vec![0u8; 512];
+        dev.read_at(&mut wrapped_buf, 1024 * 1024 + real_size).unwrap();
+        assert_eq!(wrapped_buf, base_data);
+
+        // 高位偏移量 + 2 * real_size 同样回绕
+        let mut wrapped_buf2 = vec![0u8; 512];
+        dev.read_at(&mut wrapped_buf2, 1024 * 1024 + 2 * real_size).unwrap();
+        assert_eq!(wrapped_buf2, base_data);
     }
 }
