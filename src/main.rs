@@ -18,7 +18,7 @@ fn ensure_administrator_elevation() {
 
         // 若当前未以管理员权限启动，自动通过 runas 重新唤起管理员进程并退出当前受限进程
         if let Ok(current_exe) = std::env::current_exe() {
-            let mut exe_wide: Vec<u16> = current_exe.as_os_str().encode_utf16().collect();
+            let mut exe_wide: Vec<u16> = current_exe.to_string_lossy().encode_utf16().collect();
             exe_wide.push(0);
 
             let mut runas_wide: Vec<u16> = "runas".encode_utf16().collect();
