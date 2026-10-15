@@ -129,3 +129,17 @@
    - 统一 AlignedBuffer 管理、多文件轮转、PRNG 数据生成/比对与平滑速率/ETA 状态机
    - 统一导出 H2wTelemetry 与单一通道 h2w_rx，支持连续「写入并校验」模式
    - 将文件自动清理从 UI 主线程移至 Worker 线程的 CleaningUp 阶段，根除慢速 U 盘上主界面短暂卡顿
+### 全模块深度架构升级与解耦成果记录 (2026-10-16 第二轮深化)
+1. 彻底净化孤立遗留 I/O 模块 (Candidate 1 落地):
+   - 物理移除 src/core/writer.rs (207 行) 与 src/core/reader.rs (270 行)，共计净删除 477 行旧代码
+   - 消除 core 模块中由 session.rs 取代后残存的虚假接缝与认知摩擦，确立 H2wSession 作为单一权威 H2W 测试引擎
+2. 抽象深层存储资产清单 StorageInventory (Candidate 2 落地):
+   - 在 src/core/devices.rs 中实现深层结构体 StorageInventory
+   - 将系统卷 (VolumeInfo) 与底层物理磁盘 (PhysicalDeviceInfo) 的枚举、双向映射关联与安全白名单校验完全内聚
+   - 提供 active_target、refresh、select_volume、select_device 极简高层查询表面，彻底消除了界面层中盘符字符截取、低级 IOCTL 反查与刷新闭包
+3. 沉淀深层任务控制器 EngineController 与只读快照 TaskSnapshot (Candidate 3 落地):
+   - 新增 src/core/controller.rs，统领异步后台线程生命周期、Crossbeam 通道、原子取消标志与 VolumeLockGuard 锁持有
+   - 封装 1200 点自适应速度折线图平滑缓冲采样与 ETA 计算
+   - 每帧导出只读 TaskSnapshot，彻底将 F3App 还原为纯净、无状态的视图呈现层，F3App 单文件净减少 110 行胶水代码
+4. 业务领域模型字典 CONTEXT.md 正式确立:
+   - 明确定义 StorageInventory、StorageTarget、VolumeLockGuard、H2wSession、F3Probe、EngineController、TaskSnapshot、SafePartitionFixer 等核心概念与深浅模块职责边界
