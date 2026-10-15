@@ -250,3 +250,21 @@ impl F3Reader {
         });
     }
 }
+
+// 批量清理目标目录下所有的 .h2w 测试文件，并统计释放的字节数
+pub fn cleanup_h2w_files(dir: &Path) -> Result<(usize, u64), String> {
+    let files = F3Reader::discover_h2w_files(dir);
+    let mut deleted_count = 0usize;
+    let mut freed_bytes = 0u64;
+
+    for (_, path) in files {
+        if let Ok(meta) = std::fs::metadata(&path) {
+            freed_bytes += meta.len();
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            deleted_count += 1;
+        }
+    }
+
+    Ok((deleted_count, freed_bytes))
+}

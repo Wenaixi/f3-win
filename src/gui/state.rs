@@ -46,6 +46,7 @@ pub struct AppState {
     pub start_file_num: u64,
     pub end_file_num: Option<u64>,
     pub max_test_gb: Option<u64>,
+    pub auto_cleanup_after_read: bool,
 
     // 运行指标遥测
     pub speed_history: Vec<[f64; 2]>, // [时间戳(秒), 速度(MB/s)]
@@ -86,6 +87,7 @@ impl Default for AppState {
             start_file_num: 0,
             end_file_num: None,
             max_test_gb: None,
+            auto_cleanup_after_read: false,
             speed_history: Vec::new(),
             current_speed_mb: 0.0,
             total_bytes_processed: 0,

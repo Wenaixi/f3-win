@@ -90,7 +90,17 @@ impl F3App {
                     } else {
                         TaskStatus::Finished
                     };
-                    self.state.status_message = msg.error.unwrap_or_else(|| "校验测试完成".to_string());
+                    
+                    if msg.error.is_none() && self.state.auto_cleanup_after_read {
+                        if let Ok((cnt, bytes)) = crate::core::reader::cleanup_h2w_files(&self.state.selected_path) {
+                            self.state.status_message = format!("校验完成，已自动清理 {} 个测试文件，释放 {:.2} GB 空间！", cnt, bytes as f64 / (1024.0 * 1024.0 * 1024.0));
+                            self.state.volumes = VolumeInfo::enumerate_volumes();
+                        } else {
+                            self.state.status_message = "校验测试完成".to_string();
+                        }
+                    } else {
+                        self.state.status_message = msg.error.unwrap_or_else(|| "校验测试完成".to_string());
+                    }
                     self.state.read_rx = None;
                     break;
                 }
@@ -237,10 +247,19 @@ impl F3App {
             });
         });
 
-        // 便捷按钮: 在资源管理器中打开当前测试盘
+        // 便捷按钮区
         ui.horizontal(|ui| {
             if ui.button("在文件资源管理器中打开此路径").clicked() {
                 let _ = std::process::Command::new("explorer").arg(&self.state.selected_path).spawn();
+            }
+            if ui.button(RichText::new("一键清理所有 .h2w 测试文件 (释放空间)").color(Color32::from_rgb(255, 140, 0))).clicked() {
+                match crate::core::reader::cleanup_h2w_files(&self.state.selected_path) {
+                    Ok((cnt, bytes)) => {
+                        self.state.status_message = format!("已成功清理 {} 个文件，释放 {:.2} GB 磁盘空间！", cnt, bytes as f64 / (1024.0 * 1024.0 * 1024.0));
+                        self.state.volumes = VolumeInfo::enumerate_volumes();
+                    }
+                    Err(e) => self.state.status_message = format!("清理失败: {}", e),
+                }
             }
         });
 
@@ -291,7 +310,7 @@ impl F3App {
             ui.colored_label(Color32::from_rgb(155, 89, 182), format!("回绕覆写 (Overwritten): {}", self.state.stats.overwritten));
         });
 
-        // 便捷按钮
+        // 便捷按钮与自动清理控制
         ui.horizontal(|ui| {
             if ui.button("在文件资源管理器中打开此路径").clicked() {
                 let _ = std::process::Command::new("explorer").arg(&self.state.selected_path).spawn();
@@ -299,6 +318,18 @@ impl F3App {
             if ui.button("前往「全盘写入」开始生成测试文件").clicked() {
                 self.state.current_tab = AppTab::WriteTest;
             }
+            if ui.button(RichText::new("一键清理所有 .h2w 测试文件 (释放空间)").color(Color32::from_rgb(255, 140, 0))).clicked() {
+                match crate::core::reader::cleanup_h2w_files(&self.state.selected_path) {
+                    Ok((cnt, bytes)) => {
+                        self.state.status_message = format!("已成功清理 {} 个文件，释放 {:.2} GB 磁盘空间！", cnt, bytes as f64 / (1024.0 * 1024.0 * 1024.0));
+                        self.state.volumes = VolumeInfo::enumerate_volumes();
+                    }
+                    Err(e) => self.state.status_message = format!("清理失败: {}", e),
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.state.auto_cleanup_after_read, "读取校验通过后自动清理全部测试文件 (省心释放磁盘空间)");
         });
 
         ui.add_space(10.0);
