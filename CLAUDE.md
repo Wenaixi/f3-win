@@ -48,10 +48,10 @@
 ## 交付状态与成果记录
 - 远程仓库：https://github.com/Wenaixi/f3-win
 - 编译约束落实：严格遵守「严禁本地编译」铁律，本地零编译器运行，全量构建 100% 由 GitHub Actions 云端接管
-- 最新 CI 验证运行：Run ID 38599814656 (Status: completed success，已包含 Windows 原生微软雅黑中文字体支持)
-  - Code Quality & Unit Tests：全部单元测试通过 (2m 8s)
-  - Release 产物 (x86_64-pc-windows-msvc)：f3-win-x86_64-pc-windows-msvc.zip (~1.62 MB)
-  - Release 产物 (aarch64-pc-windows-msvc)：f3-win-aarch64-pc-windows-msvc.zip (~1.57 MB)
+- 最新 CI 验证运行：Run ID 38778382190 (Status: completed success，全量 15 项单元测试 100% 满分通过)
+  - Code Quality & Unit Tests：全部 15 项单元测试全部通过 (3m 37s)
+  - Release 产物 (x86_64-pc-windows-msvc)：f3-win-x86_64-pc-windows-msvc.zip (~1.65 MB, 部署产物 f3-win.exe 3,106,816 字节)
+  - Release 产物 (aarch64-pc-windows-msvc)：f3-win-aarch64-pc-windows-msvc.zip (~1.60 MB, 部署产物 f3-win-arm64.exe 2,965,504 字节)
 - 架构验证指标：Direct I/O 驱动无缓冲绕过、SIMD/无对齐安全读写、硬件总线 USB/SD 隔离锁均已全量就绪
 
 ### 深度架构进化与体验升级总结 (Run 38756354852)
@@ -129,7 +129,15 @@
    - 统一 AlignedBuffer 管理、多文件轮转、PRNG 数据生成/比对与平滑速率/ETA 状态机
    - 统一导出 H2wTelemetry 与单一通道 h2w_rx，支持连续「写入并校验」模式
    - 将文件自动清理从 UI 主线程移至 Worker 线程的 CleaningUp 阶段，根除慢速 U 盘上主界面短暂卡顿
-### 全模块深度架构升级与解耦成果记录 (2026-10-16 第二轮深化)
+### 全模块深度架构升级与解耦成果记录 (2026-10-16 第二轮深化交付 Run 38778382190)
+- 产物详情：
+  - Windows x64: f3-win.exe (3,106,816 字节，时间戳 17:39:32)
+  - Windows ARM64: f3-win-arm64.exe (2,965,504 字节，时间戳 17:41:28)
+- 架构验证与治理指标：
+  - 静态检查：零警告通过 cargo clippy --all-targets 严格门禁
+  - 单元测试：15/15 核心单测全部 Pass (包含 PRNG 序列、SIMD 比对、MemoryBlockDevice 虚拟块仿真、真假盘回绕探测、StorageInventory 资产清单与 EngineController 状态机)
+  - 进程安全落地：严格执行 Windows 原生更名热替换机制，平稳完成最新特权二进制部署
+
 1. 彻底净化孤立遗留 I/O 模块 (Candidate 1 落地):
    - 物理移除 src/core/writer.rs (207 行) 与 src/core/reader.rs (270 行)，共计净删除 477 行旧代码
    - 消除 core 模块中由 session.rs 取代后残存的虚假接缝与认知摩擦，确立 H2wSession 作为单一权威 H2W 测试引擎
