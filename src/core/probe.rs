@@ -63,7 +63,7 @@ impl F3Probe {
         };
 
         let device_path = std::path::Path::new(&self.config.physical_device_path);
-        let mut file = match DirectIoFile::create_write(device_path) {
+        let mut file = match DirectIoFile::open_raw_device(device_path) {
             Ok(f) => f,
             Err(e) => {
                 let _ = tx.send(ProbeTelemetry {

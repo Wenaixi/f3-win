@@ -381,17 +381,24 @@ impl F3App {
         ui.add(ProgressBar::new(self.state.progress_pct).show_percentage());
 
         if let Some(ref res) = self.state.probe_result {
-            ui.group(|ui| {
-                ui.heading("探测诊断报告:");
-                ui.label(format!("设备标称容量: {:.2} GB", res.announced_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)));
-                ui.label(format!("物理真实容量: {:.2} GB", res.real_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)));
+            if let Some(ref err) = res.error {
+                ui.group(|ui| {
+                    ui.colored_label(Color32::RED, RichText::new(format!("探测未能执行: {}", err)).strong().size(15.0));
+                    ui.label("排查建议: 请确认本程序已获取 Windows 管理员 (UAC) 权限，且目标 U 盘未被其他杀毒软件或写保护锁死。");
+                });
+            } else {
+                ui.group(|ui| {
+                    ui.heading("探测诊断报告:");
+                    ui.label(format!("设备标称容量: {:.2} GB", res.announced_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)));
+                    ui.label(format!("物理真实容量: {:.2} GB", res.real_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)));
 
-                if res.is_fake {
-                    ui.colored_label(Color32::RED, "结论：确认为虚标扩容假盘！强烈建议前往「分区自愈」页面进行安全截断修复！");
-                } else {
-                    ui.colored_label(Color32::GREEN, "结论：物理容量完全合规，未检测到扇区回绕欺骗！");
-                }
-            });
+                    if res.is_fake {
+                        ui.colored_label(Color32::RED, "结论：确认为虚标扩容假盘！强烈建议前往「分区自愈」页面进行安全截断修复！");
+                    } else {
+                        ui.colored_label(Color32::GREEN, "结论：物理容量完全合规，未检测到扇区回绕欺骗！");
+                    }
+                });
+            }
         }
     }
 

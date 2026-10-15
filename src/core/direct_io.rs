@@ -70,6 +70,33 @@ impl DirectIoFile {
         }
     }
 
+
+    // 专门用于打开底层物理磁盘 (\\.\PhysicalDriveX) 或逻辑卷 (\\.\X:)
+    // 必须使用 OPEN_EXISTING，且同时赋予 GENERIC_READ 与 GENERIC_WRITE 访问权限
+    pub fn open_raw_device(path: &Path) -> Result<Self, String> {
+        let wide = Self::to_wide_path(path);
+        let handle = unsafe {
+            CreateFileW(
+                PCWSTR(wide.as_ptr()),
+                GENERIC_READ_ACCESS | GENERIC_WRITE_ACCESS,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                None,
+                OPEN_EXISTING, // 物理设备必须使用 OPEN_EXISTING，严禁 CREATE_ALWAYS
+                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH,
+                HANDLE::default(),
+            )
+        };
+
+        match handle {
+            Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => Ok(Self { handle: h, is_write: true }),
+            _ => Err(format!(
+                "无法打开底层物理设备 {:?}: 错误 {}",
+                path,
+                std::io::Error::last_os_error()
+            )),
+        }
+    }
+
     // 以 Direct I/O 无缓冲模式只读打开文件 (使用 GENERIC_READ_ACCESS 0x80000000)
     pub fn open_read(path: &Path) -> Result<Self, String> {
         let wide = Self::to_wide_path(path);
