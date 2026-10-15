@@ -5,3 +5,4 @@ pub mod probe;
 pub mod fix;
 pub mod devices;
 pub mod session;
+pub mod controller;
