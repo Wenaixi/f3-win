@@ -7,6 +7,7 @@ pub fn render_heatmap(ui: &mut Ui, blocks: &[BlockState]) {
 
         // 图例
         ui.horizontal(|ui| {
+            legend_badge(ui, Color32::from_rgb(45, 52, 60), "未测试 (Untested)");
             legend_badge(ui, Color32::from_rgb(46, 204, 113), "健康 (Good)");
             legend_badge(ui, Color32::from_rgb(231, 76, 60), "损坏 (Bad)");
             legend_badge(ui, Color32::from_rgb(241, 196, 15), "变异 (Changed)");
@@ -21,7 +22,7 @@ pub fn render_heatmap(ui: &mut Ui, blocks: &[BlockState]) {
         let (rect, _response): (Rect, Response) = ui.allocate_exact_size(desired_size, Sense::hover());
 
         let painter = ui.painter_at(rect);
-        let cell_width = (rect.width() - (cols as f32 - 1.0) * 2.0) / (cols as f32);
+        let cell_width = ((rect.width() - (cols as f32 - 1.0) * 2.0) / (cols as f32)).max(2.0);
         let cell_height = 8.0f32;
 
         for (i, &state) in blocks.iter().enumerate() {
@@ -34,6 +35,7 @@ pub fn render_heatmap(ui: &mut Ui, blocks: &[BlockState]) {
             let cell_rect = Rect::from_min_size(egui::pos2(x, y), egui::vec2(cell_width, cell_height));
 
             let color = match state {
+                BlockState::Untested => Color32::from_rgb(45, 52, 60),
                 BlockState::Good => Color32::from_rgb(46, 204, 113),
                 BlockState::Bad => Color32::from_rgb(231, 76, 60),
                 BlockState::Changed => Color32::from_rgb(241, 196, 15),

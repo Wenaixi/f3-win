@@ -89,7 +89,7 @@ impl Default for AppState {
             total_bytes_processed: 0,
             eta_seconds: 0,
             progress_pct: 0.0,
-            heatmap_blocks: vec![BlockState::Good; 1000],
+            heatmap_blocks: vec![BlockState::Untested; 1000],
             stats: BlockStats::default(),
             probe_result: None,
             fix_plan: None,
@@ -108,7 +108,7 @@ impl AppState {
         self.total_bytes_processed = 0;
         self.eta_seconds = 0;
         self.progress_pct = 0.0;
-        self.heatmap_blocks = vec![BlockState::Good; 1000];
+        self.heatmap_blocks = vec![BlockState::Untested; 1000];
         self.stats = BlockStats::default();
         self.cancel_flag = Arc::new(AtomicBool::new(false));
     }

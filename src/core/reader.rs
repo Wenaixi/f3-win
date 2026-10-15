@@ -173,8 +173,13 @@ impl F3Reader {
                                 BlockState::Good
                             };
 
-                            let sample = (heatmap_block_counter, dominant_state);
-                            heatmap_block_counter += 1;
+                            // 深度修复：全盘容量百分比线性归一化映射 (0..1000 格)
+                            let cell_idx = if total_expected_bytes > 0 {
+                                ((total_read as f64 / total_expected_bytes as f64) * 999.0) as usize
+                            } else {
+                                0
+                            };
+                            let sample = (cell_idx.min(999), dominant_state);
 
                             total_read += bytes_read as u64;
                             file_offset += bytes_read as u64;

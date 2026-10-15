@@ -11,6 +11,7 @@ pub const LCG_INCREMENT: u64 = 17;
 // 扇区健康状态枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockState {
+    Untested,
     Good,
     Bad,
     Changed,
@@ -29,6 +30,7 @@ pub struct BlockStats {
 impl BlockStats {
     pub fn update(&mut self, state: BlockState) {
         match state {
+            BlockState::Untested => {},
             BlockState::Good => self.good += 1,
             BlockState::Bad => self.bad += 1,
             BlockState::Changed => self.changed += 1,
