@@ -282,6 +282,10 @@ impl BlockIo for MemoryBlockDevice {
             offset
         };
 
+        if offset >= self.virtual_size_bytes {
+            return Ok(0);
+        }
+
         let sector_idx = mapped_offset / 512;
         let sector_offset = (mapped_offset % 512) as usize;
         let to_read = buf.len().min((self.virtual_size_bytes - offset) as usize);
@@ -328,7 +332,7 @@ mod tests {
 
     #[test]
     fn test_memory_block_device_read_write() {
-        let mut dev = MemoryBlockDevice::new(1024 * 1024); // 1MB 虚拟设备
+        let mut dev = MemoryBlockDevice::new(4 * 1024 * 1024); // 4MB 虚拟设备，容纳 1MB 探针扇区
         let test_data = vec![0xABu8; 512];
         let write_len = dev.write_at(&test_data, 2048 * 512).unwrap();
         assert_eq!(write_len, 512);
