@@ -79,3 +79,14 @@
   3. f3read: 热力图采样实现 total_read / total_expected_bytes * 1000 全盘百分比线性归一化映射，攻克超 1GB 热力图停滞缺陷；增加 Untested 灰色初始态
   4. UI 架构重构：抽离公共 render_volume_selector 组件，消除 70+ 行样板代码；折线图引入 1200 点环形缓冲与自适应平滑跟焦
   5. 进程安全：严格遵守不停止、不干扰任何运行中已有进程的铁律，通过 Windows 原生更名热更新机制平稳落地
+
+### 物理设备 open_raw_device 与假阳性报告根除记录 (Run 38764978664)
+- 根因定位：
+  1. Win32 规定打开底层物理磁盘 \\.\PhysicalDriveX 或卷对象时，dwCreationDisposition 必须严格为 OPEN_EXISTING (3)，严禁使用普通文件的 CREATE_ALWAYS (2)；原代码误用 CREATE_ALWAYS 导致内核拒绝打开
+  2. 探测需要同时执行扇区写入与镜像回读，句柄必须同时具备 GENERIC_READ | GENERIC_WRITE (0xC000_0000)
+  3. UI 诊断逻辑在 res.error 存在时未优先拦截，把 0 字节误判为通过并虚假显示「物理容量完全合规」
+- 修复成果：
+  - 新增 DirectIoFile::open_raw_device 专用方法，配置 OPEN_EXISTING 与 0xC000_0000
+  - f3probe 切换为该专用驱动，启动前自动对全部挂载卷调用 FSCTL_DISMOUNT_VOLUME 独占卸载
+  - UI 优先判断 res.error 并以鲜红色大字展示明确的失败根因与 UAC 排查建议
+  - 最新可执行文件 f3-win.exe (大小 3,103,232 字节，时间戳 16:03:10) 已安全热替换就位
