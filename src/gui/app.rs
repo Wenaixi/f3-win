@@ -4,11 +4,10 @@ use std::time::Instant;
 use crossbeam_channel::unbounded;
 use eframe::egui::{self, Color32, ProgressBar, RichText};
 
-use crate::core::devices::{PhysicalDeviceInfo, VolumeInfo};
-use crate::core::fix::F3FixPlan;
+use crate::core::devices::{PhysicalDeviceInfo, StorageTarget, VolumeInfo};
+use crate::core::fix::{F3FixPlan, SafePartitionFixer};
 use crate::core::probe::{F3Probe, F3ProbeConfig};
-use crate::core::reader::{F3Reader, F3ReaderConfig};
-use crate::core::writer::{F3Writer, F3WriterConfig};
+use crate::core::session::{H2wConfig, H2wMode, H2wPhase, H2wSession};
 use crate::gui::components::device_selector::{render_device_selector, render_volume_selector};
 use crate::gui::components::heatmap::render_heatmap;
 use crate::gui::components::plot::render_speed_plot;
@@ -41,36 +40,12 @@ impl F3App {
     }
 
     fn poll_telemetry(&mut self) {
-        // 1. 轮询写入遥测
-        if let Some(ref rx) = self.state.write_rx {
+        // 1. 轮询统一的 H2W 测试引擎遥测 (写入、校验与写验组合流)
+        if let Some(ref rx) = self.state.h2w_rx {
             while let Ok(msg) = rx.try_recv() {
-                self.state.total_bytes_processed = msg.total_bytes_written;
-                self.state.current_speed_mb = msg.current_speed_bps / (1024.0 * 1024.0);
+                self.state.total_bytes_processed = msg.bytes_processed;
+                self.state.current_speed_mb = msg.speed_bps / (1024.0 * 1024.0);
                 self.state.eta_seconds = msg.eta_seconds;
-
-                if let Some(start) = self.start_instant {
-                    let elapsed = start.elapsed().as_secs_f64();
-                    self.state.speed_history.push([elapsed, self.state.current_speed_mb]);
-                }
-
-                if msg.is_finished {
-                    self.state.status = if msg.error.is_some() {
-                        TaskStatus::Error
-                    } else {
-                        TaskStatus::Finished
-                    };
-                    self.state.status_message = msg.error.unwrap_or_else(|| "写入测试完成".to_string());
-                    self.state.write_rx = None;
-                    break;
-                }
-            }
-        }
-
-        // 2. 轮询读取遥测
-        if let Some(ref rx) = self.state.read_rx {
-            while let Ok(msg) = rx.try_recv() {
-                self.state.total_bytes_processed = msg.total_bytes_read;
-                self.state.current_speed_mb = msg.current_speed_bps / (1024.0 * 1024.0);
                 self.state.stats = msg.stats;
 
                 if let Some((idx, state_val)) = msg.heatmap_sample {
@@ -84,30 +59,31 @@ impl F3App {
                     self.state.speed_history.push([elapsed, self.state.current_speed_mb]);
                 }
 
+                if msg.phase == H2wPhase::CleaningUp {
+                    self.state.status_message = "校验完成，正在自动清理测试文件并释放空间...".to_string();
+                }
+
                 if msg.is_finished {
                     self.state.status = if msg.error.is_some() {
                         TaskStatus::Error
                     } else {
                         TaskStatus::Finished
                     };
-                    
-                    if msg.error.is_none() && self.state.auto_cleanup_after_read {
-                        if let Ok((cnt, bytes)) = crate::core::reader::cleanup_h2w_files(&self.state.selected_path) {
-                            self.state.status_message = format!("校验完成，已自动清理 {} 个测试文件，释放 {:.2} GB 空间！", cnt, bytes as f64 / (1024.0 * 1024.0 * 1024.0));
-                            self.state.volumes = VolumeInfo::enumerate_volumes();
-                        } else {
-                            self.state.status_message = "校验测试完成".to_string();
+                    self.state.status_message = msg.error.unwrap_or_else(|| {
+                        match msg.mode {
+                            H2wMode::Write => "写入测试完成".to_string(),
+                            H2wMode::Verify => "校验测试完成".to_string(),
+                            H2wMode::WriteAndVerify => "全流程写验测试完成".to_string(),
                         }
-                    } else {
-                        self.state.status_message = msg.error.unwrap_or_else(|| "校验测试完成".to_string());
-                    }
-                    self.state.read_rx = None;
+                    });
+                    self.state.volumes = VolumeInfo::enumerate_volumes();
+                    self.state.h2w_rx = None;
                     break;
                 }
             }
         }
 
-        // 3. 轮询探针探测遥测
+        // 2. 轮询探针探测遥测
         if let Some(ref rx) = self.state.probe_rx {
             while let Ok(msg) = rx.try_recv() {
                 self.state.progress_pct = msg.progress_pct;
@@ -149,9 +125,21 @@ impl eframe::App for F3App {
 
                 ui.selectable_value(&mut self.state.current_tab, AppTab::WriteTest, "写入测试 (f3write)");
                 ui.selectable_value(&mut self.state.current_tab, AppTab::ReadVerify, "读取校验 (f3read)");
-                ui.selectable_value(&mut self.state.current_tab, AppTab::RapidProbe, "容量探测 (f3probe)");
+                ui.selectable_value(&mut self.state.current_tab, AppTab::RapidProbe, "闪电探测 (f3probe)");
                 ui.selectable_value(&mut self.state.current_tab, AppTab::PartitionFix, "分区修复 (f3fix)");
-                ui.selectable_value(&mut self.state.current_tab, AppTab::Settings, "高级设置");
+                ui.selectable_value(&mut self.state.current_tab, AppTab::Settings, "设置");
+            });
+        });
+
+        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let status_color = match self.state.status {
+                    TaskStatus::Idle => Color32::GRAY,
+                    TaskStatus::Running => Color32::from_rgb(0, 180, 255),
+                    TaskStatus::Finished => Color32::from_rgb(46, 204, 113),
+                    TaskStatus::Error => Color32::from_rgb(231, 76, 60),
+                };
+                ui.colored_label(status_color, format!("状态: {}", self.state.status_message));
             });
         });
 
@@ -164,22 +152,13 @@ impl eframe::App for F3App {
                 AppTab::Settings => self.render_settings_tab(ui),
             }
         });
-
-        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(format!("状态: {}", self.state.status_message));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label("Direct I/O 直写模式");
-                });
-            });
-        });
     }
 }
 
 impl F3App {
     fn render_write_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading("写入测试 (f3write)");
-        ui.label("向目标磁盘写入 1GB 大小的 .h2w 文件以测试写速并准备校验。");
+        ui.label("以 Direct I/O 无系统缓存模式向目标磁盘填充 .h2w 数据文件，测试真实写入速率。");
         ui.separator();
 
         let mut do_refresh = false;
@@ -253,7 +232,7 @@ impl F3App {
                 let _ = std::process::Command::new("explorer").arg(&self.state.selected_path).spawn();
             }
             if ui.button(RichText::new("清理测试文件 (.h2w)")).clicked() {
-                match crate::core::reader::cleanup_h2w_files(&self.state.selected_path) {
+                match H2wSession::cleanup_h2w_files(&self.state.selected_path) {
                     Ok((cnt, bytes)) => {
                         self.state.status_message = format!("已成功清理 {} 个文件，释放 {:.2} GB 磁盘空间！", cnt, bytes as f64 / (1024.0 * 1024.0 * 1024.0));
                         self.state.volumes = VolumeInfo::enumerate_volumes();
@@ -319,7 +298,7 @@ impl F3App {
                 self.state.current_tab = AppTab::WriteTest;
             }
             if ui.button(RichText::new("一键清理所有 .h2w 测试文件 (释放空间)").color(Color32::from_rgb(255, 140, 0))).clicked() {
-                match crate::core::reader::cleanup_h2w_files(&self.state.selected_path) {
+                match H2wSession::cleanup_h2w_files(&self.state.selected_path) {
                     Ok((cnt, bytes)) => {
                         self.state.status_message = format!("已成功清理 {} 个文件，释放 {:.2} GB 磁盘空间！", cnt, bytes as f64 / (1024.0 * 1024.0 * 1024.0));
                         self.state.volumes = VolumeInfo::enumerate_volumes();
@@ -439,22 +418,37 @@ impl F3App {
         ui.separator();
 
         if let Some(ref plan) = self.state.fix_plan {
+            let fixer = SafePartitionFixer::new(plan.clone());
             ui.group(|ui| {
                 ui.label(format!("目标物理磁盘: PhysicalDrive{}", plan.disk_index));
                 ui.label(format!("真实可用容量: {:.2} GB", plan.real_bytes as f64 / (1024.0 * 1024.0 * 1024.0)));
                 ui.label(format!("建议截断分区大小: {} MB", plan.safe_partition_mb));
                 ui.label(format!("推荐文件系统: {}", plan.file_system));
 
-                ui.add_space(10.0);
-                if ui.button(RichText::new("应用安全分区 (运行 diskpart)").size(15.0)).clicked() {
-                    match plan.execute_auto_fix() {
-                        Ok(msg) => self.state.status_message = format!("修复成功: {}", msg),
-                        Err(e) => self.state.status_message = format!("修复失败: {}", e),
+                ui.add_space(5.0);
+                match fixer.dry_run() {
+                    Ok(report) => {
+                        ui.colored_label(Color32::GREEN, format!("已通过移动介质总线现场复核: {} ({})", report.bus_name, report.vendor_id));
+                        ui.add_space(10.0);
+                        if ui.button(RichText::new("应用安全分区 (运行 diskpart)").size(15.0)).clicked() {
+                            match fixer.execute() {
+                                Ok(msg) => {
+                                    self.state.status_message = format!("修复成功: {}", msg);
+                                    self.state.volumes = VolumeInfo::enumerate_volumes();
+                                }
+                                Err(e) => self.state.status_message = format!("修复失败: {}", e),
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        ui.colored_label(Color32::RED, format!("安全拦截: {}", err));
+                        ui.add_space(10.0);
+                        ui.add_enabled(false, egui::Button::new(RichText::new("无法应用安全分区").size(15.0)));
                     }
                 }
 
                 if ui.button("导出 diskpart 脚本").clicked() {
-                    let desk = PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("Desktop\\f3_fix.diskpart");
+                    let desk = PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("Desktop\f3_fix.diskpart");
                     let _ = plan.export_script_to_file(&desk);
                     self.state.status_message = format!("脚本已导出至 {:?}", desk);
                 }
@@ -511,85 +505,95 @@ impl F3App {
         });
     }
 
-    fn start_write_task(&mut self) {
+    // 统一启动 H2W 测试引擎 (写入或校验)
+    fn start_h2w_task(&mut self, mode: H2wMode) {
         self.state.reset_telemetry();
         self.state.status = TaskStatus::Running;
-        self.state.status_message = "正在执行无缓冲直通写入...".to_string();
         self.start_instant = Some(Instant::now());
         self.state.speed_history.push([0.0, 0.0]);
 
         let (tx, rx) = unbounded();
-        self.state.write_rx = Some(rx);
+        self.state.h2w_rx = Some(rx);
 
-        let max_b = self.state.max_test_gb.map(|gb| gb * 1024 * 1024 * 1024);
-        let config = F3WriterConfig {
+        let config = H2wConfig {
             target_dir: self.state.selected_path.clone(),
+            mode,
             start_file_num: self.state.start_file_num,
             end_file_num: self.state.end_file_num,
-            max_bytes: max_b,
+            max_bytes: self.state.max_test_gb.map(|gb| gb * 1024 * 1024 * 1024),
             chunk_size: self.state.chunk_size_mb * 1024 * 1024,
-            salt: if self.state.use_random_salt { 0x5A5A_A5A5_1234_5678 } else { 0 },
+            salt: if self.state.use_random_salt {
+                use std::time::SystemTime;
+                SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0x5A5A_A5A5_1234_5678)
+            } else {
+                self.state.salt
+            },
+            auto_cleanup: self.state.auto_cleanup_after_read,
+        };
+
+        self.state.status_message = match mode {
+            H2wMode::Write => "正在执行无缓冲直通写入...".to_string(),
+            H2wMode::Verify => "正在执行流式数据校验...".to_string(),
+            H2wMode::WriteAndVerify => "正在执行连续写入与校验...".to_string(),
         };
 
         let flag = self.state.cancel_flag.clone();
         std::thread::spawn(move || {
-            let writer = F3Writer::new(config, flag);
-            writer.run(tx);
+            let session = H2wSession::new(config, flag);
+            session.run(tx);
         });
+    }
+
+    fn start_write_task(&mut self) {
+        self.start_h2w_task(H2wMode::Write);
     }
 
     fn start_read_task(&mut self) {
+        self.start_h2w_task(H2wMode::Verify);
+    }
+
+    fn start_probe_task(&mut self) {
+        let dev = match self.state.selected_device {
+            Some(ref d) if d.is_safe_target => d.clone(),
+            _ => {
+                self.state.status_message = "请先选择合规安全的移动设备！".to_string();
+                return;
+            }
+        };
+
+        let target = StorageTarget::new(dev.clone(), Vec::new());
+        let lock_guard = match target.prepare_for_probe() {
+            Ok(guard) => guard,
+            Err(e) => {
+                self.state.status = TaskStatus::Error;
+                self.state.status_message = e;
+                return;
+            }
+        };
+
         self.state.reset_telemetry();
         self.state.status = TaskStatus::Running;
-        self.state.status_message = "正在执行流式校验...".to_string();
-        self.start_instant = Some(Instant::now());
+        self.state.status_message = "正在启动跳跃探针探测...".to_string();
 
         let (tx, rx) = unbounded();
-        self.state.read_rx = Some(rx);
+        self.state.probe_rx = Some(rx);
 
-        let config = F3ReaderConfig {
-            target_dir: self.state.selected_path.clone(),
-            salt: if self.state.use_random_salt { 0x5A5A_A5A5_1234_5678 } else { 0 },
-            chunk_size: self.state.chunk_size_mb * 1024 * 1024,
+        let total_sectors = dev.total_bytes / 512;
+        let config = F3ProbeConfig {
+            physical_device_path: dev.path,
+            total_sectors,
         };
 
         let flag = self.state.cancel_flag.clone();
         std::thread::spawn(move || {
-            let reader = F3Reader::new(config, flag);
-            reader.run(tx);
+            // lock_guard 移交至线程内部持有独占排他锁，线程退出时自动 Drop 释放！
+            let _guard = lock_guard;
+            let probe = F3Probe::new(config, flag);
+            probe.run(tx);
         });
     }
-
-    fn start_probe_task(&mut self) {
-        let dev_opt = self.state.selected_device.clone();
-        if let Some(dev) = dev_opt {
-            // 探测前安全操作：自动尝试锁定并卸载该物理设备上挂载的全部卷，防止 Windows 写冲突
-            for &vol_letter in &dev.mounted_volumes {
-                let _ = PhysicalDeviceInfo::lock_and_dismount_volume(vol_letter);
-            }
-
-            self.state.reset_telemetry();
-            self.state.status = TaskStatus::Running;
-            self.state.status_message = "正在启动跳跃探针探测...".to_string();
-
-            let (tx, rx) = unbounded();
-            self.state.probe_rx = Some(rx);
-
-            let config = F3ProbeConfig {
-                physical_device_path: dev.path,
-                total_sectors: dev.total_bytes / 512,
-            };
-
-            let flag = self.state.cancel_flag.clone();
-            std::thread::spawn(move || {
-                let probe = F3Probe::new(config, flag);
-                probe.run(tx);
-            });
-        } else {
-            self.state.status_message = "请先选择一个合规安全的移动设备！".to_string();
-        }
-    }
 }
+
 impl F3App {
     fn setup_chinese_fonts(ctx: &egui::Context) {
         let mut fonts = egui::FontDefinitions::default();

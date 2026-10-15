@@ -7,8 +7,7 @@ use crate::core::algo::{BlockState, BlockStats};
 use crate::core::devices::{PhysicalDeviceInfo, VolumeInfo};
 use crate::core::fix::F3FixPlan;
 use crate::core::probe::ProbeTelemetry;
-use crate::core::reader::ReadTelemetry;
-use crate::core::writer::WriteTelemetry;
+use crate::core::session::H2wTelemetry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppTab {
@@ -63,10 +62,9 @@ pub struct AppState {
     pub probe_result: Option<ProbeTelemetry>,
     pub fix_plan: Option<F3FixPlan>,
 
-    // 任务控制
+    // 任务控制 (统一的 H2W 测试引擎通道与探针通道)
     pub cancel_flag: Arc<AtomicBool>,
-    pub write_rx: Option<Receiver<WriteTelemetry>>,
-    pub read_rx: Option<Receiver<ReadTelemetry>>,
+    pub h2w_rx: Option<Receiver<H2wTelemetry>>,
     pub probe_rx: Option<Receiver<ProbeTelemetry>>,
 }
 
@@ -98,8 +96,7 @@ impl Default for AppState {
             probe_result: None,
             fix_plan: None,
             cancel_flag: Arc::new(AtomicBool::new(false)),
-            write_rx: None,
-            read_rx: None,
+            h2w_rx: None,
             probe_rx: None,
         }
     }
