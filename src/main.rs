@@ -47,7 +47,7 @@ fn main() -> eframe::Result<()> {
         viewport: ViewportBuilder::default()
             .with_inner_size([960.0, 700.0])
             .with_min_inner_size([820.0, 580.0])
-            .with_title("F3-Win 极致闪存测试与自愈终端 (管理员特权)"),
+            .with_title("F3 (管理员)"),
         ..Default::default()
     };
 

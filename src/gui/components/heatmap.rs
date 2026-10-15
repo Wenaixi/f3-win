@@ -3,15 +3,15 @@ use crate::core::algo::BlockState;
 
 pub fn render_heatmap(ui: &mut Ui, blocks: &[BlockState]) {
     ui.group(|ui| {
-        ui.label("扇区健康热力图 (全盘空间分布矩阵):");
+        ui.label("扇区健康分布图:");
 
         // 图例
         ui.horizontal(|ui| {
-            legend_badge(ui, Color32::from_rgb(45, 52, 60), "未测试 (Untested)");
-            legend_badge(ui, Color32::from_rgb(46, 204, 113), "健康 (Good)");
-            legend_badge(ui, Color32::from_rgb(231, 76, 60), "损坏 (Bad)");
-            legend_badge(ui, Color32::from_rgb(241, 196, 15), "变异 (Changed)");
-            legend_badge(ui, Color32::from_rgb(155, 89, 182), "回绕覆写 (Overwritten)");
+            legend_badge(ui, Color32::from_rgb(45, 52, 60), "未测试");
+            legend_badge(ui, Color32::from_rgb(46, 204, 113), "正常");
+            legend_badge(ui, Color32::from_rgb(231, 76, 60), "损坏");
+            legend_badge(ui, Color32::from_rgb(241, 196, 15), "异常");
+            legend_badge(ui, Color32::from_rgb(155, 89, 182), "覆盖");
         });
 
         let total_cells = blocks.len();

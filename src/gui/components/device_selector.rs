@@ -74,7 +74,7 @@ pub fn render_device_selector(
                 }
             });
 
-        if ui.button("刷新设备列表").clicked() {
+        if ui.button("刷新").clicked() {
             on_refresh();
         }
     });
@@ -92,7 +92,7 @@ pub fn render_volume_selector(
     on_refresh: impl FnOnce(),
 ) {
     ui.horizontal(|ui| {
-        ui.label("目标磁盘:");
+        ui.label("选择磁盘:");
         let current_label = if *selected_idx < volumes.len() {
             volumes[*selected_idx].display_name()
         } else {
@@ -112,7 +112,7 @@ pub fn render_volume_selector(
                 }
             });
 
-        if ui.button("刷新磁盘").clicked() {
+        if ui.button("刷新").clicked() {
             on_refresh();
         }
     });

@@ -144,14 +144,14 @@ impl eframe::App for F3App {
 
         egui::TopBottomPanel::top("top_nav").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading(RichText::new("F3-Win 极致闪存测试与自愈终端").strong().color(Color32::from_rgb(0, 200, 255)));
+                ui.heading(RichText::new("F3 闪存完整性测试").strong());
                 ui.separator();
 
-                ui.selectable_value(&mut self.state.current_tab, AppTab::WriteTest, "全盘写入 (f3write)");
-                ui.selectable_value(&mut self.state.current_tab, AppTab::ReadVerify, "全盘读取 (f3read)");
-                ui.selectable_value(&mut self.state.current_tab, AppTab::RapidProbe, "闪电探测 (f3probe)");
-                ui.selectable_value(&mut self.state.current_tab, AppTab::PartitionFix, "分区自愈 (f3fix)");
-                ui.selectable_value(&mut self.state.current_tab, AppTab::Settings, "防作弊设置");
+                ui.selectable_value(&mut self.state.current_tab, AppTab::WriteTest, "写入测试 (f3write)");
+                ui.selectable_value(&mut self.state.current_tab, AppTab::ReadVerify, "读取校验 (f3read)");
+                ui.selectable_value(&mut self.state.current_tab, AppTab::RapidProbe, "容量探测 (f3probe)");
+                ui.selectable_value(&mut self.state.current_tab, AppTab::PartitionFix, "分区修复 (f3fix)");
+                ui.selectable_value(&mut self.state.current_tab, AppTab::Settings, "高级设置");
             });
         });
 
@@ -169,7 +169,7 @@ impl eframe::App for F3App {
             ui.horizontal(|ui| {
                 ui.label(format!("状态: {}", self.state.status_message));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label("Direct I/O 无缓冲模式: 已激活");
+                    ui.label("Direct I/O 直写模式");
                 });
             });
         });
@@ -178,8 +178,8 @@ impl eframe::App for F3App {
 
 impl F3App {
     fn render_write_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("文件系统级写入测试 (f3write)");
-        ui.label("在指定磁盘空闲空间中写入标准 .h2w 数据文件，直通写入并测试极限物理写速。");
+        ui.heading("写入测试 (f3write)");
+        ui.label("向目标磁盘写入 1GB 大小的 .h2w 文件以测试写速并准备校验。");
         ui.separator();
 
         let mut do_refresh = false;
@@ -198,11 +198,11 @@ impl F3App {
         ui.add_space(10.0);
 
         if self.state.status != TaskStatus::Running {
-            if ui.button(RichText::new("开始极速写入测试").size(16.0).color(Color32::GREEN)).clicked() {
+            if ui.button(RichText::new("开始写入").size(15.0)).clicked() {
                 self.start_write_task();
             }
         } else {
-            if ui.button(RichText::new("停止写入").size(16.0).color(Color32::RED)).clicked() {
+            if ui.button(RichText::new("停止写入").size(15.0)).clicked() {
                 self.state.cancel_flag.store(true, Ordering::Relaxed);
             }
         }
@@ -216,21 +216,21 @@ impl F3App {
             // 卡片 1: 瞬时速率
             ui.group(|ui| {
                 ui.set_width(card_width);
-                ui.label(RichText::new("瞬时写入速率").weak().size(12.0));
+                ui.label(RichText::new("当前写入速度").weak().size(12.0));
                 ui.label(RichText::new(format!("{:.2} MB/s", self.state.current_speed_mb)).strong().size(20.0).color(Color32::from_rgb(0, 200, 255)));
             });
 
             // 卡片 2: 已写入数据
             ui.group(|ui| {
                 ui.set_width(card_width);
-                ui.label(RichText::new("累计已写入容量").weak().size(12.0));
+                ui.label(RichText::new("已写入数据").weak().size(12.0));
                 ui.label(RichText::new(format!("{:.2} GB", self.state.total_bytes_processed as f64 / (1024.0 * 1024.0 * 1024.0))).strong().size(20.0));
             });
 
             // 卡片 3: 动态 ETA 倒计时
             ui.group(|ui| {
                 ui.set_width(card_width);
-                ui.label(RichText::new("预计剩余时间 (ETA)").weak().size(12.0));
+                ui.label(RichText::new("预计剩余时间").weak().size(12.0));
                 let eta_str = if self.state.status == TaskStatus::Running {
                     format_eta(self.state.eta_seconds)
                 } else {
@@ -242,17 +242,17 @@ impl F3App {
             // 卡片 4: I/O 驱动模式
             ui.group(|ui| {
                 ui.set_width(card_width);
-                ui.label(RichText::new("底层 I/O 模式").weak().size(12.0));
-                ui.label(RichText::new("Direct I/O 直通").strong().size(20.0).color(Color32::GREEN));
+                ui.label(RichText::new("I/O 模式").weak().size(12.0));
+                ui.label(RichText::new("Direct I/O (无缓存)").strong().size(18.0));
             });
         });
 
         // 便捷按钮区
         ui.horizontal(|ui| {
-            if ui.button("在文件资源管理器中打开此路径").clicked() {
+            if ui.button("在资源管理器中打开").clicked() {
                 let _ = std::process::Command::new("explorer").arg(&self.state.selected_path).spawn();
             }
-            if ui.button(RichText::new("一键清理所有 .h2w 测试文件 (释放空间)").color(Color32::from_rgb(255, 140, 0))).clicked() {
+            if ui.button(RichText::new("清理测试文件 (.h2w)")).clicked() {
                 match crate::core::reader::cleanup_h2w_files(&self.state.selected_path) {
                     Ok((cnt, bytes)) => {
                         self.state.status_message = format!("已成功清理 {} 个文件，释放 {:.2} GB 磁盘空间！", cnt, bytes as f64 / (1024.0 * 1024.0 * 1024.0));
@@ -268,8 +268,8 @@ impl F3App {
     }
 
     fn render_read_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("全盘读取与坏块校验 (f3read)");
-        ui.label("回读现存的 .h2w 文件，逐扇区比对 LCG 序列，发现虚标回绕与闪存物理坏道。");
+        ui.heading("读取校验 (f3read)");
+        ui.label("读取磁盘上的 .h2w 文件比对数据，检查损坏扇区与虚标覆盖。");
         ui.separator();
 
         let mut do_refresh = false;
@@ -288,11 +288,11 @@ impl F3App {
         ui.add_space(10.0);
 
         if self.state.status != TaskStatus::Running {
-            if ui.button(RichText::new("开始读取校验").size(16.0).color(Color32::GREEN)).clicked() {
+            if ui.button(RichText::new("开始校验").size(15.0)).clicked() {
                 self.start_read_task();
             }
         } else {
-            if ui.button(RichText::new("停止读取").size(16.0).color(Color32::RED)).clicked() {
+            if ui.button(RichText::new("停止校验").size(15.0)).clicked() {
                 self.state.cancel_flag.store(true, Ordering::Relaxed);
             }
         }
@@ -301,13 +301,13 @@ impl F3App {
 
         // 校验统计计数
         ui.horizontal(|ui| {
-            ui.colored_label(Color32::from_rgb(46, 204, 113), format!("健康 (Good): {}", self.state.stats.good));
+            ui.colored_label(Color32::from_rgb(46, 204, 113), format!("正常: {}", self.state.stats.good));
             ui.separator();
-            ui.colored_label(Color32::from_rgb(231, 76, 60), format!("损坏 (Bad): {}", self.state.stats.bad));
+            ui.colored_label(Color32::from_rgb(231, 76, 60), format!("损坏: {}", self.state.stats.bad));
             ui.separator();
-            ui.colored_label(Color32::from_rgb(241, 196, 15), format!("变异 (Changed): {}", self.state.stats.changed));
+            ui.colored_label(Color32::from_rgb(241, 196, 15), format!("异常: {}", self.state.stats.changed));
             ui.separator();
-            ui.colored_label(Color32::from_rgb(155, 89, 182), format!("回绕覆写 (Overwritten): {}", self.state.stats.overwritten));
+            ui.colored_label(Color32::from_rgb(155, 89, 182), format!("覆盖: {}", self.state.stats.overwritten));
         });
 
         // 便捷按钮与自动清理控制
@@ -315,7 +315,7 @@ impl F3App {
             if ui.button("在文件资源管理器中打开此路径").clicked() {
                 let _ = std::process::Command::new("explorer").arg(&self.state.selected_path).spawn();
             }
-            if ui.button("前往「全盘写入」开始生成测试文件").clicked() {
+            if ui.button("转到写入页面").clicked() {
                 self.state.current_tab = AppTab::WriteTest;
             }
             if ui.button(RichText::new("一键清理所有 .h2w 测试文件 (释放空间)").color(Color32::from_rgb(255, 140, 0))).clicked() {
@@ -329,7 +329,7 @@ impl F3App {
             }
         });
         ui.horizontal(|ui| {
-            ui.checkbox(&mut self.state.auto_cleanup_after_read, "读取校验通过后自动清理全部测试文件 (省心释放磁盘空间)");
+            ui.checkbox(&mut self.state.auto_cleanup_after_read, "校验完成后自动删除测试文件");
         });
 
         ui.add_space(10.0);
@@ -342,8 +342,8 @@ impl F3App {
             ui.add_space(10.0);
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    ui.heading("测试诊断报告就绪:");
-                    if ui.button(RichText::new("一键复制完整测试诊断报告到剪贴板").color(Color32::GREEN)).clicked() {
+                    ui.heading("测试报告:");
+                    if ui.button(RichText::new("复制测试报告到剪贴板")).clicked() {
                         let report = format!(
                             "# F3-Win 闪存检测诊断报告\n\
                             - 测试路径: {:?}\n\
@@ -369,8 +369,8 @@ impl F3App {
     }
 
     fn render_probe_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("闪电裸盘跳跃探测 (f3probe)");
-        ui.colored_label(Color32::YELLOW, "警告：本功能直接读写底层物理扇区，在 1~3 分钟内揭露虚标真面目，运行前会自动卸载卷！");
+        ui.heading("容量探测 (f3probe)");
+        ui.label("直接向物理磁盘写入探针测试实际容量。测试前会自动卸载卷，请备份重要数据。");
         ui.separator();
 
         // 智能联动：如果尚未手动选中设备，根据当前选中的卷路径自动定位底层物理磁盘
@@ -399,11 +399,11 @@ impl F3App {
         ui.add_space(15.0);
 
         if self.state.status != TaskStatus::Running {
-            if ui.button(RichText::new("启动裸盘闪电探测").size(16.0).color(Color32::RED)).clicked() {
+            if ui.button(RichText::new("开始探测").size(15.0)).clicked() {
                 self.start_probe_task();
             }
         } else {
-            if ui.button(RichText::new("终止探测").size(16.0)).clicked() {
+            if ui.button(RichText::new("停止探测").size(15.0)).clicked() {
                 self.state.cancel_flag.store(true, Ordering::Relaxed);
             }
         }
@@ -414,19 +414,19 @@ impl F3App {
         if let Some(ref res) = self.state.probe_result {
             if let Some(ref err) = res.error {
                 ui.group(|ui| {
-                    ui.colored_label(Color32::RED, RichText::new(format!("探测未能执行: {}", err)).strong().size(15.0));
-                    ui.label("排查建议: 请确认本程序已获取 Windows 管理员 (UAC) 权限，且目标 U 盘未被其他杀毒软件或写保护锁死。");
+                    ui.colored_label(Color32::RED, RichText::new(format!("无法执行探测: {}", err)).strong().size(15.0));
+                    ui.label("提示: 请确认已允许管理员权限，且设备未被其他程序占用。");
                 });
             } else {
                 ui.group(|ui| {
-                    ui.heading("探测诊断报告:");
+                    ui.heading("探测结果:");
                     ui.label(format!("设备标称容量: {:.2} GB", res.announced_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)));
                     ui.label(format!("物理真实容量: {:.2} GB", res.real_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)));
 
                     if res.is_fake {
-                        ui.colored_label(Color32::RED, "结论：确认为虚标扩容假盘！强烈建议前往「分区自愈」页面进行安全截断修复！");
+                        ui.colored_label(Color32::RED, "检测到容量虚标。建议前往「分区修复」调整可用分区大小。");
                     } else {
-                        ui.colored_label(Color32::GREEN, "结论：物理容量完全合规，未检测到扇区回绕欺骗！");
+                        ui.colored_label(Color32::GREEN, "容量正常，未发现地址回绕。");
                     }
                 });
             }
@@ -434,8 +434,8 @@ impl F3App {
     }
 
     fn render_fix_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("扩容盘分区自愈修复 (f3fix)");
-        ui.label("根据探测到的真实容量边界，重写安全分区表，让扩容假盘变回稳定耐用的小容量真盘。");
+        ui.heading("分区修复 (f3fix)");
+        ui.label("根据探测出的实际物理容量调整分区大小，避免使用超出物理范围的扇区。");
         ui.separator();
 
         if let Some(ref plan) = self.state.fix_plan {
@@ -446,14 +446,14 @@ impl F3App {
                 ui.label(format!("推荐文件系统: {}", plan.file_system));
 
                 ui.add_space(10.0);
-                if ui.button(RichText::new("一键执行全自动安全修复").size(16.0).color(Color32::GREEN)).clicked() {
+                if ui.button(RichText::new("应用安全分区 (运行 diskpart)").size(15.0)).clicked() {
                     match plan.execute_auto_fix() {
                         Ok(msg) => self.state.status_message = format!("修复成功: {}", msg),
                         Err(e) => self.state.status_message = format!("修复失败: {}", e),
                     }
                 }
 
-                if ui.button("导出 diskpart 脚本到桌面").clicked() {
+                if ui.button("导出 diskpart 脚本").clicked() {
                     let desk = PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default()).join("Desktop\\f3_fix.diskpart");
                     let _ = plan.export_script_to_file(&desk);
                     self.state.status_message = format!("脚本已导出至 {:?}", desk);
@@ -465,14 +465,14 @@ impl F3App {
     }
 
     fn render_settings_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("高级防伪与性能参数设置");
+        ui.heading("高级设置");
         ui.separator();
 
-        ui.checkbox(&mut self.state.use_random_salt, "启用随机加盐防伪模式 (防止恶劣固件针对固定序列作弊)");
+        ui.checkbox(&mut self.state.use_random_salt, "启用随机加盐 (防止固件针对固定数据作弊)");
         if !self.state.use_random_salt {
-            ui.label("当前处于标准模式 (Salt = 0)，与 H2testw 和原版 F3 保持 100% 双向兼容。");
+            ui.label("当前使用标准模式 (Salt = 0)，兼容 H2testw 与原版 F3。");
         } else {
-            ui.colored_label(Color32::YELLOW, "注意：启用随机加盐后生成的测试文件只能由本程序或原版 F3 带相同盐值读取！");
+            ui.colored_label(Color32::YELLOW, "提示：加盐后生成的文件需在相同盐值下才能校验。");
         }
 
         ui.add_space(10.0);
@@ -485,14 +485,14 @@ impl F3App {
 
         ui.add_space(10.0);
         ui.group(|ui| {
-            ui.label(RichText::new("F3 原版高级区间测试选项 (类似 --start-at / --end-at):").strong());
+            ui.label(RichText::new("分卷测试选项 (类似 --start-at / --end-at):").strong());
             ui.horizontal(|ui| {
                 ui.label("起始文件编号:");
-                ui.add(egui::DragValue::new(&mut self.state.start_file_num).range(0..=10000).prefix("从第 ").suffix(" 个文件开始写入 (断点续测)"));
+                ui.add(egui::DragValue::new(&mut self.state.start_file_num).range(0..=10000).prefix("从第 ").suffix(" 个文件开始写入"));
             });
             ui.horizontal(|ui| {
                 let mut end_enabled = self.state.end_file_num.is_some();
-                if ui.checkbox(&mut end_enabled, "指定结束文件编号 (类似 --end-at):").changed() {
+                if ui.checkbox(&mut end_enabled, "指定结束文件编号:").changed() {
                     self.state.end_file_num = if end_enabled { Some(self.state.start_file_num + 5) } else { None };
                 }
                 if let Some(ref mut end) = self.state.end_file_num {
@@ -501,7 +501,7 @@ impl F3App {
             });
             ui.horizontal(|ui| {
                 let mut limit_enabled = self.state.max_test_gb.is_some();
-                if ui.checkbox(&mut limit_enabled, "限制最大测试容量 (GB):").changed() {
+                if ui.checkbox(&mut limit_enabled, "限制写入容量 (GB):").changed() {
                     self.state.max_test_gb = if limit_enabled { Some(16) } else { None };
                 }
                 if let Some(ref mut gb) = self.state.max_test_gb {
