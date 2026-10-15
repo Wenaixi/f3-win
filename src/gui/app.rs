@@ -453,6 +453,15 @@ impl F3App {
                 ui.add(egui::DragValue::new(&mut self.state.start_file_num).range(0..=10000).prefix("从第 ").suffix(" 个文件开始写入 (断点续测)"));
             });
             ui.horizontal(|ui| {
+                let mut end_enabled = self.state.end_file_num.is_some();
+                if ui.checkbox(&mut end_enabled, "指定结束文件编号 (类似 --end-at):").changed() {
+                    self.state.end_file_num = if end_enabled { Some(self.state.start_file_num + 5) } else { None };
+                }
+                if let Some(ref mut end) = self.state.end_file_num {
+                    ui.add(egui::DragValue::new(end).range(0..=10000).prefix("写到第 ").suffix(" 个文件截止"));
+                }
+            });
+            ui.horizontal(|ui| {
                 let mut limit_enabled = self.state.max_test_gb.is_some();
                 if ui.checkbox(&mut limit_enabled, "限制最大测试容量 (GB):").changed() {
                     self.state.max_test_gb = if limit_enabled { Some(16) } else { None };
@@ -478,6 +487,7 @@ impl F3App {
         let config = F3WriterConfig {
             target_dir: self.state.selected_path.clone(),
             start_file_num: self.state.start_file_num,
+            end_file_num: self.state.end_file_num,
             max_bytes: max_b,
             chunk_size: self.state.chunk_size_mb * 1024 * 1024,
             salt: if self.state.use_random_salt { 0x5A5A_A5A5_1234_5678 } else { 0 },

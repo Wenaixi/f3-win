@@ -26,6 +26,7 @@ pub struct WriteTelemetry {
 pub struct F3WriterConfig {
     pub target_dir: PathBuf,
     pub start_file_num: u64,
+    pub end_file_num: Option<u64>,
     pub max_bytes: Option<u64>,
     pub chunk_size: usize,
     pub salt: u64,
@@ -91,6 +92,13 @@ impl F3Writer {
         loop {
             if self.cancel_flag.load(Ordering::Relaxed) {
                 break;
+            }
+
+            // 深度复刻 F3 原版 --end-at: 达到指定结束文件编号即刻停止 (闭区间)
+            if let Some(end) = self.config.end_file_num {
+                if file_index > end {
+                    break;
+                }
             }
 
             if let Some(max) = self.config.max_bytes {

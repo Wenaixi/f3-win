@@ -44,6 +44,7 @@ pub struct AppState {
     pub use_random_salt: bool,
     pub chunk_size_mb: usize,
     pub start_file_num: u64,
+    pub end_file_num: Option<u64>,
     pub max_test_gb: Option<u64>,
 
     // 运行指标遥测
@@ -83,6 +84,7 @@ impl Default for AppState {
             use_random_salt: false,
             chunk_size_mb: 1,
             start_file_num: 0,
+            end_file_num: None,
             max_test_gb: None,
             speed_history: Vec::new(),
             current_speed_mb: 0.0,

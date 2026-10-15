@@ -34,15 +34,13 @@ impl F3Probe {
         Self { config, cancel_flag }
     }
 
-    // 深度复刻 F3 原版 overwhelm_cache: 向多个离散的扇区写入探针，强制冲刷排空假盘主控自带的 RAM 缓存
-    fn overwhelm_cache(&self, file: &mut DirectIoFile, buf: &mut AlignedBuffer, max_sector: u64) {
-        let flush_points = [16u64, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576];
-        for &fp in &flush_points {
-            if fp < max_sector {
-                F3Probe::create_probe_block(buf, fp ^ 0xAAAA_5555);
-                let offset = fp * SECTOR_SIZE as u64;
-                let _ = file.write_at(buf, offset);
-            }
+    // 深度复刻 F3 原版 overwhelm_cache: 在磁盘高位区域写入缓冲块，强制排空主控 SRAM/DRAM 缓存
+    fn overwhelm_cache(&self, file: &mut DirectIoFile, buf: &mut AlignedBuffer, scratch_sec: u64, count: u64) {
+        for i in 0..count.min(1024) {
+            let target_sec = scratch_sec + i;
+            F3Probe::create_probe_block(buf, target_sec ^ 0xAAAA_5555);
+            let offset = target_sec * SECTOR_SIZE as u64;
+            let _ = file.write_at(buf, offset);
         }
     }
 
@@ -94,11 +92,12 @@ impl F3Probe {
             error: None,
         });
 
-        // 步骤 1: 向扇区 0 写入基准魔数探针
-        Self::create_probe_block(&mut buf, 0);
-        if let Err(e) = file.write_at(&buf, 0) {
+        // 深度复刻原版 F3：在扇区 2048 (1MB 偏移处) 写入基准参考块 (避开 MBR 分区头)
+        let ref_sec = 2048u64.min(total_sectors / 4);
+        Self::create_probe_block(&mut buf, ref_sec);
+        if let Err(e) = file.write_at(&buf, ref_sec * SECTOR_SIZE as u64) {
             let _ = tx.send(ProbeTelemetry {
-                current_phase: "写入扇区 0 探针失败".to_string(),
+                current_phase: "写入基准探针扇区失败".to_string(),
                 progress_pct: 0.0,
                 announced_size_bytes: announced_size,
                 real_size_bytes: 0,
@@ -109,8 +108,12 @@ impl F3Probe {
             return;
         }
 
-        // 步骤 2: 2^N 幂次方跳跃扫描
-        let mut power = 1u64;
+        // 冲刷主控硬件缓存 (在磁盘高位写入临时块)
+        let scratch_sec = total_sectors.saturating_sub(4096);
+        self.overwhelm_cache(&mut file, &mut buf, scratch_sec, 256);
+
+        // 步骤 2: 2^N 幂次方高位镜像回读扫描 (探测地址线回绕)
+        let mut power = 4096u64; // 从 2MB 以上开始探测
         let mut wrap_detected = false;
         let mut real_capacity_sectors = total_sectors;
 
@@ -119,26 +122,16 @@ impl F3Probe {
                 break;
             }
 
-            let sector_offset = power * SECTOR_SIZE as u64;
-            Self::create_probe_block(&mut buf, power);
-
-            // 写入跳跃扇区
-            if file.write_at(&buf, sector_offset).is_err() {
-                real_capacity_sectors = power;
-                wrap_detected = true;
-                break;
-            }
-
-            // 深度复刻原版 F3：在检验前强制排空主控 RAM 缓存
-            self.overwhelm_cache(&mut file, &mut buf, power);
-
-            // 立即回读扇区 0，检查是否被回绕覆写
-            if file.read_at(&mut buf, 0).is_ok() {
-                let found_sector = Self::extract_probe_sector(&buf);
-                if found_sector != Some(0) {
-                    wrap_detected = true;
-                    real_capacity_sectors = power;
-                    break;
+            let test_sec = power + ref_sec;
+            if test_sec < total_sectors {
+                // 回读测试扇区：如果高位读出内容等于参考块，说明高位地址线悬空并回绕到了 ref_sec！
+                if file.read_at(&mut buf, test_sec * SECTOR_SIZE as u64).is_ok() {
+                    let found_sector = Self::extract_probe_sector(&buf);
+                    if found_sector == Some(ref_sec) {
+                        wrap_detected = true;
+                        real_capacity_sectors = power;
+                        break;
+                    }
                 }
             }
 
