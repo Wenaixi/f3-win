@@ -17,6 +17,7 @@ pub struct ReadTelemetry {
     pub total_files: u64,
     pub total_bytes_read: u64,
     pub current_speed_bps: f64,
+    pub eta_seconds: u64,
     pub stats: BlockStats,
     pub is_finished: bool,
     pub error: Option<String>,
@@ -77,6 +78,7 @@ impl F3Reader {
                     total_files: 0,
                     total_bytes_read: 0,
                     current_speed_bps: 0.0,
+                    eta_seconds: 0,
                     stats: BlockStats::default(),
                     is_finished: true,
                     error: Some(e),
@@ -102,6 +104,11 @@ impl F3Reader {
             });
             return;
         }
+
+        // 统计所有待校验文件总大小以计算精准读取进度和 ETA
+        let total_expected_bytes: u64 = files.iter().map(|(_, p)| {
+            std::fs::metadata(p).map(|m| m.len()).unwrap_or(GIGABYTE)
+        }).sum();
 
         let mut stats = BlockStats::default();
         let mut total_read = 0u64;
@@ -176,11 +183,18 @@ impl F3Reader {
                                 last_sample_time = Instant::now();
                                 last_sample_bytes = total_read;
 
+                                let eta = if speed > 50_000.0 && total_expected_bytes > total_read {
+                                    ((total_expected_bytes - total_read) as f64 / speed) as u64
+                                } else {
+                                    0
+                                };
+
                                 let _ = tx.send(ReadTelemetry {
                                     current_file: (file_idx + 1) as u64,
                                     total_files,
                                     total_bytes_read: total_read,
                                     current_speed_bps: speed,
+                                    eta_seconds: eta,
                                     stats,
                                     is_finished: false,
                                     error: None,

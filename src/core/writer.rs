@@ -1,3 +1,5 @@
+use windows::core::PCWSTR;
+use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -58,6 +60,25 @@ impl F3Writer {
                     error: Some(e),
                 });
                 return;
+            }
+        };
+
+        // 深度复刻 F3：如果未显式指定最大字节数，自动探测目标磁盘真实的空闲可用字节数
+        let target_free_bytes = if let Some(max) = self.config.max_bytes {
+            max
+        } else {
+            let mut free_avail = 0u64;
+            let mut total_b = 0u64;
+            let mut total_free = 0u64;
+            let path_str = self.config.target_dir.to_string_lossy();
+            let mut wide: Vec<u16> = path_str.encode_utf16().collect();
+            wide.push(0);
+            unsafe {
+                if GetDiskFreeSpaceExW(PCWSTR(wide.as_ptr()), Some(&mut free_avail), Some(&mut total_b), Some(&mut total_free)).is_ok() {
+                    free_avail
+                } else {
+                    0
+                }
             }
         };
 
@@ -125,12 +146,8 @@ impl F3Writer {
                             last_sample_time = Instant::now();
                             last_sample_bytes = total_written;
 
-                            let eta = if let Some(max) = self.config.max_bytes {
-                                if speed > 0.0 && max > total_written {
-                                    ((max - total_written) as f64 / speed) as u64
-                                } else {
-                                    0
-                                }
+                            let eta = if speed > 50_000.0 && target_free_bytes > total_written {
+                                ((target_free_bytes - total_written) as f64 / speed) as u64
                             } else {
                                 0
                             };

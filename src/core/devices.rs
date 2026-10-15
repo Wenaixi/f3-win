@@ -1,10 +1,11 @@
-const DRIVE_REMOVABLE: u32 = 2;
 use std::ffi::c_void;
 use std::mem::size_of;
+use std::path::PathBuf;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+    CreateFileW, GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW,
+    FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
     FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows::Win32::System::Ioctl::{
@@ -14,7 +15,18 @@ use windows::Win32::System::Ioctl::{
     PropertyStandardQuery, StorageDeviceProperty,
 };
 
-// 物理总线类型定义 (与 Windows DDK 对应)
+const DRIVE_REMOVABLE: u32 = 2;
+const IOCTL_STORAGE_GET_DEVICE_NUMBER: u32 = 0x002D1080;
+
+#[repr(C)]
+#[derive(Default)]
+struct STORAGE_DEVICE_NUMBER {
+    device_type: u32,
+    device_number: u32,
+    partition_number: u32,
+}
+
+// 物理总线类型定义
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageBusType {
     Usb,
@@ -48,7 +60,7 @@ impl StorageBusType {
             StorageBusType::Mmc => "MMC",
             StorageBusType::Sata => "SATA (内部磁盘)",
             StorageBusType::Nvme => "NVMe (内部磁盘)",
-            StorageBusType::Unknown(_) => "其他未知总线",
+            StorageBusType::Unknown(_) => "其他总线",
         }
     }
 }
@@ -66,21 +78,24 @@ pub struct PhysicalDeviceInfo {
     pub is_removable: bool,
     pub is_safe_target: bool,
     pub warning: Option<String>,
+    pub mounted_volumes: Vec<char>,
 }
 
 impl PhysicalDeviceInfo {
-    // 枚举系统当前连接的物理存储磁盘 (PhysicalDrive0 ~ 31)
+    // 枚举系统物理存储磁盘 (PhysicalDrive0 ~ 31)，使用 0 权限查询，确保不被 Access Denied
     pub fn enumerate_devices() -> Vec<PhysicalDeviceInfo> {
         let mut devices = Vec::new();
+        let volumes = VolumeInfo::enumerate_volumes();
 
         for i in 0..32 {
             let path_str = format!(r"\\.\PhysicalDrive{}", i);
             let wide: Vec<u16> = path_str.encode_utf16().chain(std::iter::once(0)).collect();
 
+            // 以 0 (Query access) 权限打开，避免普通用户权限下被 Windows 安全机制报 Error 5
             let handle = unsafe {
                 CreateFileW(
                     PCWSTR(wide.as_ptr()),
-                    FILE_GENERIC_READ.0,
+                    0,
                     FILE_SHARE_READ | FILE_SHARE_WRITE,
                     None,
                     OPEN_EXISTING,
@@ -90,8 +105,16 @@ impl PhysicalDeviceInfo {
             };
 
             if let Ok(h) = handle {
-                if h != INVALID_HANDLE_VALUE {
-                    if let Some(info) = Self::query_device_info(i, &path_str, h) {
+                if h != INVALID_HANDLE_VALUE && !h.is_invalid() {
+                    if let Some(mut info) = Self::query_device_info(i, &path_str, h) {
+                        // 关联该物理磁盘上挂载的全部逻辑盘符
+                        for vol in &volumes {
+                            if let Some(parent_disk) = get_physical_drive_number_for_volume(vol.drive_letter) {
+                                if parent_disk == i && !info.mounted_volumes.contains(&vol.drive_letter) {
+                                    info.mounted_volumes.push(vol.drive_letter);
+                                }
+                            }
+                        }
                         devices.push(info);
                     }
                     unsafe { let _ = CloseHandle(h); }
@@ -158,7 +181,7 @@ impl PhysicalDeviceInfo {
         let serial = extract_sz(&buffer, desc.SerialNumberOffset as usize);
 
         // 安全判定：只有外部移动介质且非系统主盘才算安全测试目标
-        let is_safe = bus_type.is_removable_bus() && index != 0;
+        let is_safe = (bus_type.is_removable_bus() || is_removable) && index != 0;
         let warning = if !is_safe {
             Some("系统内部固定磁盘已硬隔离锁定，严禁运行破坏性扇区探测".to_string())
         } else {
@@ -176,6 +199,7 @@ impl PhysicalDeviceInfo {
             is_removable,
             is_safe_target: is_safe,
             warning,
+            mounted_volumes: Vec::new(),
         })
     }
 
@@ -197,11 +221,11 @@ impl PhysicalDeviceInfo {
         };
 
         match handle {
-            Ok(h) if h != INVALID_HANDLE_VALUE => {
+            Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => {
                 let mut dummy = 0u32;
                 unsafe {
                     // 1. 尝试锁定卷
-                    let lock_res = windows::Win32::System::IO::DeviceIoControl(
+                    let _ = windows::Win32::System::IO::DeviceIoControl(
                         h,
                         FSCTL_LOCK_VOLUME,
                         None,
@@ -211,13 +235,9 @@ impl PhysicalDeviceInfo {
                         Some(&mut dummy),
                         None,
                     );
-                    if lock_res.is_err() {
-                        let _ = CloseHandle(h);
-                        return Err(format!("锁定卷 {}: 失败，可能正被其他进程占用", drive_letter));
-                    }
 
                     // 2. 卸载卷文件系统挂载
-                    let dismount_res = windows::Win32::System::IO::DeviceIoControl(
+                    let _ = windows::Win32::System::IO::DeviceIoControl(
                         h,
                         FSCTL_DISMOUNT_VOLUME,
                         None,
@@ -227,40 +247,56 @@ impl PhysicalDeviceInfo {
                         Some(&mut dummy),
                         None,
                     );
-                    if dismount_res.is_err() {
-                        let _ = windows::Win32::System::IO::DeviceIoControl(
-                            h,
-                            FSCTL_UNLOCK_VOLUME,
-                            None,
-                            0,
-                            None,
-                            0,
-                            Some(&mut dummy),
-                            None,
-                        );
-                        let _ = CloseHandle(h);
-                        return Err(format!("卸载卷 {}: 失败", drive_letter));
-                    }
                 }
                 Ok(h)
             }
-            _ => Err(format!("无法打开卷 {}:，请以管理员身份运行", drive_letter)),
+            _ => Err(format!("无法打开卷 {}:，请确认管理员权限", drive_letter)),
         }
     }
 }
 
-fn extract_sz(buf: &[u8], offset: usize) -> String {
-    if offset == 0 || offset >= buf.len() {
-        return String::new();
+// 通过 IOCTL_STORAGE_GET_DEVICE_NUMBER 从盘符反查底层物理磁盘编号
+pub fn get_physical_drive_number_for_volume(drive_letter: char) -> Option<u32> {
+    let vol_str = format!(r"\\.\{}:", drive_letter);
+    let mut wide: Vec<u16> = vol_str.encode_utf16().collect();
+    wide.push(0);
+
+    let handle = unsafe {
+        CreateFileW(
+            PCWSTR(wide.as_ptr()),
+            0, // 仅属性查询，免去权限阻碍
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            HANDLE::default(),
+        )
+    };
+
+    if let Ok(h) = handle {
+        if h != INVALID_HANDLE_VALUE && !h.is_invalid() {
+            let mut sdn = STORAGE_DEVICE_NUMBER::default();
+            let mut returned = 0u32;
+            let ok = unsafe {
+                windows::Win32::System::IO::DeviceIoControl(
+                    h,
+                    IOCTL_STORAGE_GET_DEVICE_NUMBER,
+                    None,
+                    0,
+                    Some(&mut sdn as *mut _ as *mut c_void),
+                    size_of::<STORAGE_DEVICE_NUMBER>() as u32,
+                    Some(&mut returned),
+                    None,
+                )
+            };
+            unsafe { let _ = CloseHandle(h); }
+            if ok.is_ok() {
+                return Some(sdn.device_number);
+            }
+        }
     }
-    let slice = &buf[offset..];
-    let end = slice.iter().position(|&b| b == 0).unwrap_or(slice.len());
-    String::from_utf8_lossy(&slice[..end]).trim().to_string()
+    None
 }
-use std::path::PathBuf;
-use windows::Win32::Storage::FileSystem::{
-    GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW,
-};
 
 #[derive(Debug, Clone)]
 pub struct VolumeInfo {
@@ -296,7 +332,6 @@ impl VolumeInfo {
         )
     }
 
-    // 枚举系统中所有已挂载逻辑盘符并获取其详细属性
     pub fn enumerate_volumes() -> Vec<VolumeInfo> {
         let mut volumes = Vec::new();
         let mask = unsafe { GetLogicalDrives() };
@@ -308,7 +343,7 @@ impl VolumeInfo {
                 let wide: Vec<u16> = root_str.encode_utf16().collect();
 
                 let drive_type = unsafe { GetDriveTypeW(PCWSTR(wide.as_ptr())) };
-                if drive_type == 0 || drive_type == 1 { // UNKNOWN or NO_ROOT_DIR
+                if drive_type == 0 || drive_type == 1 {
                     continue;
                 }
 
@@ -360,8 +395,16 @@ impl VolumeInfo {
             }
         }
 
-        // 优先将可移动介质排在最前面
         volumes.sort_by_key(|v| !v.is_removable);
         volumes
     }
+}
+
+fn extract_sz(buf: &[u8], offset: usize) -> String {
+    if offset == 0 || offset >= buf.len() {
+        return String::new();
+    }
+    let slice = &buf[offset..];
+    let end = slice.iter().position(|&b| b == 0).unwrap_or(slice.len());
+    String::from_utf8_lossy(&slice[..end]).trim().to_string()
 }
