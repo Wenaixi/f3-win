@@ -7,7 +7,7 @@ use windows::Win32::Storage::FileSystem::{
     FILE_BEGIN, FILE_FLAG_NO_BUFFERING, FILE_FLAG_WRITE_THROUGH,
     FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
-use windows::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
+use windows::Win32::System::IO::OVERLAPPED;
 
 // 标准 Win32 读写访问掩码常量 (不包含与 FILE_FLAG_NO_BUFFERING 冲突的 FILE_APPEND_DATA)
 const GENERIC_READ_ACCESS: u32 = 0x8000_0000;
@@ -253,6 +253,7 @@ impl MemoryBlockDevice {
             sectors: HashMap::new(),
             virtual_size_bytes,
             wrap_around_bytes: None,
+            bit_bucket_bytes: None,
         }
     }
 

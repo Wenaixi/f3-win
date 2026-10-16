@@ -227,19 +227,10 @@ impl PhysicalDeviceInfo {
         let product_id = extract_sz(&buffer, desc.ProductIdOffset as usize);
         let serial = extract_sz(&buffer, desc.SerialNumberOffset as usize);
 
-        // 读取系统引导盘符 (默认 C:)
-        let sys_drive = std::env::var("SystemDrive")
-            .ok()
-            .and_then(|s| s.chars().next())
-            .unwrap_or('C')
-            .to_ascii_uppercase();
-
-        let contains_system_drive = mounted_volumes.iter().any(|&c| c.to_ascii_uppercase() == sys_drive);
-
-        // 安全判定：只有外部移动介质、非 0 号磁盘且不包含系统引导卷 (C:) 才算安全测试目标
-        let is_safe = (bus_type.is_removable_bus() || is_removable) && index != 0 && !contains_system_drive;
+        // 安全判定：只有外部移动介质且非 0 号系统主盘才算安全测试目标
+        let is_safe = (bus_type.is_removable_bus() || is_removable) && index != 0;
         let warning = if !is_safe {
-            Some("系统内部磁盘或引导盘已硬隔离锁定，严禁运行破坏性扇区探测".to_string())
+            Some("系统内部固定磁盘已硬隔离锁定，严禁运行破坏性扇区探测".to_string())
         } else {
             None
         };
@@ -344,7 +335,18 @@ impl StorageTarget {
     }
 
     pub fn is_safe_for_raw_probe(&self) -> bool {
-        self.device.is_safe_target && self.device.drive_index != 0
+        // 读取系统引导盘符 (默认 C:)
+        let sys_drive = std::env::var("SystemDrive")
+            .ok()
+            .and_then(|s| s.chars().next())
+            .unwrap_or('C')
+            .to_ascii_uppercase();
+
+        let contains_system_drive = self.device.mounted_volumes.iter().any(|&c| c.to_ascii_uppercase() == sys_drive)
+            || self.volumes.iter().any(|v| v.drive_letter.to_ascii_uppercase() == sys_drive);
+
+        // 绝对安全熔断：必须非系统主盘 0、通过总线白名单、且不包含系统引导卷 (C:)
+        self.device.is_safe_target && self.device.drive_index != 0 && !contains_system_drive
     }
 
     // 执行物理探测前置准备：验证安全性，并独占锁定该磁盘上的全部挂载卷
