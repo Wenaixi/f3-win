@@ -140,7 +140,7 @@ impl DirectIoFile {
         overlapped.Anonymous.Anonymous.OffsetHigh = (offset >> 32) as u32;
 
         let mut bytes_written = 0u32;
-        let success = unsafe {
+        let res = unsafe {
             windows::Win32::Storage::FileSystem::WriteFile(
                 self.handle,
                 Some(buf),
@@ -149,18 +149,13 @@ impl DirectIoFile {
             )
         };
 
-        if success.is_err() {
-            // 异步重叠完成等待
-            let mut actual_written = 0u32;
-            let wait_res = unsafe {
-                GetOverlappedResult(self.handle, &overlapped, &mut actual_written, true)
-            };
-            if wait_res.is_err() {
-                return Err(format!("Direct I/O 写入失败: {}", std::io::Error::last_os_error()));
-            }
-            Ok(actual_written as usize)
-        } else {
-            Ok(bytes_written as usize)
+        match res {
+            Ok(_) => Ok(bytes_written as usize),
+            Err(e) => Err(format!(
+                "Direct I/O 写入失败 (Win32 错误码 {}): {}",
+                e.code().0,
+                e.message()
+            )),
         }
     }
 
@@ -172,7 +167,7 @@ impl DirectIoFile {
         overlapped.Anonymous.Anonymous.OffsetHigh = (offset >> 32) as u32;
 
         let mut bytes_read = 0u32;
-        let success = unsafe {
+        let res = unsafe {
             windows::Win32::Storage::FileSystem::ReadFile(
                 self.handle,
                 Some(buf),
@@ -181,21 +176,21 @@ impl DirectIoFile {
             )
         };
 
-        if success.is_err() {
-            let mut actual_read = 0u32;
-            let wait_res = unsafe {
-                GetOverlappedResult(self.handle, &overlapped, &mut actual_read, true)
-            };
-            if wait_res.is_err() {
-                let err = std::io::Error::last_os_error();
-                if err.raw_os_error() == Some(38) { // ERROR_HANDLE_EOF
-                    return Ok(0);
+        match res {
+            Ok(_) => Ok(bytes_read as usize),
+            Err(e) => {
+                // Win32 ERROR_HANDLE_EOF (38 / 0x80070026) 是正常的读取文件末尾标记
+                let code = e.code().0;
+                if code == 38 || code as u32 == 0x80070026 {
+                    Ok(0)
+                } else {
+                    Err(format!(
+                        "Direct I/O 读取失败 (Win32 错误码 {}): {}",
+                        code,
+                        e.message()
+                    ))
                 }
-                return Err(format!("Direct I/O 读取失败: {}", err));
             }
-            Ok(actual_read as usize)
-        } else {
-            Ok(bytes_read as usize)
         }
     }
 

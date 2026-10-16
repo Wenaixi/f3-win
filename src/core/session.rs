@@ -319,13 +319,36 @@ impl H2wSession {
                             ));
                         }
                     }
-                    Err(_) => {
-                        // 磁盘已写满是 f3write 正常的终止条件
-                        file_full = true;
-                        if file_offset > 0 {
-                            let _ = direct_file.truncate_to(file_offset);
+                    Err(e) => {
+                        // 精准判断是否为磁盘已满: 错误码 112 (ERROR_DISK_FULL) 或 39 (ERROR_HANDLE_DISK_FULL)
+                        let is_disk_full = e.contains("112")
+                            || e.contains("39")
+                            || e.contains("空间不足")
+                            || e.contains("disk full");
+
+                        if is_disk_full {
+                            file_full = true;
+                            if file_offset > 0 {
+                                let _ = direct_file.truncate_to(file_offset);
+                            }
+                            break;
+                        } else {
+                            // 底层遇到真实物理坏道 (23)、设备断开掉盘 (1117) 或写保护，必须立刻报告失败并中止！
+                            let _ = tx.send(self.make_telemetry(
+                                H2wPhase::Failed,
+                                file_index + 1,
+                                None,
+                                total_written,
+                                target_free_bytes,
+                                0.0,
+                                0,
+                                BlockStats::default(),
+                                None,
+                                true,
+                                Some(format!("写入中途发生物理 I/O 故障: {}", e)),
+                            ));
+                            return false;
                         }
-                        break;
                     }
                 }
             }
@@ -498,7 +521,8 @@ impl H2wSession {
         }
 
         // 校验完毕后由后台线程无缝执行自动清理 (避免阻塞 UI 主线程)
-        if self.config.auto_cleanup && stats.bad == 0 {
+        // 防伪维权保护守卫：只有在 100% 全绿正品盘 (未发生任何坏道、未发生任何回绕覆写且未发生位翻转) 时才允许自动清理！
+        if self.config.auto_cleanup && stats.bad == 0 && stats.overwritten == 0 && stats.changed == 0 {
             let _ = tx.send(self.make_telemetry(
                 H2wPhase::CleaningUp,
                 total_files,
