@@ -198,8 +198,8 @@
   - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-x86_64-pc-windows-msvc.zip (1m 45s)
   - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-aarch64-pc-windows-msvc.zip (2m 11s)
 - 产物详情与验证：
-  - Windows x64 二进制：f3-win.exe (约 3,110,912 字节，时间戳 2026-10-16T20:05:03.813Z)
-  - Windows ARM64 二进制：f3-win-arm64.exe (约 2,969,600 字节)
+  - Windows x64 二进制：f3-win.exe (精确 3,139,584 字节, SHA-256: B98A2B4CE833CBDDD7B17401A1D14595549EA2D09F0DE45D79E7804A2BD3F141，时间戳 2026-10-16T20:05:03.813Z)
+  - Windows ARM64 二进制：f3-win-arm64.exe (精确 2,993,664 字节, SHA-256: 7FCA4123155C3D3CB9F1C94B1E4ED3F3B67F5ECB4D1D5D5BAC10217FE3C5D319)
   - 进程安全与热更新：严格遵守不停止、不干扰任何已有进程铁律，通过 Windows 原生更名热替换机制成功安全部署就位
 
 ### 现代防伪凭证中枢与深层容灾大成版交付记录 (2026-10-17 多子代理深度加固)
