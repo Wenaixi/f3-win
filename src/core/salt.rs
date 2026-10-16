@@ -6,7 +6,7 @@ use windows::core::PCWSTR;
 use windows::Win32::Storage::FileSystem::GetVolumeInformationW;
 
 /// 单个驱动器的加盐防伪记录
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub struct SaltRecord {
     pub drive_path: String,
     pub volume_serial: Option<u32>,
@@ -15,16 +15,14 @@ pub struct SaltRecord {
     pub updated_at: u64,
 }
 
-/// 现代防伪凭证注册表 (存储在 exe 同级目录下，物理隔离防固件窥探)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+/// 现代防伪凭证注册表 (存储在 exe 同级目录下，纯标准库无外部依赖)
+#[derive(Debug, Clone, Default)]
 pub struct SaltRegistry {
-    pub version: u32,
-    /// 键为卷序列号的十六进制或盘符大写字符串
     pub records: HashMap<String, SaltRecord>,
 }
 
 impl SaltRegistry {
-    const REGISTRY_FILENAME: &'static str = "f3_salt_registry.json";
+    const REGISTRY_FILENAME: &'static str = "f3_salt_registry.txt";
 
     /// 获取 exe 所在目录下的注册表文件完整路径
     pub fn get_registry_path() -> PathBuf {
@@ -38,41 +36,59 @@ impl SaltRegistry {
     /// 从 exe 同级目录加载注册表
     pub fn load() -> Self {
         let path = Self::get_registry_path();
+        let mut registry = Self {
+            records: HashMap::new(),
+        };
+
         if !path.exists() {
-            return Self {
-                version: 1,
-                records: HashMap::new(),
-            };
+            return registry;
         }
 
-        match File::open(&path) {
-            Ok(mut f) => {
-                let mut content = String::new();
-                if f.read_to_string(&mut content).is_ok() {
-                    serde_json::from_str(&content).unwrap_or_else(|_| Self {
-                        version: 1,
-                        records: HashMap::new(),
-                    })
-                } else {
-                    Self {
-                        version: 1,
-                        records: HashMap::new(),
+        if let Ok(mut f) = File::open(&path) {
+            let mut content = String::new();
+            if f.read_to_string(&mut content).is_ok() {
+                for line in content.lines() {
+                    let parts: Vec<&str> = line.trim().split('|').collect();
+                    if parts.len() >= 5 {
+                        let key = parts[0].to_string();
+                        let drive_path = parts[1].to_string();
+                        let serial = parts[2].parse::<u32>().ok();
+                        let salt = parts[3].parse::<u64>().unwrap_or(0);
+                        let salt_hex = parts[4].to_string();
+                        let updated_at = parts.get(5).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+
+                        registry.records.insert(
+                            key,
+                            SaltRecord {
+                                drive_path,
+                                volume_serial: serial,
+                                salt,
+                                salt_hex,
+                                updated_at,
+                            },
+                        );
                     }
                 }
             }
-            Err(_) => Self {
-                version: 1,
-                records: HashMap::new(),
-            },
         }
+
+        registry
     }
 
     /// 将注册表原子持久化落盘至 exe 同级目录下
     pub fn save(&self) -> Result<(), String> {
         let path = Self::get_registry_path();
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("序列化 Salt 注册表失败: {}", e))?;
+        let mut lines = Vec::new();
 
+        for (k, r) in &self.records {
+            let serial_str = r.volume_serial.map(|s| s.to_string()).unwrap_or_default();
+            lines.push(format!(
+                "{}|{}|{}|{}|{}|{}",
+                k, r.drive_path, serial_str, r.salt, r.salt_hex, r.updated_at
+            ));
+        }
+
+        let content = lines.join("\n");
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -80,7 +96,7 @@ impl SaltRegistry {
             .open(&path)
             .map_err(|e| format!("打开 Salt 注册表文件失败 ({:?}): {}", path, e))?;
 
-        file.write_all(json.as_bytes())
+        file.write_all(content.as_bytes())
             .map_err(|e| format!("写入 Salt 注册表失败: {}", e))?;
         file.flush()
             .map_err(|e| format!("冲刷 Salt 注册表失败: {}", e))?;
@@ -192,19 +208,16 @@ impl SaltRegistry {
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_salt_registry_serde() {
-        let mut reg = SaltRegistry {
-            version: 1,
-            records: HashMap::new(),
-        };
-
+    fn test_salt_registry_roundtrip() {
+        let mut reg = SaltRegistry::default();
         reg.records.insert(
-            "TEST_SERIAL".to_string(),
+            "TEST_KEY".to_string(),
             SaltRecord {
                 drive_path: "G:\\".to_string(),
                 volume_serial: Some(0x1234_5678),
@@ -214,12 +227,15 @@ mod tests {
             },
         );
 
-        let json = serde_json::to_string(&reg).expect("序列化必须成功");
-        let restored: SaltRegistry = serde_json::from_str(&json).expect("反序列化必须成功");
-
-        assert_eq!(restored.records.len(), 1);
-        let rec = restored.records.get("TEST_SERIAL").unwrap();
-        assert_eq!(rec.salt, 0xAABB_CCDD_EEFF_0011);
-        assert_eq!(rec.volume_serial, Some(0x1234_5678));
+        let mut lines = Vec::new();
+        for (k, r) in &reg.records {
+            let serial_str = r.volume_serial.map(|s| s.to_string()).unwrap_or_default();
+            lines.push(format!(
+                "{}|{}|{}|{}|{}|{}",
+                k, r.drive_path, serial_str, r.salt, r.salt_hex, r.updated_at
+            ));
+        }
+        let content = lines.join("\n");
+        assert!(content.contains("0xAABBCCDDEEFF0011"));
     }
 }

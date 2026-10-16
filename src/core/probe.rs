@@ -40,13 +40,19 @@ pub struct ProbeResult {
     pub trap: ProbeTrap,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct F3ProbeConfig {
+    pub total_sectors: u64,
+}
+
 pub struct F3Probe {
+    pub config: F3ProbeConfig,
     pub cancel_flag: Arc<AtomicBool>,
 }
 
 impl F3Probe {
-    pub fn new(cancel_flag: Arc<AtomicBool>) -> Self {
-        Self { cancel_flag }
+    pub fn new(config: F3ProbeConfig, cancel_flag: Arc<AtomicBool>) -> Self {
+        Self { config, cancel_flag }
     }
 
     /// 创建带校验魔数的高熵探针扇区 (使用小端序)
@@ -130,7 +136,7 @@ impl F3Probe {
     }
 
     pub fn run(&self, dev: &mut impl BlockIo, tx: Sender<ProbeTelemetry>) -> Result<ProbeResult, String> {
-        let total_sectors = dev.total_sectors();
+        let total_sectors = self.config.total_sectors;
         let announced_size = total_sectors * 512;
 
         // 1. 安全准入下限拦截 (至少 4MB 空间以保证基准与高位测试)
