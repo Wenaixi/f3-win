@@ -38,7 +38,7 @@ impl Default for AppState {
             inventory: StorageInventory::new(),
             controller: EngineController::new(),
             salt: 0,
-            use_random_salt: false,
+            use_random_salt: true, // 默认开启单向安全加盐，开箱即防算力回放作弊
             chunk_size_mb: 1,
             start_file_num: 0,
             end_file_num: None,

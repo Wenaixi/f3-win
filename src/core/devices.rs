@@ -227,10 +227,19 @@ impl PhysicalDeviceInfo {
         let product_id = extract_sz(&buffer, desc.ProductIdOffset as usize);
         let serial = extract_sz(&buffer, desc.SerialNumberOffset as usize);
 
-        // 安全判定：只有外部移动介质且非系统主盘才算安全测试目标
-        let is_safe = (bus_type.is_removable_bus() || is_removable) && index != 0;
+        // 读取系统引导盘符 (默认 C:)
+        let sys_drive = std::env::var("SystemDrive")
+            .ok()
+            .and_then(|s| s.chars().next())
+            .unwrap_or('C')
+            .to_ascii_uppercase();
+
+        let contains_system_drive = mounted_volumes.iter().any(|&c| c.to_ascii_uppercase() == sys_drive);
+
+        // 安全判定：只有外部移动介质、非 0 号磁盘且不包含系统引导卷 (C:) 才算安全测试目标
+        let is_safe = (bus_type.is_removable_bus() || is_removable) && index != 0 && !contains_system_drive;
         let warning = if !is_safe {
-            Some("系统内部固定磁盘已硬隔离锁定，严禁运行破坏性扇区探测".to_string())
+            Some("系统内部磁盘或引导盘已硬隔离锁定，严禁运行破坏性扇区探测".to_string())
         } else {
             None
         };

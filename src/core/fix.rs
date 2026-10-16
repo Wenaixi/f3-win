@@ -156,16 +156,15 @@ impl F3FixPlan {
     // 生成标准的 Windows diskpart 脚本内容
     pub fn generate_diskpart_script(&self) -> String {
         format!(
-            "# F3-Win 自动生成的安全分区修复脚本\n\
-            # 原始标称容量: {} 字节 ({:.2} GB)\n\
-            # 真实物理容量: {} 字节 ({:.2} GB)\n\
-            # 安全截断分区: {} MB\n\
+            "REM F3-Win 自动生成的安全分区修复脚本\n\
+            REM 原始标称容量: {} 字节 ({:.2} GB)\n\
+            REM 真实物理容量: {} 字节 ({:.2} GB)\n\
+            REM 安全截断分区: {} MB\n\
             select disk {}\n\
             clean\n\
             create partition primary size={}\n\
             format fs={} quick\n\
-            assign\n\
-            active\n",
+            assign\n",
             self.announced_bytes,
             self.announced_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
             self.real_bytes,

@@ -37,7 +37,10 @@ impl eframe::App for F3App {
         }
         self.prev_status = snapshot.status;
 
-        ctx.request_repaint(); // 保证动画与采样平滑
+        // 仅在任务处于运行中状态时高频请求重绘采样，任务空闲时静默休眠节能
+        if snapshot.status == TaskStatus::Running {
+            ctx.request_repaint();
+        }
 
         egui::TopBottomPanel::top("top_nav").show(ctx, |ui| {
             ui.horizontal(|ui| {

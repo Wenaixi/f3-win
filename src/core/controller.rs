@@ -1,3 +1,15 @@
+// 扇区状态严重度权重 (Bad > Overwritten > Changed > Good > Untested)
+#[inline]
+fn state_severity(state: BlockState) -> u8 {
+    match state {
+        BlockState::Bad => 4,
+        BlockState::Overwritten => 3,
+        BlockState::Changed => 2,
+        BlockState::Good => 1,
+        BlockState::Untested => 0,
+    }
+}
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -225,7 +237,9 @@ impl EngineController {
     pub fn poll(&mut self) -> &TaskSnapshot {
         // 1. 处理 H2W 会话消息
         if let Some(rx) = self.h2w_rx.clone() {
-            while let Ok(msg) = rx.try_recv() {
+            loop {
+                match rx.try_recv() {
+                    Ok(msg) => {
                 self.snapshot.total_bytes_processed = msg.bytes_processed;
                 self.snapshot.current_speed_mb = msg.speed_bps / (1024.0 * 1024.0);
                 self.snapshot.eta_seconds = msg.eta_seconds;
@@ -233,7 +247,12 @@ impl EngineController {
 
                 if let Some((idx, state_val)) = msg.heatmap_sample {
                     if idx < self.snapshot.heatmap_blocks.len() {
-                        self.snapshot.heatmap_blocks[idx] = state_val;
+                        // 严重度单调递增原则：低严重度状态不得覆盖已有高严重度异常状态
+                        let current_sev = state_severity(self.snapshot.heatmap_blocks[idx]);
+                        let new_sev = state_severity(state_val);
+                        if new_sev >= current_sev {
+                            self.snapshot.heatmap_blocks[idx] = state_val;
+                        }
                     }
                 }
 
