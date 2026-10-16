@@ -48,8 +48,10 @@
 ## 交付状态与成果记录
 - 远程仓库：https://github.com/Wenaixi/f3-win
 - 编译约束落实：严格遵守「严禁本地编译」铁律，本地零编译器运行，全量构建 100% 由 GitHub Actions 云端接管
-- 最新 CI 验证运行：Run ID 38778382190 (Status: completed success，全量 15 项单元测试 100% 满分通过)
-  - Code Quality & Unit Tests：全部 15 项单元测试全部通过 (3m 37s)
+- 最新 CI 验证运行：Run ID 38920697256 (Status: completed success，全量 26 项单元测试 100% 满分全绿通过)
+  - Code Quality & Unit Tests：全部 26 项单元测试全部通过 (2m 11s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成发布二进制产物 f3-win-x86_64-pc-windows-msvc (2m 38s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成发布二进制产物 f3-win-aarch64-pc-windows-msvc (2m 34s)
   - Release 产物 (x86_64-pc-windows-msvc)：f3-win-x86_64-pc-windows-msvc.zip (~1.65 MB, 部署产物 f3-win.exe 3,106,816 字节)
   - Release 产物 (aarch64-pc-windows-msvc)：f3-win-aarch64-pc-windows-msvc.zip (~1.60 MB, 部署产物 f3-win-arm64.exe 2,965,504 字节)
 - 架构验证指标：Direct I/O 驱动无缓冲绕过、SIMD/无对齐安全读写、硬件总线 USB/SD 隔离锁均已全量就绪
