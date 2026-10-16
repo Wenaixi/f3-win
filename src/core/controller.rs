@@ -59,6 +59,7 @@ pub struct TaskSnapshot {
     pub heatmap_blocks: Vec<BlockState>,
     pub probe_result: Option<ProbeTelemetry>,
     pub fix_plan: Option<F3FixPlan>,
+    pub report: Option<DiagnosticReport>,
     pub error: Option<String>,
 }
 

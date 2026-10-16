@@ -9,7 +9,7 @@ use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 use crate::core::algo::{fill_sectors, validate_sectors, BlockState, BlockStats, SECTOR_SIZE};
 use crate::core::aligned_buf::AlignedBuffer;
 use crate::core::direct_io::DirectIoFile;
-use crate::core::speed::{SpeedPhysiologySnapshot, SpeedPhysiologyTracker};
+use crate::core::speed::SpeedPhysiologySnapshot;
 
 pub const GIGABYTE: u64 = 1024 * 1024 * 1024; // 1 GiB 标准分卷
 pub const DEFAULT_CHUNK_SIZE: usize = 1024 * 1024; // 默认 1MB 块大小
@@ -221,6 +221,12 @@ impl H2wSession {
                     heatmap_sample: None,
                     is_finished: true,
                     error: Some(e),
+                    duration_seconds: 0.0,
+                    physiology: None,
+                    first_error_offset: None,
+                    first_error_file: None,
+                    first_error_expected: None,
+                    first_error_actual: None,
                 });
                 return;
             }
@@ -651,6 +657,12 @@ impl H2wSession {
             heatmap_sample,
             is_finished,
             error,
+            duration_seconds: 0.0,
+            physiology: None,
+            first_error_offset: None,
+            first_error_file: None,
+            first_error_expected: None,
+            first_error_actual: None,
         }
     }
 }

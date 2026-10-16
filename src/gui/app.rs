@@ -3,7 +3,7 @@ use eframe::egui::{self, Color32, ProgressBar, RichText};
 
 use crate::core::controller::{TaskSnapshot, TaskStatus};
 use crate::core::fix::SafePartitionFixer;
-use crate::core::session::{H2wConfig, H2wMode};
+use crate::core::session::{H2wConfig, H2wMode, H2wTelemetry};
 use crate::core::salt::SaltRegistry;
 use crate::core::report::DiagnosticReport;
 use crate::gui::components::device_selector::{

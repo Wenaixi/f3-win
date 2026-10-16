@@ -1,9 +1,40 @@
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use crate::core::devices::PhysicalDeviceInfo;
-use crate::core::session::{BlockStats, H2wMode, H2wTelemetry};
+use crate::core::algo::BlockStats;
+use crate::core::session::{H2wMode, H2wTelemetry};
 use crate::core::speed::SpeedPhysiologySnapshot;
+
+/// 审计报告模式类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuditKind {
+    /// 独立写入性能与 SLC 掉速生理审计
+    WriteOnly,
+    /// 独立读取校验与微观比特失配现场审计
+    VerifyOnly,
+    /// 写入与读取双阶段完整汇总存证审计
+    Comprehensive,
+}
+
+impl AuditKind {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            AuditKind::WriteOnly => "写入性能与 SLC 掉速独立审计报告",
+            AuditKind::VerifyOnly => "读取校验与微观失配独立审计报告",
+            AuditKind::Comprehensive => "闪存介质物理容量真实性司法鉴定级汇总存证报告",
+        }
+    }
+}
+
+/// 报告导出格式
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportFormat {
+    /// 标准 GitHub 风格 Markdown 格式
+    Markdown,
+    /// 纯文本 TXT 格式 (带 ASCII 表格与分割线，适合案卷打印与无渲染器环境)
+    PlainText,
+}
 
 /// 芯片与硬件物理推断诊断结果
 #[derive(Debug, Clone)]
@@ -17,6 +48,7 @@ pub struct HardwareInference {
 /// 法庭级闪存欺诈鉴定与存证报告
 #[derive(Debug, Clone)]
 pub struct DiagnosticReport {
+    pub audit_kind: AuditKind,
     pub tool_name: String,
     pub tool_version: String,
     pub os_version: String,
@@ -69,7 +101,61 @@ pub struct DiagnosticReport {
 }
 
 impl DiagnosticReport {
+    /// 统一构建方法 (自动根据遥测模式判断审计类型，保持向后兼容)
     pub fn build(
+        device: Option<&PhysicalDeviceInfo>,
+        volume_serial: Option<u32>,
+        target_path: &Path,
+        telemetry: &H2wTelemetry,
+        salt: u64,
+        physiology: Option<SpeedPhysiologySnapshot>,
+    ) -> Self {
+        let kind = match telemetry.mode {
+            H2wMode::Write => AuditKind::WriteOnly,
+            H2wMode::Verify => AuditKind::VerifyOnly,
+            H2wMode::WriteAndVerify => AuditKind::Comprehensive,
+        };
+        Self::build_with_kind(kind, device, volume_serial, target_path, telemetry, salt, physiology)
+    }
+
+    /// 独立写入测试报告工厂方法
+    pub fn build_write_audit(
+        device: Option<&PhysicalDeviceInfo>,
+        volume_serial: Option<u32>,
+        target_path: &Path,
+        telemetry: &H2wTelemetry,
+        salt: u64,
+        physiology: Option<SpeedPhysiologySnapshot>,
+    ) -> Self {
+        Self::build_with_kind(AuditKind::WriteOnly, device, volume_serial, target_path, telemetry, salt, physiology)
+    }
+
+    /// 独立读取校验报告工厂方法
+    pub fn build_verify_audit(
+        device: Option<&PhysicalDeviceInfo>,
+        volume_serial: Option<u32>,
+        target_path: &Path,
+        telemetry: &H2wTelemetry,
+        salt: u64,
+        physiology: Option<SpeedPhysiologySnapshot>,
+    ) -> Self {
+        Self::build_with_kind(AuditKind::VerifyOnly, device, volume_serial, target_path, telemetry, salt, physiology)
+    }
+
+    /// 写入与读取双阶段汇总存证报告工厂方法
+    pub fn build_comprehensive(
+        device: Option<&PhysicalDeviceInfo>,
+        volume_serial: Option<u32>,
+        target_path: &Path,
+        telemetry: &H2wTelemetry,
+        salt: u64,
+        physiology: Option<SpeedPhysiologySnapshot>,
+    ) -> Self {
+        Self::build_with_kind(AuditKind::Comprehensive, device, volume_serial, target_path, telemetry, salt, physiology)
+    }
+
+    fn build_with_kind(
+        audit_kind: AuditKind,
         device: Option<&PhysicalDeviceInfo>,
         volume_serial: Option<u32>,
         target_path: &Path,
@@ -82,8 +168,8 @@ impl DiagnosticReport {
         let drive_str = target_path.to_string_lossy().to_string();
         let announced_bytes = device.map(|d| d.total_bytes).unwrap_or(telemetry.total_bytes_expected);
 
-        let is_write = telemetry.mode == H2wMode::Write;
-        let is_verify = telemetry.mode == H2wMode::Verify || telemetry.mode == H2wMode::WriteAndVerify;
+        let is_write = audit_kind == AuditKind::WriteOnly || audit_kind == AuditKind::Comprehensive;
+        let is_verify = audit_kind == AuditKind::VerifyOnly || audit_kind == AuditKind::Comprehensive;
         let total_corrupted = telemetry.stats.bad + telemetry.stats.overwritten + telemetry.stats.changed;
         let is_fake = telemetry.stats.overwritten > 0 || (is_verify && total_corrupted > 0);
 
@@ -127,6 +213,7 @@ impl DiagnosticReport {
         );
 
         Self {
+            audit_kind,
             tool_name: "F3-Win 闪存检测终端".to_string(),
             tool_version: "v0.1.0-Release (Win32 Direct I/O 特权版)".to_string(),
             os_version: "Microsoft Windows NT (内核特权模式)".to_string(),
@@ -326,7 +413,7 @@ impl DiagnosticReport {
             doc.push_str("关于购买伪劣扩容U盘构成欺诈的主张书与法律意见陈述\n\n");
             doc.push_str("致：[平台客服介入团队 / 消费者协会仲裁庭 / 人民法院审判长]\n\n");
             doc.push_str(&format!("申请人对购买的存储介质（卷序列号: {}，硬件标识: {} {}）进行了国家司法鉴定通用规范认可的底层无缓冲直接物理 I/O (Win32 Direct I/O) 逐扇区比特级测试。\n\n", serial_hex, self.vendor_id, self.product_id));
-            doc.push_str(&format!("鉴定结果显示：该设备标称销售容量为 {:.2} GB，然而自物理偏移量 0x{:016X} ({:.2} GB) 开始即发生系统性数据覆写与损坏，经严密验证其实际物理可用容量仅为 {:.2} GB，虚假扩容比例高达 {:.2}%。该行为系典型的通过篡改主控固件、以次充好的商业欺诈行为。\n\n", gb(self.announced_bytes), self.first_error_offset.unwrap_or(self.real_usable_bytes), gb(self.real_usable_bytes), self.fake_ratio_pct));
+            doc.push_str(&format!("鉴定结果显示：该设备标称销售容量为 {:.2} GB，然而自物理偏移量 0x{:016X} ({:.2} GB) 开始即发生系统性数据覆写与损坏，经严密验证其实际物理可用容量仅为 {:.2} GB，虚假扩容比例高达 {:.2}%。该行为系典型的通过篡改主控固件、以次充好的商业欺诈行为。\n\n", gb(self.announced_bytes), self.first_error_offset.unwrap_or(self.real_usable_bytes), gb(self.first_error_offset.unwrap_or(self.real_usable_bytes)), gb(self.real_usable_bytes), self.fake_ratio_pct));
             doc.push_str("依据《中华人民共和国民法典》第一百四十八条及《中华人民共和国消费者权益保护法》第五十五条第一款规定：\n");
             doc.push_str("“经营者提供商品或者服务有欺诈行为的，应当按照消费者的要求增加赔偿其受到的损失，增加赔偿的金额为消费者购买商品的价款或者接受服务的费用的三倍；增加赔偿的金额不足五百元的，为五百元。”\n\n");
             doc.push_str("申请人据此正式要求：\n");
@@ -415,6 +502,8 @@ mod tests {
             first_error_file: Some(8),
             first_error_expected: Some([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]),
             first_error_actual: Some([0; 16]),
+            total_files: Some(64),
+            physiology: None,
         };
 
         let report = DiagnosticReport::build(
