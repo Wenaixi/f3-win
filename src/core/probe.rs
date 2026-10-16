@@ -107,7 +107,16 @@ impl F3Probe {
 
         while power < total_sectors {
             if self.cancel_flag.load(Ordering::Relaxed) {
-                break;
+                let _ = tx.send(ProbeTelemetry {
+                    current_phase: "探测已由用户中止".to_string(),
+                    progress_pct: 1.0,
+                    announced_size_bytes: announced_size,
+                    real_size_bytes: 0,
+                    is_fake: false,
+                    is_finished: true,
+                    error: Some("用户取消了探测操作".to_string()),
+                });
+                return;
             }
 
             let test_sec = power + ref_sec;
