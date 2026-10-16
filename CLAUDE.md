@@ -179,3 +179,15 @@
    - 同步句柄彻底移除 GetOverlappedResult，直取 GetLastError() 真实硬件错误码。
    - 严格区分 ERROR_DISK_FULL (112) 与真实硬件故障 (1117 / 23)，杜绝意外掉盘虚假上报“测试成功”。
    - 自动清理增加防伪守卫：存在 overwritten / changed 扇区时严禁删除测试文件，完整保留假盘维权证据。
+
+### 终极防伪与容灾加固大成版交付记录 (Run 38933445641)
+- 产物详情与流水线指标：
+  - 流水线状态：Run ID 38933445641 (Status: completed success，全量 31 项深度单元测试 100% 满分全绿通过)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部 31 项单元测试 (2m 51s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-x86_64-pc-windows-msvc (2m 6s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-aarch64-pc-windows-msvc (2m 15s)
+- 核心攻防与架构飞跃：
+  1. 单向雪崩置换绝杀模逆元算力回放：实现 one_way_seed 非线性单向置换，Salt 绝不落盘；当 salt == 0 时保持原版 F3/H2testw 100% 逐比特向后兼容，当 salt != 0 时击穿模逆元 0x6789abcdeeeeeeef 算力回放作弊，信息论强制假盘必须真实落盘。
+  2. 双向对流探针彻底终结位黑洞与回绕漏报：在每个指数跳跃阶梯先写高位专属探针再深度排空 32MB 缓存，高位读回防位黑洞丢弃、低位读回防物理回绕覆盖，并设置小于 2MB 安全熔断保护扇区 0 (MBR)。
+  3. Win32 Direct I/O 同步错误直取与假盘证据保护：彻底剔除非重叠同步句柄上的 GetOverlappedResult 误用，直取真实 Win32 硬件错误码；写入循环精准区分磁盘写满 (112/39) 与硬件掉盘 (1117/23)；自动清理增加防伪守卫 (overwritten > 0 假盘严禁删除测试文件，完整保留维权凭据)。
+  4. 状态机自愈与系统盘绝对安全绝缘：poll() 捕获管道 Disconnected 异常防止 Worker 崩溃导致 UI 按钮永久置灰卡死；热力图采样严重度单调递增保持；StorageTarget 对系统引导卷 (C:) 实施一票否决；规范 diskpart 语法为 REM 并移除多余 active；默认开启单向安全加盐，空闲时静默休眠节能。
