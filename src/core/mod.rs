@@ -7,3 +7,6 @@ pub mod devices;
 pub mod session;
 pub mod controller;
 pub mod salt;
+
+pub mod speed;
+pub mod report;

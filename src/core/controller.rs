@@ -77,6 +77,7 @@ impl Default for TaskSnapshot {
             heatmap_blocks: vec![BlockState::Untested; 1000],
             probe_result: None,
             fix_plan: None,
+            report: None,
             error: None,
         }
     }
@@ -384,6 +385,7 @@ impl EngineController {
         // 关键修复 2: 彻底清空上一任务遗留的幽灵探测结果与修复计划，防止误格正常盘
         self.snapshot.probe_result = None;
         self.snapshot.fix_plan = None;
+        self.snapshot.report = None;
         self.active_probe_disk_index = None;
         self.start_instant = None;
 

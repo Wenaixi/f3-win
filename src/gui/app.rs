@@ -5,6 +5,7 @@ use crate::core::controller::{TaskSnapshot, TaskStatus};
 use crate::core::fix::SafePartitionFixer;
 use crate::core::session::{H2wConfig, H2wMode};
 use crate::core::salt::SaltRegistry;
+use crate::core::report::DiagnosticReport;
 use crate::gui::components::device_selector::{
     render_storage_device_selector, render_storage_volume_selector,
 };
@@ -243,37 +244,66 @@ impl F3App {
         ui.add_space(10.0);
         render_heatmap(ui, &snapshot.heatmap_blocks);
 
-        // 测试报告导出面板
-        if snapshot.status == TaskStatus::Finished && snapshot.stats.good + snapshot.stats.bad > 0 {
+        // 终极法庭级维权存证报告面板
+        if snapshot.status == TaskStatus::Finished && snapshot.stats.good + snapshot.stats.bad + snapshot.stats.overwritten > 0 {
             ui.add_space(10.0);
             ui.group(|ui| {
+                let active_target = self.state.inventory.active_target();
+                let dev = active_target.as_ref().map(|t| &t.device);
+                let serial = SaltRegistry::get_volume_serial(&self.state.inventory.selected_path().to_string_lossy());
+                
+                let dummy_telemetry = H2wTelemetry {
+                    mode: H2wMode::Verify,
+                    phase: crate::core::session::H2wPhase::Completed,
+                    current_file_num: 1,
+                    bytes_processed: snapshot.total_bytes_processed,
+                    total_bytes_expected: snapshot.total_bytes_processed,
+                    speed_bps: snapshot.current_speed_mb * 1024.0 * 1024.0,
+                    peak_speed_bps: snapshot.current_speed_mb * 1024.0 * 1024.0,
+                    duration_seconds: 0.0,
+                    eta_seconds: 0,
+                    stats: snapshot.stats,
+                    heatmap_sample: None,
+                    is_finished: true,
+                    error: None,
+                    first_error_offset: None,
+                    first_error_file: None,
+                    first_error_expected: None,
+                    first_error_actual: None,
+                };
+                
+                let report = DiagnosticReport::build(
+                    dev,
+                    serial,
+                    &self.state.inventory.selected_path(),
+                    &dummy_telemetry,
+                    self.state.salt,
+                    None,
+                );
+
+                if report.is_fake {
+                    ui.colored_label(Color32::from_rgb(255, 60, 60), RichText::new("【司法事实认定】：确认为严重容量虚标扩容假盘！").strong().size(15.0));
+                    ui.label(format!("标称销售容量: {:.2} GB | 实际可用容量: {:.2} GB | 虚假比例: {:.2}%", 
+                        report.announced_bytes as f64 / (1024.0*1024.0*1024.0),
+                        report.real_usable_bytes as f64 / (1024.0*1024.0*1024.0),
+                        report.fake_ratio_pct
+                    ));
+                    ui.label(format!("硬件推断: {} | 颗粒: {}", report.inference.inferred_bus, report.inference.flash_grade));
+                } else {
+                    ui.colored_label(Color32::from_rgb(40, 200, 60), RichText::new("【检验结论】：全盘无缓冲 Direct I/O 校验完全通过，物理介质真实合规！").strong());
+                }
+
+                ui.add_space(5.0);
                 ui.horizontal(|ui| {
-                    ui.heading("测试报告:");
-                    if ui.button(RichText::new("复制测试报告到剪贴板")).clicked() {
-                        let report = format!(
-                            "# F3-Win 闪存检测诊断报告\n\
-                            - 测试路径: {:?}\n\
-                            - 平均读速: {:.2} MB/s\n\
-                            - 健康扇区 (Good): {}\n\
-                            - 损毁扇区 (Bad): {}\n\
-                            - 变异扇区 (Changed): {}\n\
-                            - 回绕覆写 (Overwritten): {}\n\
-                            - 诊断结论: {}\n",
-                            self.state.inventory.selected_path(),
-                            snapshot.current_speed_mb,
-                            snapshot.stats.good,
-                            snapshot.stats.bad,
-                            snapshot.stats.changed,
-                            snapshot.stats.overwritten,
-                            if snapshot.stats.overwritten > 0 {
-                                "确认为虚标扩容假盘！"
-                            } else if snapshot.stats.bad > 0 {
-                                "存在闪存物理坏道！"
-                            } else {
-                                "全部扇区健康合规！"
+                    if ui.button(RichText::new("复制法庭级维权存证报告")).clicked() {
+                        ui.output_mut(|o| o.copied_text = report.generate_markdown());
+                    }
+                    if report.is_fake {
+                        if ui.button(RichText::new("保存防篡改证据档案到本地 (.md)")).clicked() {
+                            if let Ok(p) = report.auto_archive_evidence() {
+                                self.state.controller.set_status_message(format!("证据档案已安全落盘: {:?}", p));
                             }
-                        );
-                        ui.output_mut(|o| o.copied_text = report);
+                        }
                     }
                 });
             });

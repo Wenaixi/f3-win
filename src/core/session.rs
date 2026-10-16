@@ -60,10 +60,15 @@ pub struct H2wConfig {
 
 // 统一的平滑速率与 ETA 状态机 (消除双端重复采样计算样板代码)
 struct ProgressTracker {
-    start_time: Instant,
+    pub start_time: Instant,
     last_sample_time: Instant,
     last_sample_bytes: u64,
     target_bytes: u64,
+    pub peak_speed_bps: f64,
+    pub valley_speed_bps: f64,
+    pub slc_cliff_bytes: Option<u64>,
+    pub freeze_count: u32,
+    pub total_freeze_secs: f64,
 }
 
 impl ProgressTracker {
@@ -74,6 +79,11 @@ impl ProgressTracker {
             last_sample_time: now,
             last_sample_bytes: 0,
             target_bytes,
+            peak_speed_bps: 0.0,
+            valley_speed_bps: f64::MAX,
+            slc_cliff_bytes: None,
+            freeze_count: 0,
+            total_freeze_secs: 0.0,
         }
     }
 
@@ -81,6 +91,32 @@ impl ProgressTracker {
         let elapsed = self.last_sample_time.elapsed().as_secs_f64();
         if elapsed >= 0.3 {
             let speed = (current_bytes - self.last_sample_bytes) as f64 / elapsed;
+            let total_elapsed = self.start_time.elapsed().as_secs_f64();
+
+            // 统计最高峰值速度
+            if speed > self.peak_speed_bps {
+                self.peak_speed_bps = speed;
+            }
+
+            // 统计最低谷底速度 (跳过启动最初 1.5 秒的冷启动阶段)
+            if total_elapsed > 1.5 {
+                if speed < self.valley_speed_bps {
+                    self.valley_speed_bps = speed;
+                }
+                // 统计严重卡顿停顿 (瞬时速度低于 1MB/s 视为硬件 GC 死锁或总线挂起)
+                if speed < 1_000_000.0 {
+                    self.freeze_count += 1;
+                    self.total_freeze_secs += elapsed;
+                }
+            }
+
+            // 捕捉 SLC Cache 耗尽拐点：当峰值已大于 20MB/s 且当前速度跌落超过 60% 持续存在
+            if self.slc_cliff_bytes.is_none() && self.peak_speed_bps > 20_000_000.0 && total_elapsed > 3.0 {
+                if speed < self.peak_speed_bps * 0.4 {
+                    self.slc_cliff_bytes = Some(current_bytes);
+                }
+            }
+
             self.last_sample_time = Instant::now();
             self.last_sample_bytes = current_bytes;
             let eta = if speed > 50_000.0 && self.target_bytes > current_bytes {
@@ -407,6 +443,10 @@ impl H2wSession {
         let mut tracker = ProgressTracker::new(total_expected_bytes);
         let mut stats = BlockStats::default();
         let mut total_read = 0u64;
+        let mut first_error_offset: Option<u64> = None;
+        let mut first_error_file: Option<u64> = None;
+        let mut first_error_actual: Option<[u8; 16]> = None;
+        let mut first_error_expected: Option<[u8; 16]> = None;
 
         for (file_idx, (num, file_path)) in files.iter().enumerate() {
             if self.cancel_flag.load(Ordering::Relaxed) {
@@ -464,6 +504,26 @@ impl H2wSession {
                         let expected_offset = (*num * GIGABYTE) + file_offset;
                         let prev_stats = stats;
                         validate_sectors(&buf[..aligned], expected_offset, self.config.salt, &mut stats);
+
+                        // 首发失配故障物理微观现场取证捕获
+                        if first_error_offset.is_none() && (stats.bad > prev_stats.bad || stats.overwritten > prev_stats.overwritten || stats.changed > prev_stats.changed) {
+                            first_error_offset = Some(expected_offset);
+                            first_error_file = Some(*num);
+
+                            // 提取首个故障扇区前 16 字节的实际读回数据
+                            let mut actual_16 = [0u8; 16];
+                            if aligned >= 16 {
+                                actual_16.copy_from_slice(&buf[..16]);
+                            }
+                            first_error_actual = Some(actual_16);
+
+                            // 计算该扇区预期的首 16 字节数据
+                            let mut expected_buf = [0u8; 512];
+                            crate::core::algo::fill_sectors(&mut expected_buf, expected_offset, self.config.salt);
+                            let mut expected_16 = [0u8; 16];
+                            expected_16.copy_from_slice(&expected_buf[..16]);
+                            first_error_expected = Some(expected_16);
+                        }
 
                         let dominant = if stats.bad > prev_stats.bad {
                             BlockState::Bad

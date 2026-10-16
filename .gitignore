@@ -13,3 +13,7 @@
 // 临时文件
 *.diskpart
 *.tmp
+# F3-Win 运行时自动生成的存证注册表与证据档案
+f3_salt_registry.txt
+f3_salt_registry.json
+f3_evidence_*.md
