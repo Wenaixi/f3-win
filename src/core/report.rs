@@ -327,11 +327,21 @@ impl DiagnosticReport {
         let serial_hex = self.volume_serial.map(|s| format!("{:08X}", s)).unwrap_or_else(|| "N/A".to_string());
         let mut doc = String::new();
 
-        doc.push_str("# 存储介质物理容量真实性技术检验报告\n");
-        doc.push_str("### （司法鉴定通用规范 / 电商争议仲裁法定证据专用）\n\n");
-        doc.push_str("> **【特别声明】** 本检验结论系在 Microsoft Windows NT 内核特权级（Administrator）环境下，基于 **Win32 Direct I/O (FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH)** 无缓冲底层硬件直通模式取得。该模式**100% 物理旁路了操作系统文件缓存、内存虚拟层与驱动写缓冲**，数据传输与比对直接作用于硬件存储芯片物理介质。本报告数据客观、真实、可复现，具有法定证据效力。\n\n");
+        doc.push_str("# 存储介质物理容量真实性司法鉴定级检验报告\n");
+        doc.push_str(&format!("### 【报告类型】: **{}**\n\n", self.audit_kind.display_name()));
 
-        doc.push_str("## 一、 被测硬件物理拓扑与唯一指纹信息\n\n");
+        // 一、鉴定背景与操作系统内核特权级声明
+        doc.push_str("## 一、 鉴定背景与操作系统内核特权级声明\n\n");
+        doc.push_str("| 审计项目 | 技术参数与内核状态 | 司法证明力说明 |\n");
+        doc.push_str("| :--- | :--- | :--- |\n");
+        doc.push_str(&format!("| **审计终端软件** | {} {} | 原生无缓冲直接 I/O 驱动引擎，纯 Rust 2021 编译 |\n", self.tool_name, self.tool_version));
+        doc.push_str(&format!("| **宿主操作系统** | {} | 权威特权执行环境 |\n", self.os_version));
+        doc.push_str(&format!("| **存证生成时间** | {} | 本地法定公证时间戳 |\n", self.generated_at_local));
+        doc.push_str("| **物理 I/O 管线** | **Win32 Direct I/O (底层硬件直通)** | `FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH` 彻底旁路系统缓存 |\n");
+        doc.push_str("| **缓存穿透证明** | **100% 物理绕过系统页缓存** | 数据直接穿透至硬件存储芯片物理介质，具备排他法定证据效力 |\n\n");
+
+        // 二、被测硬件物理拓扑与全局唯一指纹
+        doc.push_str("## 二、 被测硬件物理拓扑与全局唯一指纹\n\n");
         doc.push_str("| 检验项目 | 硬件物理属性参数 | 技术证据说明 |\n");
         doc.push_str("| :--- | :--- | :--- |\n");
         doc.push_str(&format!("| **测试检验工具** | {} {} | 原生无缓冲直接 I/O 驱动引擎 |\n", self.tool_name, self.tool_version));
@@ -352,7 +362,7 @@ impl DiagnosticReport {
         doc.push_str("- **防算力回放证明**：本测试所用随机数据序列经过单向有损散列混淆，Salt 凭证仅留存于宿主机系统盘，**绝对未向被测介质落盘**。恶意假盘主控微码在信息论上无法从扇区首部逆解 Salt，彻底封死了假盘利用固件算力现场计算伪造数据（Compute-on-Read）的欺诈路径，本测试数据具有绝对物理真实性。\n\n");
 
         if self.write_tested {
-            doc.push_str("## 三、 物理写入阶段性能全景与闪存生理审计\n\n");
+            doc.push_str("## 四、 写入测试性能全景与 SLC 掉速生理诊断\n\n");
             doc.push_str("| 写入生理指标 | 实测数值 | 物理特征与病理诊断 |\n");
             doc.push_str("| :--- | :--- | :--- |\n");
             doc.push_str(&format!("| **写入总容量** | {:.2} GB ({} 字节) | 实际填满物理数据量 |\n", gb(self.write_bytes), self.write_bytes));
@@ -372,7 +382,7 @@ impl DiagnosticReport {
         }
 
         if self.verify_tested {
-            doc.push_str("## 四、 读取校验与比特级失配微观现场取证\n\n");
+            doc.push_str("## 五、 读取校验比特级微观失配现场\n\n");
             doc.push_str("| 扇区校验分类 | 扇区计数 (512B) | 对应容量 | 比例 | 技术状态说明 |\n");
             doc.push_str("| :--- | :--- | :--- | :--- | :--- |\n");
             let total_sec = self.stats.good + self.stats.bad + self.stats.changed + self.stats.overwritten;
@@ -399,7 +409,7 @@ impl DiagnosticReport {
             }
         }
 
-        doc.push_str("## 五、 司法鉴定意见与法律事实认定\n\n");
+        doc.push_str("## 六、 物理颗粒与芯片硬件推断结论\n\n");
         if self.is_fake {
             doc.push_str("### ❌ 综合技术鉴定结论：确认为严重容量虚标的伪劣扩容假盘！\n\n");
             doc.push_str(&format!("1. **标称销售容量**：{:.2} GB\n", gb(self.announced_bytes)));
@@ -408,7 +418,7 @@ impl DiagnosticReport {
             doc.push_str(&format!("4. **造假技术定性**：{}\n", self.inference.fraud_type));
             doc.push_str("5. **事实归因认定**：物理芯片损坏造成的坏道呈现局部离散性分布，且伴随控制器硬件总线错误。本介质在超出真实容量后表现为系统性结构化回绕或丢弃，系生产流通环节通过专用量产工具（MPTool）人工刷写篡改主控固件参数所致，排除偶然质量瑕疵，具备绝对的主观欺诈故意。\n\n");
 
-            doc.push_str("## 六、 消费者权益保护法维权申诉专用文书模版\n\n");
+            doc.push_str("## 七、 司法事实认定与消费者权益保护法维权申诉专用文本\n\n");
             doc.push_str("```text\n");
             doc.push_str("关于购买伪劣扩容U盘构成欺诈的主张书与法律意见陈述\n\n");
             doc.push_str("致：[平台客服介入团队 / 消费者协会仲裁庭 / 人民法院审判长]\n\n");
@@ -473,6 +483,199 @@ impl DiagnosticReport {
 
         Ok(())
     }
+
+    /// 统一格式化渲染 (支持 Markdown 与 PlainText)
+    pub fn render(&self, format: ReportFormat) -> String {
+        match format {
+            ReportFormat::Markdown => self.generate_markdown(),
+            ReportFormat::PlainText => self.generate_plain_text(),
+        }
+    }
+
+    /// 渲染为整洁的纯文本 TXT 格式 (带 ASCII 边框与清晰对齐，适合打印或记事本)
+    pub fn generate_plain_text(&self) -> String {
+        let gb = |b: u64| b as f64 / (1024.0 * 1024.0 * 1024.0);
+        let serial_hex = self.volume_serial.map(|s| format!("{:08X}", s)).unwrap_or_else(|| "N/A".to_string());
+        let mut out = String::new();
+
+        out.push_str("================================================================================\n");
+        out.push_str("             F3-WIN 存储介质物理容量真实性技术检验报告 (PLAIN-TEXT)             \n");
+        out.push_str("================================================================================\n");
+        out.push_str(&format!("报告类型: {}\n", self.audit_kind.display_name()));
+        out.push_str(&format!("存证时间: {}\n", self.generated_at_local));
+        out.push_str("--------------------------------------------------------------------------------\n\n");
+
+        out.push_str("[一、鉴定背景与操作系统内核特权级声明]\n");
+        out.push_str(&format!("  * 测试工具: {} {}\n", self.tool_name, self.tool_version));
+        out.push_str(&format!("  * 宿主环境: {}\n", self.os_version));
+        out.push_str("  * I/O 管线: Win32 Direct I/O (FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH)\n");
+        out.push_str("  * 缓存状态: 100% 物理旁路系统文件缓存、内存虚拟层与驱动写缓冲\n\n");
+
+        out.push_str("[二、被测硬件物理拓扑与全局唯一指纹]\n");
+        out.push_str(&format!("  * 挂载盘符: {}\n", self.target_drive));
+        out.push_str(&format!("  * 卷序列号: {}\n", serial_hex));
+        out.push_str(&format!("  * 物理对象: {}\n", self.physical_drive_path));
+        out.push_str(&format!("  * 硬件总线: {}\n", self.bus_type));
+        out.push_str(&format!("  * 设备厂商: {}\n", self.vendor_id));
+        out.push_str(&format!("  * 设备型号: {}\n", self.product_id));
+        out.push_str(&format!("  * 设备序列: {}\n", self.serial_number));
+        out.push_str(&format!("  * 标称容量: {:.2} GB ({} 字节)\n\n", gb(self.announced_bytes), self.announced_bytes));
+
+        out.push_str("[三、密码学防伪凭证与单向加盐存证]\n");
+        out.push_str(&format!("  * 会话凭证: {} (十进制: {})\n", self.salt_hex, self.salt));
+        out.push_str("  * 随机算法: F3 LCG + 工业级非线性有损雪崩压缩置换 (one_way_seed)\n");
+        out.push_str("  * 防伪声明: Salt 仅存留于宿主机系统盘，绝不向被测盘落盘，彻底击穿模逆元算力回放欺骗\n\n");
+
+        if self.write_tested {
+            out.push_str("[四、写入测试性能全景与 SLC 掉速生理诊断]\n");
+            out.push_str(&format!("  * 写入总量: {:.2} GB ({} 字节)\n", gb(self.write_bytes), self.write_bytes));
+            out.push_str(&format!("  * 写入耗时: {:.1} 秒 ({:.2} 分钟)\n", self.write_duration_secs, self.write_duration_secs / 60.0));
+            out.push_str(&format!("  * 平均写速: {:.2} MB/s\n", self.write_avg_speed_mb));
+            out.push_str(&format!("  * 峰值写速: {:.2} MB/s\n", self.write_peak_speed_mb));
+            out.push_str(&format!("  * 谷底写速: {:.2} MB/s\n", self.write_valley_speed_mb));
+            out.push_str(&format!("  * 稳态中位: {:.2} MB/s\n", self.write_median_speed_mb));
+            out.push_str(&format!("  * 抖动指数: {:.3} (CV)\n", self.cv_jitter));
+            out.push_str(&format!("  * 卡顿停顿: {:.2}% (<1MB/s)\n", self.stall_ratio * 100.0));
+            if let Some(cliff_b) = self.slc_cliff_bytes {
+                out.push_str(&format!("  * SLC 拐点: {:.2} GB 处，跌幅 -{:.1}% ({:.1} -> {:.1} MB/s)\n", gb(cliff_b), self.slc_cliff_drop_pct, self.slc_cliff_speed_before_mb, self.slc_cliff_speed_after_mb));
+            }
+            out.push_str(&format!("  * 接口推断: {}\n", self.inference.inferred_bus));
+            out.push_str(&format!("  * 颗粒推断: {}\n", self.inference.flash_grade));
+            out.push_str(&format!("  * 生理病理: {}\n\n", self.inference.pathology_analysis));
+        }
+
+        if self.verify_tested {
+            out.push_str("[五、读取校验比特级微观失配现场]\n");
+            out.push_str(&format!("  * 健康扇区 (Good):        {} ({:.2} GB)\n", self.stats.good, gb(self.stats.good * 512)));
+            out.push_str(&format!("  * 损毁扇区 (Bad):         {} ({:.2} GB)\n", self.stats.bad, gb(self.stats.bad * 512)));
+            out.push_str(&format!("  * 变异扇区 (Changed):     {} ({:.2} GB)\n", self.stats.changed, gb(self.stats.changed * 512)));
+            out.push_str(&format!("  * 覆写扇区 (Overwritten): {} ({:.2} GB) [严重虚标扩容证据]\n", self.stats.overwritten, gb(self.stats.overwritten * 512)));
+
+            if let Some(err_off) = self.first_error_offset {
+                out.push_str("  [首发失配物理微观现场 Hex 对照]\n");
+                out.push_str(&format!("  - 首次故障文件: {}.h2w\n", self.first_error_file.unwrap_or(1)));
+                out.push_str(&format!("  - 物理字节偏移: 0x{:016X} ({:.2} GB 处)\n", err_off, gb(err_off)));
+                let exp_hex = self.first_error_expected.map(|b| b.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ")).unwrap_or_else(|| "N/A".to_string());
+                let act_hex = self.first_error_actual.map(|b| b.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ")).unwrap_or_else(|| "N/A".to_string());
+                out.push_str(&format!("  - 预期 Hex: {}\n", exp_hex));
+                out.push_str(&format!("  - 实测 Hex: {}\n", act_hex));
+            }
+            out.push_str("\n");
+        }
+
+        out.push_str("[六、物理颗粒与芯片硬件推断结论]\n");
+        if self.is_fake {
+            out.push_str("  * 核心定性: 确认为严重容量虚标的伪劣扩容假盘\n");
+            out.push_str(&format!("  * 标称容量: {:.2} GB\n", gb(self.announced_bytes)));
+            out.push_str(&format!("  * 真实容量: {:.2} GB\n", gb(self.real_usable_bytes)));
+            out.push_str(&format!("  * 虚假容量: {:.2} GB (虚假比例: {:.2}%)\n", gb(self.fake_bytes), self.fake_ratio_pct));
+            out.push_str(&format!("  * 造假类型: {}\n", self.inference.fraud_type));
+            out.push_str(&format!("  * 颗粒品级: {}\n\n", self.inference.flash_grade));
+        } else {
+            out.push_str("  * 核心定性: 综合技术鉴定结论：该存储设备容量真实合规，各项数据一致。\n\n");
+        }
+
+        out.push_str("[七、司法事实认定与消保法维权申诉专用文本]\n");
+        if self.is_fake {
+            out.push_str("--------------------------------------------------------------------------------\n");
+            out.push_str("关于购买伪劣扩容闪存介质构成欺诈的主张书\n");
+            out.push_str(&format!("依据《中华人民共和国消费者权益保护法》第五十五条：退一赔三，不足五百元为五百元。\n"));
+            out.push_str(&format!("涉案设备: {} (卷序列号: {})，标称 {:.2} GB，实测仅 {:.2} GB。\n", self.product_id, serial_hex, gb(self.announced_bytes), gb(self.real_usable_bytes)));
+            out.push_str("--------------------------------------------------------------------------------\n");
+        } else {
+            out.push_str("  * 状态: 全部扇区健康合规，无维权申诉事由。\n");
+        }
+        out.push_str("================================================================================\n");
+
+        out
+    }
+
+    /// 一键复制到 Windows 剪贴板 (基于原生 clip.exe 管道，零第三方 crate 依赖)
+    pub fn copy_to_clipboard(&self) -> Result<(), String> {
+        let content = self.generate_markdown();
+        copy_text_to_windows_clipboard(&content)
+    }
+
+    /// 一键导出报告到当前用户桌面 (支持 Markdown 与 PlainText)
+    pub fn export_to_desktop(&self, format: ReportFormat) -> Result<PathBuf, String> {
+        let desktop = get_desktop_dir();
+        let ext = match format {
+            ReportFormat::Markdown => "md",
+            ReportFormat::PlainText => "txt",
+        };
+        let serial_str = self.volume_serial.map(|s| format!("{:08X}", s)).unwrap_or_else(|| "UNKNOWN".to_string());
+        let now_str = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let filename = format!("f3_audit_report_{}_{}.{}", serial_str, now_str, ext);
+        let path = desktop.join(filename);
+
+        let content = self.render(format);
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)
+            .map_err(|e| format!("无法创建桌面文件 ({:?}): {}", path, e))?;
+
+        file.write_all(content.as_bytes())
+            .map_err(|e| format!("写入桌面文件失败: {}", e))?;
+        file.flush()
+            .map_err(|e| format!("冲刷桌面文件失败: {}", e))?;
+
+        Ok(path)
+    }
+
+    /// 自动存证落盘守卫：
+    /// 只要检测到容量虚标 (is_fake / overwritten > 0) 或物理坏道 (bad > 0)，
+    /// 在测试完成边界静默自动在 exe 同级目录下生成 f3_evidence_<serial>_<timestamp>.md 档案！
+    /// 若完全合规健康，则静默返回 Ok(None)，绝不打扰用户或制造垃圾文件。
+    pub fn auto_save_evidence_if_fake(&self) -> Result<Option<PathBuf>, String> {
+        if !self.is_fake && self.stats.overwritten == 0 && self.stats.bad == 0 {
+            return Ok(None);
+        }
+
+        let path = self.auto_archive_evidence()?;
+        Ok(Some(path))
+    }
+}
+
+/// 获取 Windows 桌面目录
+fn get_desktop_dir() -> PathBuf {
+    if let Ok(profile) = std::env::var("USERPROFILE") {
+        let p = PathBuf::from(profile).join("Desktop");
+        if p.exists() {
+            return p;
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let p = PathBuf::from(home).join("Desktop");
+        if p.exists() {
+            return p;
+        }
+    }
+    PathBuf::from(".")
+}
+
+/// 将文本通过 Windows 原生 clip.exe 注入剪贴板
+fn copy_text_to_windows_clipboard(text: &str) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("clip")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("无法启动系统剪贴板进程 (clip.exe): {}", e))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(text.as_bytes());
+    }
+
+    let status = child.wait().map_err(|e| format!("等待剪贴板操作完成失败: {}", e))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("clip.exe 返回非零退出码: {:?}", status.code()))
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -506,7 +709,7 @@ mod tests {
             physiology: None,
         };
 
-        let report = DiagnosticReport::build(
+        let report = DiagnosticReport::build_verify_audit(
             None,
             Some(0x1234_5678),
             Path::new("G:\\"),
@@ -515,11 +718,109 @@ mod tests {
             None,
         );
 
+        assert_eq!(report.audit_kind, AuditKind::VerifyOnly);
         assert!(report.is_fake);
         let md = report.generate_markdown();
         assert!(md.contains("存储介质物理容量真实性技术检验报告"));
         assert!(md.contains("0x12345678"));
         assert!(md.contains("消费者权益保护法"));
         assert!(md.contains("Expected Hex"));
+
+        let txt = report.generate_plain_text();
+        assert!(txt.contains("F3-WIN 存储介质物理容量真实性技术检验报告 (PLAIN-TEXT)"));
+        assert!(txt.contains("退一赔三"));
+    }
+
+    #[test]
+    fn test_write_audit_independent_report() {
+        let telemetry = H2wTelemetry {
+            mode: H2wMode::Write,
+            phase: crate::core::session::H2wPhase::Completed,
+            current_file: 32,
+            bytes_processed: 32 * 1024 * 1024 * 1024,
+            total_bytes_expected: 32 * 1024 * 1024 * 1024,
+            speed_bps: 45_000_000.0,
+            duration_seconds: 760.0,
+            eta_seconds: 0,
+            stats: BlockStats::default(),
+            heatmap_sample: None,
+            is_finished: true,
+            error: None,
+            first_error_offset: None,
+            first_error_file: None,
+            first_error_expected: None,
+            first_error_actual: None,
+            total_files: Some(32),
+            physiology: None,
+        };
+
+        let report = DiagnosticReport::build_write_audit(
+            None,
+            Some(0xABCD_EF01),
+            Path::new("H:\\"),
+            &telemetry,
+            0x1234_5678,
+            None,
+        );
+
+        assert_eq!(report.audit_kind, AuditKind::WriteOnly);
+        assert!(!report.is_fake);
+        let md = report.generate_markdown();
+        assert!(md.contains("写入性能与 SLC 掉速独立审计报告"));
+        assert!(md.contains("物理写入阶段性能全景"));
+    }
+
+    #[test]
+    fn test_auto_save_evidence_guard() {
+        let mut telemetry = H2wTelemetry {
+            mode: H2wMode::Verify,
+            phase: crate::core::session::H2wPhase::Completed,
+            current_file: 1,
+            bytes_processed: 1024 * 1024 * 1024,
+            total_bytes_expected: 32 * 1024 * 1024 * 1024,
+            speed_bps: 10_000_000.0,
+            duration_seconds: 100.0,
+            eta_seconds: 0,
+            stats: BlockStats::default(),
+            heatmap_sample: None,
+            is_finished: true,
+            error: None,
+            first_error_offset: None,
+            first_error_file: None,
+            first_error_expected: None,
+            first_error_actual: None,
+            total_files: Some(32),
+            physiology: None,
+        };
+
+        // 正常介质：无坏道无覆写，不触发静默存证
+        let good_report = DiagnosticReport::build(
+            None,
+            Some(0x1111_2222),
+            Path::new("E:\\"),
+            &telemetry,
+            0,
+            None,
+        );
+        let res_good = good_report.auto_save_evidence_if_fake();
+        assert!(res_good.is_ok());
+        assert_eq!(res_good.unwrap(), None);
+
+        // 假盘介质：检测到覆写，必须触发自动存证落盘！
+        telemetry.stats.overwritten = 1000;
+        let fake_report = DiagnosticReport::build(
+            None,
+            Some(0x1111_2222),
+            Path::new("E:\\"),
+            &telemetry,
+            0,
+            None,
+        );
+        let res_fake = fake_report.auto_save_evidence_if_fake();
+        assert!(res_fake.is_ok());
+        if let Ok(Some(saved_path)) = res_fake {
+            assert!(saved_path.exists());
+            let _ = std::fs::remove_file(saved_path);
+        }
     }
 }

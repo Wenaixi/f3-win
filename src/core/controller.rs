@@ -19,6 +19,7 @@ use crossbeam_channel::{unbounded, Receiver};
 use crate::core::algo::{BlockState, BlockStats};
 use crate::core::devices::StorageTarget;
 use crate::core::fix::{F3FixPlan, SafePartitionFixer};
+use crate::core::report::DiagnosticReport;
 use crate::core::probe::{F3Probe, F3ProbeConfig, ProbeTelemetry};
 use crate::core::session::{H2wConfig, H2wMode, H2wPhase, H2wSession, H2wTelemetry};
 
