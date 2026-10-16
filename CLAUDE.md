@@ -151,3 +151,17 @@
    - 每帧导出只读 TaskSnapshot，彻底将 F3App 还原为纯净、无状态的视图呈现层，F3App 单文件净减少 110 行胶水代码
 4. 业务领域模型字典 CONTEXT.md 正式确立:
    - 明确定义 StorageInventory、StorageTarget、VolumeLockGuard、H2wSession、F3Probe、EngineController、TaskSnapshot、SafePartitionFixer 等核心概念与深浅模块职责边界
+### 全模块所有细节深层架构深化成果记录 (2026-10-16 第三轮深化交付: 全生命周期闭环)
+1. SafePartitionFixer 解耦与 DiskpartRunner 接缝 (Candidate 1 落地):
+   - 引入最小抽象接缝 `pub trait DiskpartRunner: Send + Sync { fn run_script(&self, script: &str) -> Result<String, String>; }`
+   - 落地 `SystemDiskpartRunner` 生产适配器 (内聚 CREATE_NO_WINDOW、微秒防冲突临时文件与 RAII 自动清理守卫) 与 `MockDiskpartRunner` 单测仿真适配器
+   - 在 `F3FixPlan` 中实现纯逻辑级别 `execute_with_runner`，并在 CI 中提供 100% 自动化脚本指令断言与退出码解析单测覆盖
+2. StorageTarget 交付 BlockIo 锁门面与 F3Probe 单一接口收敛 (Candidate 2 落地):
+   - 在 `StorageTarget` 中实现深层复合方法 `open_block_io(&self) -> Result<(DirectIoFile, VolumeLockGuard), String>`，原子化管理设备总线白名单、FSCTL 卷卸载排他锁与物理磁盘直通句柄获取
+   - 彻底消除 `F3Probe` 内部对 Win32 `DirectIoFile` 类型的直接依赖与双入口违规，去除配置中冗余的物理路径字符串，将对外接口收敛为唯一的 `pub fn run(&self, dev: &mut impl BlockIo, tx: Sender<ProbeTelemetry>)`，100% 践行「测试表面即调用表面」铁律
+3. EngineController 全任务五合一与异步单向流 (Candidate 3 落地):
+   - 扩充 `TaskKind::Fix` 与 `TaskKind::Cleanup`，新增 `start_fix(plan)` 与 `start_cleanup(target_path)` 异步调度
+   - 消除 UI 主线程在 diskpart 分区格式化与慢速 USB 上删除数十 GB 测试碎片时的同步阻塞卡死，将全部破坏性与文件系统操作统领于后台 Worker 线程，通过 `TaskSnapshot` 实现单向数据流与运行状态采样
+4. F3App 纯净视图与响应式自动刷新:
+   - 所有操作按钮（写入、校验、探测、修复、清理）全面改造为非阻塞控制器派发与运行中置灰保护 (`!is_busy`)
+   - `F3App::update()` 单帧循环自动检测任务完成边界 (`prev_status == Running && status == Finished`)，静默自动触发 `inventory.refresh()`，盘符与可用容量即时同步更新

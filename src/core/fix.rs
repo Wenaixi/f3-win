@@ -32,6 +32,75 @@ impl std::fmt::Display for FixSafetyError {
 
 impl std::error::Error for FixSafetyError {}
 
+// 分区脚本执行器抽象接缝 (DiskpartRunner)
+// 遵循深层模块接缝原则：生产环境调用真实 diskpart 进程，单测环境由 Mock 断言脚本内容与错误处理
+pub trait DiskpartRunner: Send + Sync {
+    fn run_script(&self, script: &str) -> Result<String, String>;
+}
+
+// 生产环境真实 Windows diskpart 执行器
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SystemDiskpartRunner;
+
+impl DiskpartRunner for SystemDiskpartRunner {
+    fn run_script(&self, script: &str) -> Result<String, String> {
+        let temp_dir = std::env::temp_dir();
+        let file_name = format!(
+            "f3_fix_{}_{}.diskpart",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0)
+        );
+        let script_path = temp_dir.join(file_name);
+
+        std::fs::write(&script_path, script)
+            .map_err(|e| format!("无法创建临时 diskpart 脚本: {}", e))?;
+
+        // RAII 临时文件守卫
+        struct TempCleaner<'a>(&'a std::path::Path);
+        impl<'a> Drop for TempCleaner<'a> {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(self.0);
+            }
+        }
+        let _cleaner = TempCleaner(&script_path);
+
+        let mut cmd = Command::new("diskpart.exe");
+        cmd.arg("/s").arg(&script_path);
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW 消除黑框闪烁
+        }
+
+        let output = cmd.output().map_err(|e| {
+            format!("启动 diskpart.exe 失败 (请确认具备管理员权限): {}", e)
+        })?;
+
+        let stdout_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let stderr_str = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+        let has_err = stdout_str.contains("DiskPart has encountered an error")
+            || stdout_str.contains("Virtual Disk Service error")
+            || stdout_str.contains("错误")
+            || !output.status.success();
+
+        if has_err {
+            let detail = if !stderr_str.is_empty() {
+                stderr_str
+            } else {
+                stdout_str
+            };
+            Err(format!("diskpart 分区修复执行失败: {}", detail))
+        } else {
+            Ok(stdout_str)
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DryRunReport {
     pub disk_index: u32,
@@ -117,6 +186,26 @@ impl F3FixPlan {
         Ok(())
     }
 
+    // 纯逻辑级别自校验与脚本执行（可脱离真实硬件运行，测试覆盖核心）
+    pub fn execute_with_runner<R: DiskpartRunner>(&self, runner: &R) -> Result<String, String> {
+        if self.disk_index == 0 {
+            return Err("安全拦截：禁止在 PhysicalDrive0 (系统主盘) 上执行分区重构".to_string());
+        }
+        if self.real_bytes < 16 * 1024 * 1024 {
+            return Err("实测物理容量过小，无法建立安全分区".to_string());
+        }
+        if self.safe_partition_mb == 0 || self.safe_partition_bytes > self.real_bytes {
+            return Err("非法分区大小配置".to_string());
+        }
+        let valid_fs = ["fat32", "exfat", "ntfs"];
+        if !valid_fs.contains(&self.file_system.to_ascii_lowercase().as_str()) {
+            return Err(format!("不支持的文件系统类型: {}", self.file_system));
+        }
+
+        let script = self.generate_diskpart_script();
+        runner.run_script(&script)
+    }
+
     // 快捷执行 (直接委托给 SafePartitionFixer)
     pub fn execute_auto_fix(&self) -> Result<String, String> {
         let fixer = SafePartitionFixer::new(self.clone());
@@ -125,7 +214,7 @@ impl F3FixPlan {
 }
 
 // 自守卫分区自愈事务执行器 (SafePartitionFixer)
-// 包含物理磁盘即时总线复核、系统主盘绝缘隔离、Dry-Run 预演与 RAII 临时文件守卫
+// 包含物理磁盘即时总线复核、系统主盘绝缘隔离、Dry-Run 预演与 DiskpartRunner 解耦接缝
 #[derive(Debug, Clone)]
 pub struct SafePartitionFixer {
     pub plan: F3FixPlan,
@@ -187,53 +276,38 @@ impl SafePartitionFixer {
         })
     }
 
-    // 安全执行 Windows diskpart 自动化修复
+    // 依赖注入执行入口：支持自定义 Runner 适配器
+    pub fn apply_with_runner<R: DiskpartRunner>(&self, runner: &R) -> Result<String, String> {
+        let _dev = self.verify_safety().map_err(|e| format!("安全拦截: {}", e))?;
+        self.plan.execute_with_runner(runner)
+    }
+
+    // 默认生产入口 (使用系统原生 diskpart 进程)
+    pub fn apply(&self) -> Result<String, String> {
+        self.apply_with_runner(&SystemDiskpartRunner)
+    }
+
+    // 保持向后兼容现有调用的别名方法
     pub fn execute(&self) -> Result<String, String> {
-        let _report = self.dry_run().map_err(|e| format!("安全拦截: {}", e))?;
+        self.apply()
+    }
+}
 
-        let temp_dir = std::env::temp_dir();
-        let script_path = temp_dir.join(format!("f3_safe_fix_disk_{}.diskpart", self.plan.disk_index));
-        self.plan.export_script_to_file(&script_path)?;
+#[cfg(test)]
+#[derive(Debug, Default, Clone)]
+pub struct MockDiskpartRunner {
+    pub executed_scripts: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    pub return_error: Option<String>,
+}
 
-        // RAII 清理守卫，确保临时脚本在函数返回时 100% 自动被清理
-        struct TempScriptCleaner<'a>(&'a std::path::Path);
-        impl<'a> Drop for TempScriptCleaner<'a> {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_file(self.0);
-            }
-        }
-        let _cleaner = TempScriptCleaner(&script_path);
-
-        let mut cmd = Command::new("diskpart.exe");
-        cmd.arg("/s").arg(&script_path);
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        }
-
-        let output = cmd.output().map_err(|e| {
-            format!("启动 diskpart.exe 失败 (请确认具备管理员权限): {}", e)
-        })?;
-
-        let stdout_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let stderr_str = String::from_utf8_lossy(&output.stderr).trim().to_string();
-
-        let has_diskpart_err = stdout_str.contains("DiskPart has encountered an error")
-            || stdout_str.contains("Virtual Disk Service error")
-            || stdout_str.contains("错误")
-            || !output.status.success();
-
-        if has_diskpart_err {
-            let detail = if !stderr_str.is_empty() {
-                stderr_str
-            } else {
-                stdout_str
-            };
-            Err(format!("diskpart 分区修复执行失败: {}", detail))
+#[cfg(test)]
+impl DiskpartRunner for MockDiskpartRunner {
+    fn run_script(&self, script: &str) -> Result<String, String> {
+        self.executed_scripts.lock().unwrap().push(script.to_string());
+        if let Some(ref err) = self.return_error {
+            Err(err.clone())
         } else {
-            Ok(stdout_str)
+            Ok("DiskPart 成功格式化卷。".to_string())
         }
     }
 }
@@ -257,5 +331,51 @@ mod tests {
         let plan = F3FixPlan::new(1, 64 * 1024 * 1024 * 1024, 8 * 1024 * 1024);
         let fixer = SafePartitionFixer::new(plan);
         assert!(matches!(fixer.verify_safety(), Err(FixSafetyError::CapacityTooSmall(_))));
+    }
+
+    #[test]
+    fn test_mock_diskpart_success_script_verification() {
+        // 标称 128GB，真实仅 32GB 扩容假盘
+        let plan = F3FixPlan::new(2, 128 * 1024 * 1024 * 1024, 32 * 1024 * 1024 * 1024);
+        let runner = MockDiskpartRunner::default();
+        let res = plan.execute_with_runner(&runner);
+        assert!(res.is_ok(), "Mock 执行应该成功");
+
+        let scripts = runner.executed_scripts.lock().unwrap();
+        assert_eq!(scripts.len(), 1);
+        let script = &scripts[0];
+
+        assert!(script.contains("select disk 2"), "必须选择指定磁盘");
+        assert!(script.contains("clean"), "必须清空原有破坏性分区表");
+        assert!(script.contains("create partition primary size="), "必须创建主分区");
+        assert!(script.contains("format fs=fat32 quick"), "32GB 应当使用 FAT32");
+        assert!(script.contains("assign"), "必须分配盘符");
+        assert!(script.contains("active"), "必须激活分区");
+    }
+
+    #[test]
+    fn test_mock_diskpart_error_propagation() {
+        let plan = F3FixPlan::new(2, 64 * 1024 * 1024 * 1024, 60 * 1024 * 1024 * 1024);
+        let runner = MockDiskpartRunner {
+            executed_scripts: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            return_error: Some("Virtual Disk Service error: 0x8004240F".to_string()),
+        };
+        let res = plan.execute_with_runner(&runner);
+        assert!(res.is_err(), "发生底层错误时必须返回 Err");
+        let err_msg = res.unwrap_err();
+        assert!(err_msg.contains("Virtual Disk Service error"));
+    }
+
+    #[test]
+    fn test_fix_plan_boundary_conditions() {
+        // 1. > 32GB 应该自动切换为 exfat
+        let large_plan = F3FixPlan::new(1, 128 * 1024 * 1024 * 1024, 64 * 1024 * 1024 * 1024);
+        assert_eq!(large_plan.file_system, "exfat");
+
+        // 2. 检查 16MB 预留裕量与 1MB 对齐
+        let real_bytes = 100 * 1024 * 1024 + 512 * 1024; // 100.5 MB
+        let plan = F3FixPlan::new(1, 128 * 1024 * 1024, real_bytes);
+        assert_eq!(plan.safe_partition_mb, 100 - 16); // 84 MB
+        assert_eq!(plan.safe_partition_bytes % (1024 * 1024), 0);
     }
 }

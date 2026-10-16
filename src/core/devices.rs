@@ -14,6 +14,7 @@ use windows::Win32::System::Ioctl::{
     DISK_GEOMETRY_EX, STORAGE_DEVICE_DESCRIPTOR, STORAGE_PROPERTY_QUERY,
     PropertyStandardQuery, StorageDeviceProperty,
 };
+use crate::core::direct_io::DirectIoFile;
 
 const DRIVE_REMOVABLE: u32 = 2;
 const IOCTL_STORAGE_GET_DEVICE_NUMBER: u32 = 0x002D1080;
@@ -369,6 +370,17 @@ impl StorageTarget {
             handles,
             locked_volumes,
         })
+    }
+
+    // 一站式打开底层物理磁盘并独占锁定卸载其挂载的所有逻辑卷
+    // 返回 DirectIoFile (满足 BlockIo 接缝) 与 RAII 独占锁守卫 VolumeLockGuard
+    pub fn open_block_io(&self) -> Result<(DirectIoFile, VolumeLockGuard), String> {
+        let guard = self.prepare_for_probe()?;
+        let path = std::path::Path::new(&self.device.path);
+        match DirectIoFile::open_raw_device(path) {
+            Ok(file) => Ok((file, guard)),
+            Err(e) => Err(format!("打开底层物理设备失败 (需要管理员权限): {}", e)),
+        }
     }
 }
 

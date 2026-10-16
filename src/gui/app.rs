@@ -13,6 +13,7 @@ use crate::gui::state::{AppState, AppTab};
 
 pub struct F3App {
     state: AppState,
+    prev_status: TaskStatus,
 }
 
 impl F3App {
@@ -20,6 +21,7 @@ impl F3App {
         Self::setup_chinese_fonts(&cc.egui_ctx);
         Self {
             state: AppState::default(),
+            prev_status: TaskStatus::Idle,
         }
     }
 }
@@ -28,6 +30,13 @@ impl eframe::App for F3App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // 单行获取深层任务控制器轮询出的最新只读快照
         let snapshot = self.state.controller.poll().clone();
+
+        // 当异步任务刚刚执行完成时，自动静默刷新存储资产与磁盘空间
+        if self.prev_status == TaskStatus::Running && snapshot.status == TaskStatus::Finished {
+            self.state.inventory.refresh();
+        }
+        self.prev_status = snapshot.status;
+
         ctx.request_repaint(); // 保证动画与采样平滑
 
         egui::TopBottomPanel::top("top_nav").show(ctx, |ui| {
@@ -149,18 +158,16 @@ impl F3App {
                     .arg(self.state.inventory.selected_path())
                     .spawn();
             }
-            if ui.button(RichText::new("清理测试文件 (.h2w)")).clicked() {
-                match H2wSession::cleanup_h2w_files(&self.state.inventory.selected_path()) {
-                    Ok((cnt, bytes)) => {
-                        self.state.controller.set_status_message(format!(
-                            "已成功清理 {} 个文件，释放 {:.2} GB 磁盘空间！",
-                            cnt,
-                            bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-                        ));
-                        self.state.inventory.refresh();
-                    }
-                    Err(e) => self.state.controller.set_status_message(format!("清理失败: {}", e)),
-                }
+            let is_busy = snapshot.status == TaskStatus::Running;
+            if ui
+                .add_enabled(
+                    !is_busy,
+                    egui::Button::new(RichText::new("清理测试文件 (.h2w)")),
+                )
+                .clicked()
+            {
+                let path = self.state.inventory.selected_path();
+                self.state.controller.start_cleanup(path);
             }
         });
 
@@ -208,24 +215,19 @@ impl F3App {
             if ui.button("转到写入页面").clicked() {
                 self.state.current_tab = AppTab::WriteTest;
             }
+            let is_busy = snapshot.status == TaskStatus::Running;
             if ui
-                .button(
-                    RichText::new("一键清理所有 .h2w 测试文件 (释放空间)")
-                        .color(Color32::from_rgb(255, 140, 0)),
+                .add_enabled(
+                    !is_busy,
+                    egui::Button::new(
+                        RichText::new("一键清理所有 .h2w 测试文件 (释放空间)")
+                            .color(Color32::from_rgb(255, 140, 0)),
+                    ),
                 )
                 .clicked()
             {
-                match H2wSession::cleanup_h2w_files(&self.state.inventory.selected_path()) {
-                    Ok((cnt, bytes)) => {
-                        self.state.controller.set_status_message(format!(
-                            "已成功清理 {} 个文件，释放 {:.2} GB 磁盘空间！",
-                            cnt,
-                            bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-                        ));
-                        self.state.inventory.refresh();
-                    }
-                    Err(e) => self.state.controller.set_status_message(format!("清理失败: {}", e)),
-                }
+                let path = self.state.inventory.selected_path();
+                self.state.controller.start_cleanup(path);
             }
         });
         ui.horizontal(|ui| {
@@ -349,13 +351,16 @@ impl F3App {
                             format!("已通过移动介质总线现场复核: {} ({})", report.bus_name, report.vendor_id),
                         );
                         ui.add_space(10.0);
-                        if ui.button(RichText::new("应用安全分区 (运行 diskpart)").size(15.0)).clicked() {
-                            match fixer.execute() {
-                                Ok(msg) => {
-                                    self.state.controller.set_status_message(format!("修复成功: {}", msg));
-                                    self.state.inventory.refresh();
-                                }
-                                Err(e) => self.state.controller.set_status_message(format!("修复失败: {}", e)),
+                        let is_busy = snapshot.status == TaskStatus::Running;
+                        if ui
+                            .add_enabled(
+                                !is_busy,
+                                egui::Button::new(RichText::new("应用安全分区 (运行 diskpart)").size(15.0)),
+                            )
+                            .clicked()
+                        {
+                            if let Err(e) = self.state.controller.start_fix(plan.clone()) {
+                                self.state.controller.set_status_message(format!("启动修复失败: {}", e));
                             }
                         }
                     }

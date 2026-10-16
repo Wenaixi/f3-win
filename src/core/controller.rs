@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -5,7 +6,7 @@ use crossbeam_channel::{unbounded, Receiver};
 
 use crate::core::algo::{BlockState, BlockStats};
 use crate::core::devices::StorageTarget;
-use crate::core::fix::F3FixPlan;
+use crate::core::fix::{F3FixPlan, SafePartitionFixer};
 use crate::core::probe::{F3Probe, F3ProbeConfig, ProbeTelemetry};
 use crate::core::session::{H2wConfig, H2wMode, H2wPhase, H2wSession, H2wTelemetry};
 
@@ -26,6 +27,8 @@ pub enum TaskKind {
     Verify,
     WriteAndVerify,
     Probe,
+    Fix,     // 新增：安全分区重构
+    Cleanup, // 新增：测试文件碎片清理
 }
 
 // 任务聚合只读快照 (TaskSnapshot)
@@ -74,6 +77,8 @@ pub struct EngineController {
     cancel_flag: Arc<AtomicBool>,
     h2w_rx: Option<Receiver<H2wTelemetry>>,
     probe_rx: Option<Receiver<ProbeTelemetry>>,
+    fix_rx: Option<Receiver<Result<String, String>>>,
+    cleanup_rx: Option<Receiver<Result<(usize, u64), String>>>,
     start_instant: Option<Instant>,
     active_probe_disk_index: Option<u32>,
 }
@@ -91,6 +96,8 @@ impl EngineController {
             cancel_flag: Arc::new(AtomicBool::new(false)),
             h2w_rx: None,
             probe_rx: None,
+            fix_rx: None,
+            cleanup_rx: None,
             start_instant: None,
             active_probe_disk_index: None,
         }
@@ -141,13 +148,14 @@ impl EngineController {
         });
     }
 
-    // 启动闪电探针探测，自动完成独占卷卸载与 RAII 锁持有
+    // 启动闪电探针探测，通过 StorageTarget 统一交付 BlockIo 接缝与 RAII 锁守卫
     pub fn start_probe(&mut self, target: StorageTarget) -> Result<(), String> {
         if !target.device.is_safe_target {
             return Err("所选设备未通过移动总线安全白名单隔离！".to_string());
         }
 
-        let lock_guard = target.prepare_for_probe()?;
+        // 一站式完成卷独占锁定并打开物理块设备
+        let (mut block_file, lock_guard) = target.open_block_io()?;
         let disk_index = target.device.drive_index;
 
         self.reset_for_new_task();
@@ -161,19 +169,56 @@ impl EngineController {
 
         let total_sectors = target.device.total_bytes / 512;
         let config = F3ProbeConfig {
-            physical_device_path: target.device.path.clone(),
             total_sectors,
         };
 
         let flag = self.cancel_flag.clone();
         std::thread::spawn(move || {
-            // lock_guard 移交至线程内部全程持有排他锁，线程退出时自动 Drop 释放！
+            // lock_guard 与 block_file 移交至线程内部全程持有，线程退出时自动 Drop 释放！
             let _guard = lock_guard;
             let probe = F3Probe::new(config, flag);
-            probe.run(tx);
+            probe.run(&mut block_file, tx);
         });
 
         Ok(())
+    }
+
+    // 启动安全分区自愈修复 (后台异步拉起 diskpart)
+    pub fn start_fix(&mut self, plan: F3FixPlan) -> Result<(), String> {
+        let fixer = SafePartitionFixer::new(plan);
+        // 先行同步校验安全白名单，杜绝主盘与非法总线误操作
+        fixer.verify_safety().map_err(|e| format!("安全拦截: {}", e))?;
+
+        self.reset_for_new_task();
+        self.snapshot.status = TaskStatus::Running;
+        self.snapshot.kind = TaskKind::Fix;
+        self.snapshot.status_message = "正在执行安全分区重构 (运行 diskpart)...".to_string();
+
+        let (tx, rx) = unbounded();
+        self.fix_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let res = fixer.apply();
+            let _ = tx.send(res);
+        });
+
+        Ok(())
+    }
+
+    // 启动后台异步 .h2w 碎片清理
+    pub fn start_cleanup(&mut self, target_path: PathBuf) {
+        self.reset_for_new_task();
+        self.snapshot.status = TaskStatus::Running;
+        self.snapshot.kind = TaskKind::Cleanup;
+        self.snapshot.status_message = "正在扫描并清理 .h2w 测试碎片...".to_string();
+
+        let (tx, rx) = unbounded();
+        self.cleanup_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let res = H2wSession::cleanup_h2w_files(&target_path);
+            let _ = tx.send(res);
+        });
     }
 
     // 单帧轮询：吸收全部后台管道消息并更新快照
@@ -252,6 +297,46 @@ impl EngineController {
             }
         }
 
+        // 3. 处理分区修复异步结果
+        if let Some(rx) = self.fix_rx.clone() {
+            if let Ok(res) = rx.try_recv() {
+                match res {
+                    Ok(msg) => {
+                        self.snapshot.status = TaskStatus::Finished;
+                        self.snapshot.status_message = format!("分区修复成功: {}", msg);
+                    }
+                    Err(e) => {
+                        self.snapshot.status = TaskStatus::Error;
+                        self.snapshot.error = Some(e.clone());
+                        self.snapshot.status_message = format!("分区修复失败: {}", e);
+                    }
+                }
+                self.fix_rx = None;
+            }
+        }
+
+        // 4. 处理后台清理异步结果
+        if let Some(rx) = self.cleanup_rx.clone() {
+            if let Ok(res) = rx.try_recv() {
+                match res {
+                    Ok((cnt, bytes)) => {
+                        self.snapshot.status = TaskStatus::Finished;
+                        self.snapshot.status_message = format!(
+                            "已成功清理 {} 个文件，释放 {:.2} GB 磁盘空间！",
+                            cnt,
+                            bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+                        );
+                    }
+                    Err(e) => {
+                        self.snapshot.status = TaskStatus::Error;
+                        self.snapshot.error = Some(e.clone());
+                        self.snapshot.status_message = format!("清理失败: {}", e);
+                    }
+                }
+                self.cleanup_rx = None;
+            }
+        }
+
         &self.snapshot
     }
 
@@ -297,5 +382,24 @@ mod tests {
             ctrl.append_speed(i as f64, 100.0);
         }
         assert_eq!(ctrl.snapshot().speed_history.len(), 1200);
+    }
+
+    #[test]
+    fn test_start_fix_rejects_disk_zero() {
+        let mut ctrl = EngineController::new();
+        let plan = F3FixPlan::new(0, 128 * 1024 * 1024 * 1024, 32 * 1024 * 1024 * 1024);
+        let res = ctrl.start_fix(plan);
+        assert!(res.is_err(), "控制器必须在同步阶段立即拦截主盘修复");
+        let err_msg = res.unwrap_err();
+        assert!(err_msg.contains("安全拦截"));
+        assert_eq!(ctrl.snapshot().status, TaskStatus::Idle);
+    }
+
+    #[test]
+    fn test_start_cleanup_transitions_to_running() {
+        let mut ctrl = EngineController::new();
+        ctrl.start_cleanup(std::path::PathBuf::from("Z:\\fake_nonexistent_path"));
+        assert_eq!(ctrl.snapshot().status, TaskStatus::Running);
+        assert_eq!(ctrl.snapshot().kind, TaskKind::Cleanup);
     }
 }

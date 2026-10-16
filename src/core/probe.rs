@@ -4,7 +4,7 @@ use crossbeam_channel::Sender;
 
 use crate::core::algo::SECTOR_SIZE;
 use crate::core::aligned_buf::AlignedBuffer;
-use crate::core::direct_io::{BlockIo, DirectIoFile};
+use crate::core::direct_io::BlockIo;
 
 pub const PROBE_MAGIC: u64 = 0xF3_50_52_4F_42_45_00; // "F3PROBE\0"
 
@@ -20,7 +20,6 @@ pub struct ProbeTelemetry {
 }
 
 pub struct F3ProbeConfig {
-    pub physical_device_path: String,
     pub total_sectors: u64,
 }
 
@@ -34,6 +33,11 @@ impl F3Probe {
         Self { config, cancel_flag }
     }
 
+    // 保持向后兼容的别名方法
+    pub fn run_on_device(&self, file: &mut impl BlockIo, tx: Sender<ProbeTelemetry>) {
+        self.run(file, tx);
+    }
+
     // 深度复刻 F3 原版 overwhelm_cache: 在磁盘高位区域写入缓冲块，强制排空主控 SRAM/DRAM 缓存
     fn overwhelm_cache(&self, file: &mut impl BlockIo, buf: &mut AlignedBuffer, scratch_sec: u64, count: u64) {
         for i in 0..count.min(1024) {
@@ -44,30 +48,9 @@ impl F3Probe {
         }
     }
 
-    // 生产环境入口：打开 Windows 物理设备并执行探测
-    pub fn run(&self, tx: Sender<ProbeTelemetry>) {
-        let device_path = std::path::Path::new(&self.config.physical_device_path);
-        let mut file = match DirectIoFile::open_raw_device(device_path) {
-            Ok(f) => f,
-            Err(e) => {
-                let _ = tx.send(ProbeTelemetry {
-                    current_phase: "打开底层物理设备失败".to_string(),
-                    progress_pct: 0.0,
-                    announced_size_bytes: 0,
-                    real_size_bytes: 0,
-                    is_fake: false,
-                    is_finished: true,
-                    error: Some(format!("需要以管理员权限访问物理磁盘: {}", e)),
-                });
-                return;
-            }
-        };
-
-        self.run_on_device(&mut file, tx);
-    }
-
     // 核心算法执行体：接收任意 BlockIo 抽象接缝 (支持生产环境 DirectIoFile 与单测环境 MemoryBlockDevice)
-    pub fn run_on_device(&self, file: &mut impl BlockIo, tx: Sender<ProbeTelemetry>) {
+    // 践行「测试表面即调用表面」原则：生产与单元测试 100% 穿过相同接口
+    pub fn run(&self, file: &mut impl BlockIo, tx: Sender<ProbeTelemetry>) {
         let mut buf = match AlignedBuffer::new(SECTOR_SIZE) {
             Ok(b) => b,
             Err(e) => {
@@ -209,12 +192,11 @@ mod tests {
         let (tx, rx) = crossbeam_channel::unbounded();
         let cancel = Arc::new(AtomicBool::new(false));
         let config = F3ProbeConfig {
-            physical_device_path: "mock_drive".to_string(),
             total_sectors,
         };
         let probe = F3Probe::new(config, cancel);
 
-        probe.run_on_device(&mut dev, tx);
+        probe.run(&mut dev, tx);
 
         let final_telemetry = rx.into_iter().last().unwrap();
         assert!(final_telemetry.is_fake);
@@ -231,12 +213,11 @@ mod tests {
         let (tx, rx) = crossbeam_channel::unbounded();
         let cancel = Arc::new(AtomicBool::new(false));
         let config = F3ProbeConfig {
-            physical_device_path: "mock_drive".to_string(),
             total_sectors,
         };
         let probe = F3Probe::new(config, cancel);
 
-        probe.run_on_device(&mut dev, tx);
+        probe.run(&mut dev, tx);
 
         let final_telemetry = rx.into_iter().last().unwrap();
         assert!(!final_telemetry.is_fake);
