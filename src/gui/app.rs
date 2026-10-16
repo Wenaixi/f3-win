@@ -448,11 +448,9 @@ impl F3App {
     fn start_h2w_task(&mut self, mode: H2wMode) {
         let target_dir = self.state.inventory.selected_path();
         
-        // 核心修复：严密闭环的 Salt 决策与落盘机制
         let effective_salt = if self.state.use_random_salt {
             match mode {
                 H2wMode::Write => {
-                    // 写入阶段：生成高质量高熵随机 Salt 并立即安全落盘至 exe 同目录
                     use std::time::SystemTime;
                     let new_salt = SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
@@ -461,19 +459,15 @@ impl F3App {
                     
                     self.state.salt = new_salt;
                     self.state.salt_hex = format!("0x{:016X}", new_salt);
-                    
-                    // 立即落盘到 exe 同级目录下的 f3_salt_registry.json
                     let _ = SaltRegistry::register_salt(&target_dir.to_string_lossy(), new_salt);
                     new_salt
                 }
                 H2wMode::Verify => {
-                    // 校验阶段：优先从 exe 同目录注册表自动反查已落盘的历史 Salt
                     if let Some(saved_salt) = SaltRegistry::query_salt(&target_dir.to_string_lossy()) {
                         self.state.salt = saved_salt;
                         self.state.salt_hex = format!("0x{:016X}", saved_salt);
                         saved_salt
                     } else if !self.state.salt_hex.trim().is_empty() {
-                        // 备用：从界面输入框解析用户指定的十六进制 Salt
                         let clean_hex = self.state.salt_hex.trim().trim_start_matches("0x").trim_start_matches("0X");
                         u64::from_str_radix(clean_hex, 16).unwrap_or(self.state.salt)
                     } else {
@@ -548,3 +542,32 @@ impl F3App {
         for path in font_candidates {
             if let Ok(bytes) = std::fs::read(path) {
                 fonts.font_data.insert(
+                    "chinese_font".to_owned(),
+                    egui::FontData::from_owned(bytes),
+                );
+
+                if let Some(prop) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+                    prop.insert(0, "chinese_font".to_owned());
+                }
+                if let Some(mono) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+                    mono.push("chinese_font".to_owned());
+                }
+
+                ctx.set_fonts(fonts);
+                break;
+            }
+        }
+    }
+}
+
+fn format_eta(seconds: u64) -> String {
+    if seconds == 0 {
+        "计算中...".to_string()
+    } else if seconds < 60 {
+        format!("{} 秒", seconds)
+    } else if seconds < 3600 {
+        format!("{} 分 {} 秒", seconds / 60, seconds % 60)
+    } else {
+        format!("{} 小时 {} 分", seconds / 3600, (seconds % 3600) / 60)
+    }
+}
