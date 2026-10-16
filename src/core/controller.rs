@@ -479,3 +479,44 @@ mod tests {
             warning: None,
             mounted_volumes: Vec::new(),
         };
+        let target = crate::core::devices::StorageTarget {
+            device: dev,
+            volumes: Vec::new(),
+        };
+        let res = ctrl.start_probe(target);
+        assert!(res.is_err(), "控制器必须在同步阶段拦截非安全设备探测");
+        assert_eq!(ctrl.snapshot().status, TaskStatus::Idle);
+    }
+
+    #[test]
+    fn test_cancel_sets_flag_and_status() {
+        let mut ctrl = EngineController::new();
+        ctrl.cancel();
+        assert!(ctrl.cancel_flag.load(Ordering::Acquire), "cancel() 必须置位 cancel_flag");
+        assert!(ctrl.snapshot().status_message.contains("停止"));
+    }
+
+    #[test]
+    fn test_state_severity_ordering() {
+        assert!(state_severity(BlockState::Bad) > state_severity(BlockState::Overwritten));
+        assert!(state_severity(BlockState::Overwritten) > state_severity(BlockState::Changed));
+        assert!(state_severity(BlockState::Changed) > state_severity(BlockState::Good));
+        assert!(state_severity(BlockState::Good) > state_severity(BlockState::Untested));
+    }
+
+    #[test]
+    fn test_channel_disconnect_recovery() {
+        let mut ctrl = EngineController::new();
+        let (tx, rx) = crossbeam_channel::unbounded::<H2wTelemetry>();
+        ctrl.h2w_rx = Some(rx);
+        ctrl.snapshot.status = TaskStatus::Running;
+
+        // 显式丢弃发送端，制造管道异常断开
+        drop(tx);
+
+        let snap = ctrl.poll();
+        assert_eq!(snap.status, TaskStatus::Error, "通道断开必须自愈转换为 Error 状态");
+        assert!(snap.status_message.contains("管道已断开"));
+        assert!(ctrl.h2w_rx.is_none(), "断开后必须释放接收端句柄");
+    }
+}
