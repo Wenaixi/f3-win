@@ -5,7 +5,7 @@ use crate::core::controller::{TaskSnapshot, TaskStatus};
 use crate::core::fix::SafePartitionFixer;
 use crate::core::session::{H2wConfig, H2wMode, H2wTelemetry};
 use crate::core::salt::SaltRegistry;
-use crate::core::report::DiagnosticReport;
+use crate::core::report::{DiagnosticReport, ReportFormat};
 use crate::gui::components::device_selector::{
     render_storage_device_selector, render_storage_volume_selector,
 };
@@ -36,6 +36,46 @@ impl eframe::App for F3App {
         // 当异步任务刚刚执行完成时，自动静默刷新存储资产与磁盘空间
         if self.prev_status == TaskStatus::Running && snapshot.status == TaskStatus::Finished {
             self.state.inventory.refresh();
+
+            // 只要检测到容量虚标或坏道，在测试完成边界静默自动在 exe 同级目录生成 f3_evidence_<serial>_<timestamp>.md 档案！
+            if snapshot.stats.overwritten > 0 || snapshot.stats.bad > 0 {
+                let dev = self.state.inventory.active_physical_device();
+                let serial = self.state.inventory.selected_volume().and_then(|v| v.serial_number);
+                let dummy_telemetry = crate::core::session::H2wTelemetry {
+                    mode: match snapshot.kind {
+                        crate::core::controller::TaskKind::Write => crate::core::session::H2wMode::Write,
+                        crate::core::controller::TaskKind::Verify => crate::core::session::H2wMode::Verify,
+                        crate::core::controller::TaskKind::WriteAndVerify => crate::core::session::H2wMode::WriteAndVerify,
+                        _ => crate::core::session::H2wMode::Verify,
+                    },
+                    phase: crate::core::session::H2wPhase::Completed,
+                    current_file: 0,
+                    total_files: None,
+                    bytes_processed: snapshot.total_bytes_processed,
+                    total_bytes_expected: snapshot.total_bytes_processed,
+                    speed_bps: snapshot.current_speed_mb * 1024.0 * 1024.0,
+                    duration_seconds: 0.0,
+                    eta_seconds: 0,
+                    stats: snapshot.stats,
+                    heatmap_sample: None,
+                    is_finished: true,
+                    error: snapshot.error.clone(),
+                    first_error_offset: None,
+                    first_error_file: None,
+                    first_error_expected: None,
+                    first_error_actual: None,
+                    physiology: None,
+                };
+                let report = DiagnosticReport::build(
+                    dev,
+                    serial,
+                    &self.state.inventory.selected_path(),
+                    &dummy_telemetry,
+                    self.state.salt,
+                    None,
+                );
+                let _ = report.auto_save_evidence_if_fake();
+            }
         }
         self.prev_status = snapshot.status;
 
@@ -296,8 +336,20 @@ impl F3App {
 
                 ui.add_space(5.0);
                 ui.horizontal(|ui| {
-                    if ui.button(RichText::new("复制法庭级维权存证报告")).clicked() {
+                    if ui.button(RichText::new("一键复制到剪贴板 (Markdown)")).clicked() {
+                        let _ = report.copy_to_clipboard();
                         ui.output_mut(|o| o.copied_text = report.generate_markdown());
+                        self.state.controller.set_status_message("测试报告已复制到系统剪贴板".to_string());
+                    }
+                    if ui.button(RichText::new("一键导出到桌面 (.md)")).clicked() {
+                        if let Ok(p) = report.export_to_desktop(ReportFormat::Markdown) {
+                            self.state.controller.set_status_message(format!("已导出至桌面: {:?}", p));
+                        }
+                    }
+                    if ui.button(RichText::new("一键导出案卷文本 (.txt)")).clicked() {
+                        if let Ok(p) = report.export_to_desktop(ReportFormat::PlainText) {
+                            self.state.controller.set_status_message(format!("案卷文本已导出: {:?}", p));
+                        }
                     }
                     if report.is_fake {
                         if ui.button(RichText::new("保存防篡改证据档案到本地 (.md)")).clicked() {
