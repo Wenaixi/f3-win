@@ -324,7 +324,7 @@ impl DiagnosticReport {
 
     pub fn generate_markdown(&self) -> String {
         let gb = |b: u64| b as f64 / (1024.0 * 1024.0 * 1024.0);
-        let serial_hex = self.volume_serial.map(|s| format!("{:08X}", s)).unwrap_or_else(|| "N/A".to_string());
+        let serial_hex = self.volume_serial.map(|s| format!("0x{:08X}", s)).unwrap_or_else(|| "N/A".to_string());
         let mut doc = String::new();
 
         doc.push_str("# 存储介质物理容量真实性司法鉴定级检验报告\n");
@@ -495,7 +495,7 @@ impl DiagnosticReport {
     /// 渲染为整洁的纯文本 TXT 格式 (带 ASCII 边框与清晰对齐，适合打印或记事本)
     pub fn generate_plain_text(&self) -> String {
         let gb = |b: u64| b as f64 / (1024.0 * 1024.0 * 1024.0);
-        let serial_hex = self.volume_serial.map(|s| format!("{:08X}", s)).unwrap_or_else(|| "N/A".to_string());
+        let serial_hex = self.volume_serial.map(|s| format!("0x{:08X}", s)).unwrap_or_else(|| "N/A".to_string());
         let mut out = String::new();
 
         out.push_str("================================================================================\n");

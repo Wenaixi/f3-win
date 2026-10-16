@@ -192,7 +192,7 @@ impl EngineController {
             // lock_guard 与 block_file 移交至线程内部全程持有，线程退出时自动 Drop 释放！
             let _guard = lock_guard;
             let probe = F3Probe::new(config, flag);
-            probe.run(&mut block_file, tx);
+            let _ = probe.run(&mut block_file, tx);
         });
 
         Ok(())
