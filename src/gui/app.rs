@@ -39,8 +39,9 @@ impl eframe::App for F3App {
 
             // 只要检测到容量虚标或坏道，在测试完成边界静默自动在 exe 同级目录生成 f3_evidence_<serial>_<timestamp>.md 档案！
             if snapshot.stats.overwritten > 0 || snapshot.stats.bad > 0 {
-                let dev = self.state.inventory.active_physical_device();
-                let serial = self.state.inventory.selected_volume().and_then(|v| v.serial_number);
+                let active_target = self.state.inventory.active_target();
+                let dev = active_target.as_ref().map(|t| &t.device);
+                let serial = SaltRegistry::get_volume_serial(&self.state.inventory.selected_path().to_string_lossy());
                 let dummy_telemetry = crate::core::session::H2wTelemetry {
                     mode: match snapshot.kind {
                         crate::core::controller::TaskKind::Write => crate::core::session::H2wMode::Write,
