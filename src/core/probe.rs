@@ -123,7 +123,7 @@ impl F3Probe {
                 chunk.copy_from_slice(&prng.to_le_bytes());
             }
 
-            let _ = file.write_at(start_sec * 512, buf.as_slice());
+            let _ = file.write_at(buf.as_slice(), start_sec * 512);
         }
         let _ = file.flush();
         Ok(())
@@ -153,7 +153,7 @@ impl F3Probe {
 
         // 2. 写入低位基准探针 (LBA 2048, 1MB 偏移处)
         Self::create_probe_block(buf.as_mut_slice(), BASE_PROBE_SECTOR, 0x55);
-        dev.write_at(BASE_PROBE_SECTOR * 512, &buf.as_slice()[..512])
+        dev.write_at(&buf.as_slice()[..512], BASE_PROBE_SECTOR * 512)
             .map_err(|e| format!("写入低位基准探针失败: {}", e))?;
         dev.flush().map_err(|e| format!("冲刷基准探针失败: {}", e))?;
 
@@ -224,7 +224,7 @@ impl F3Probe {
 
                 // (1) 写入高位专属测试探针 (盐值 0xAA)
                 Self::create_probe_block(buf.as_mut_slice(), test_sec, 0xAA);
-                if dev.write_at(test_sec * 512, &buf.as_slice()[..512]).is_err() {
+                if dev.write_at(&buf.as_slice()[..512], test_sec * 512).is_err() {
                     // 写入即报错：物理闪存异常截断
                     is_counterfeit = true;
                     real_capacity_sectors = power;
@@ -247,7 +247,7 @@ impl F3Probe {
 
                 // (3) 高位专属探针回读核验 (绝杀位黑洞假盘 Bit-bucket)
                 buf.as_mut_slice().fill(0);
-                if dev.read_at(test_sec * 512, &mut buf.as_mut_slice()[..512]).is_err()
+                if dev.read_at(&mut buf.as_mut_slice()[..512], test_sec * 512).is_err()
                     || !Self::verify_probe(&buf.as_slice()[..512], test_sec, 0xAA)
                 {
                     is_counterfeit = true;
@@ -258,7 +258,7 @@ impl F3Probe {
 
                 // (4) 低位基准探针回读强恒等核验 (绝杀地址回绕假盘 Wrap-around)
                 buf.as_mut_slice().fill(0);
-                if dev.read_at(BASE_PROBE_SECTOR * 512, &mut buf.as_mut_slice()[..512]).is_err()
+                if dev.read_at(&mut buf.as_mut_slice()[..512], BASE_PROBE_SECTOR * 512).is_err()
                     || !Self::verify_probe(&buf.as_slice()[..512], BASE_PROBE_SECTOR, 0x55)
                 {
                     is_counterfeit = true;

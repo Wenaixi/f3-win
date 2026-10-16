@@ -463,12 +463,12 @@ impl F3App {
                     self.state.salt_hex = format!("0x{:016X}", new_salt);
                     
                     // 立即落盘到 exe 同级目录下的 f3_salt_registry.json
-                    let _ = SaltRegistry::register_salt(&target_dir, new_salt);
+                    let _ = SaltRegistry::register_salt(&target_dir.to_string_lossy(), new_salt);
                     new_salt
                 }
                 H2wMode::Verify => {
                     // 校验阶段：优先从 exe 同目录注册表自动反查已落盘的历史 Salt
-                    if let Some(saved_salt) = SaltRegistry::query_salt(&target_dir) {
+                    if let Some(saved_salt) = SaltRegistry::query_salt(&target_dir.to_string_lossy()) {
                         self.state.salt = saved_salt;
                         self.state.salt_hex = format!("0x{:016X}", saved_salt);
                         saved_salt
@@ -488,7 +488,7 @@ impl F3App {
                         .unwrap_or(0x5A5A_A5A5_1234_5678);
                     self.state.salt = new_salt;
                     self.state.salt_hex = format!("0x{:016X}", new_salt);
-                    let _ = SaltRegistry::register_salt(&target_dir, new_salt);
+                    let _ = SaltRegistry::register_salt(&target_dir.to_string_lossy(), new_salt);
                     new_salt
                 }
             }
@@ -548,32 +548,3 @@ impl F3App {
         for path in font_candidates {
             if let Ok(bytes) = std::fs::read(path) {
                 fonts.font_data.insert(
-                    "chinese_font".to_owned(),
-                    egui::FontData::from_owned(bytes),
-                );
-
-                if let Some(prop) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-                    prop.insert(0, "chinese_font".to_owned());
-                }
-                if let Some(mono) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-                    mono.push("chinese_font".to_owned());
-                }
-
-                ctx.set_fonts(fonts);
-                break;
-            }
-        }
-    }
-}
-
-fn format_eta(seconds: u64) -> String {
-    if seconds == 0 {
-        "计算中...".to_string()
-    } else if seconds < 60 {
-        format!("{} 秒", seconds)
-    } else if seconds < 3600 {
-        format!("{} 分 {} 秒", seconds / 60, seconds % 60)
-    } else {
-        format!("{} 小时 {} 分", seconds / 3600, (seconds % 3600) / 60)
-    }
-}
