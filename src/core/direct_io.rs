@@ -249,6 +249,7 @@ pub struct MemoryBlockDevice {
     sectors: HashMap<u64, Vec<u8>>,
     virtual_size_bytes: u64,
     wrap_around_bytes: Option<u64>,
+    bit_bucket_bytes: Option<u64>,
 }
 
 impl MemoryBlockDevice {
@@ -265,6 +266,16 @@ impl MemoryBlockDevice {
             sectors: HashMap::new(),
             virtual_size_bytes,
             wrap_around_bytes: Some(real_size_bytes),
+            bit_bucket_bytes: None,
+        }
+    }
+
+    pub fn with_fake_bit_bucket(virtual_size_bytes: u64, real_size_bytes: u64) -> Self {
+        Self {
+            sectors: HashMap::new(),
+            virtual_size_bytes,
+            wrap_around_bytes: None,
+            bit_bucket_bytes: Some(real_size_bytes),
         }
     }
 }
