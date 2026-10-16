@@ -402,4 +402,34 @@ mod tests {
         assert_eq!(ctrl.snapshot().status, TaskStatus::Running);
         assert_eq!(ctrl.snapshot().kind, TaskKind::Cleanup);
     }
+
+    #[test]
+    fn test_start_probe_rejects_unsafe_target() {
+        let mut ctrl = EngineController::new();
+        let dev = crate::core::devices::PhysicalDeviceInfo {
+            drive_index: 0,
+            path: r"\\.\PhysicalDrive0".to_string(),
+            vendor_id: "Internal".to_string(),
+            product_id: "Disk".to_string(),
+            serial_number: "000".to_string(),
+            bus_type: crate::core::devices::StorageBusType::Nvme,
+            total_bytes: 1000,
+            is_removable: false,
+            is_safe_target: false,
+            warning: None,
+            mounted_volumes: Vec::new(),
+        };
+        let target = StorageTarget::new(dev, Vec::new());
+        let res = ctrl.start_probe(target);
+        assert!(res.is_err(), "内部固定磁盘必须被拒绝对其执行物理探测");
+        assert!(res.unwrap_err().contains("安全白名单"));
+    }
+
+    #[test]
+    fn test_controller_cancel_sets_flag() {
+        let mut ctrl = EngineController::new();
+        ctrl.cancel();
+        assert!(ctrl.cancel_flag.load(Ordering::Relaxed), "cancel() 必须置位 cancel_flag");
+        assert!(ctrl.snapshot().status_message.contains("停止"));
+    }
 }

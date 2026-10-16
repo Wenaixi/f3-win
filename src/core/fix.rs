@@ -378,4 +378,14 @@ mod tests {
         assert_eq!(plan.safe_partition_mb, 100 - 16); // 84 MB
         assert_eq!(plan.safe_partition_bytes % (1024 * 1024), 0);
     }
+
+    #[test]
+    fn test_fix_plan_unsupported_filesystem() {
+        let mut plan = F3FixPlan::new(1, 64 * 1024 * 1024 * 1024, 32 * 1024 * 1024 * 1024);
+        plan.file_system = "btrfs".to_string();
+        let runner = MockDiskpartRunner::default();
+        let res = plan.execute_with_runner(&runner);
+        assert!(res.is_err(), "不支持的文件系统必须拦截");
+        assert!(res.unwrap_err().contains("不支持的文件系统"));
+    }
 }

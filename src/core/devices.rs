@@ -729,4 +729,47 @@ mod tests {
         assert_eq!(inv.selected_device_index(), None);
         assert_eq!(inv.selected_path(), PathBuf::from("."));
     }
+
+    #[test]
+    fn test_storage_bus_type_mapping() {
+        assert_eq!(StorageBusType::from_raw(7), StorageBusType::Usb);
+        assert_eq!(StorageBusType::from_raw(11), StorageBusType::Sata);
+        assert_eq!(StorageBusType::from_raw(12), StorageBusType::Sd);
+        assert_eq!(StorageBusType::from_raw(13), StorageBusType::Mmc);
+        assert_eq!(StorageBusType::from_raw(17), StorageBusType::Nvme);
+        assert_eq!(StorageBusType::from_raw(99), StorageBusType::Unknown(99));
+
+        assert!(StorageBusType::Usb.is_removable_bus());
+        assert!(StorageBusType::Sd.is_removable_bus());
+        assert!(StorageBusType::Mmc.is_removable_bus());
+        assert!(!StorageBusType::Sata.is_removable_bus());
+        assert!(!StorageBusType::Nvme.is_removable_bus());
+    }
+
+    #[test]
+    fn test_storage_target_safety_check() {
+        let mut dev = PhysicalDeviceInfo {
+            drive_index: 0,
+            path: r"\\.\PhysicalDrive0".to_string(),
+            vendor_id: "Internal".to_string(),
+            product_id: "SSD".to_string(),
+            serial_number: "123".to_string(),
+            bus_type: StorageBusType::Nvme,
+            total_bytes: 512 * 1024 * 1024 * 1024,
+            is_removable: false,
+            is_safe_target: false,
+            warning: Some("系统主盘已锁定".to_string()),
+            mounted_volumes: vec!['C'],
+        };
+
+        let target_system = StorageTarget::new(dev.clone(), Vec::new());
+        assert!(!target_system.is_safe_for_raw_probe(), "系统主盘 0 必须被拦截");
+
+        dev.drive_index = 1;
+        dev.bus_type = StorageBusType::Usb;
+        dev.is_removable = true;
+        dev.is_safe_target = true;
+        let target_usb = StorageTarget::new(dev, Vec::new());
+        assert!(target_usb.is_safe_for_raw_probe(), "合规移动 U 盘必须允许探测");
+    }
 }

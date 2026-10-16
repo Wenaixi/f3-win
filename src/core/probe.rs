@@ -223,4 +223,25 @@ mod tests {
         assert!(!final_telemetry.is_fake);
         assert_eq!(final_telemetry.real_size_bytes, total_bytes);
     }
+
+    #[test]
+    fn test_f3probe_early_cancellation() {
+        let total_bytes = 16 * 1024 * 1024 * 1024;
+        let total_sectors = total_bytes / 512;
+        let mut dev = MemoryBlockDevice::new(total_bytes);
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        // 模拟用户在探测刚开始就点击取消
+        let cancel = Arc::new(AtomicBool::new(true));
+        let config = F3ProbeConfig { total_sectors };
+        let probe = F3Probe::new(config, cancel);
+
+        probe.run(&mut dev, tx);
+
+        let msgs: Vec<_> = rx.into_iter().collect();
+        assert!(!msgs.is_empty(), "必须上报消息");
+        let last = msgs.last().unwrap();
+        assert!(last.is_finished, "取消后必须标记为完成");
+        assert!(last.error.as_deref().unwrap_or("").contains("取消"), "必须标明是用户取消");
+    }
 }
