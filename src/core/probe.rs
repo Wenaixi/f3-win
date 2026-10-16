@@ -319,4 +319,30 @@ mod tests {
         assert!(res.error.is_some(), "必须拦截超小容量设备");
         assert!(res.error.unwrap().contains("分区表"));
     }
+    #[test]
+    fn test_f3probe_detects_genuine_drive() {
+        // 标称 8GB，实际物理 8GB 真实正品盘 (完全无回绕、无黑洞)
+        let total_sectors = 8 * 1024 * 1024 * 1024 / 512;
+        let mut dev = MemoryBlockDevice::new(total_sectors * 512);
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let config = F3ProbeConfig { total_sectors };
+        let probe = F3Probe::new(config, cancel);
+
+        probe.run(&mut dev, tx);
+
+        let mut final_telemetry = None;
+        while let Ok(t) = rx.try_recv() {
+            if t.is_finished {
+                final_telemetry = Some(t);
+                break;
+            }
+        }
+
+        let res = final_telemetry.expect("Should produce final telemetry");
+        assert!(!res.is_fake, "真实合规正品盘绝不能被误判为假盘");
+        assert_eq!(res.real_size_bytes, total_sectors * 512, "真实物理容量必须等于标称容量");
+        assert!(res.error.is_none(), "正常探测不应出现错误");
+    }
 }

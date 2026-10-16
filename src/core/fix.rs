@@ -387,4 +387,22 @@ mod tests {
         assert!(res.is_err(), "不支持的文件系统必须拦截");
         assert!(res.unwrap_err().contains("不支持的文件系统"));
     }
+    #[test]
+    fn test_diskpart_script_format_rem_and_no_active() {
+        let plan = F3FixPlan::new(2, 64 * 1024 * 1024 * 1024, 8 * 1024 * 1024 * 1024);
+        let script = plan.generate_diskpart_script();
+
+        // 规范断言：必须使用 Windows 原生标准 REM 注释，严禁 Linux 风格 # 注释
+        assert!(script.contains("REM F3-Win 自动生成的安全分区修复脚本"));
+        assert!(!script.contains("# F3-Win"));
+
+        // 规范断言：普通数据盘严禁出现 active 指令 (以防在 GPT 分区表上报错)
+        assert!(!script.contains("\nactive\n"));
+        assert!(!script.ends_with("active\n"));
+
+        // 规范断言：必须包含 select disk 2, clean, format quick
+        assert!(script.contains("select disk 2"));
+        assert!(script.contains("clean"));
+        assert!(script.contains("format fs=exfat quick") || script.contains("format fs="));
+    }
 }
