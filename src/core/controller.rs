@@ -240,47 +240,57 @@ impl EngineController {
             loop {
                 match rx.try_recv() {
                     Ok(msg) => {
-                self.snapshot.total_bytes_processed = msg.bytes_processed;
-                self.snapshot.current_speed_mb = msg.speed_bps / (1024.0 * 1024.0);
-                self.snapshot.eta_seconds = msg.eta_seconds;
-                self.snapshot.stats = msg.stats;
+                        self.snapshot.total_bytes_processed = msg.bytes_processed;
+                        self.snapshot.current_speed_mb = msg.speed_bps / (1024.0 * 1024.0);
+                        self.snapshot.eta_seconds = msg.eta_seconds;
+                        self.snapshot.stats = msg.stats;
 
-                if let Some((idx, state_val)) = msg.heatmap_sample {
-                    if idx < self.snapshot.heatmap_blocks.len() {
-                        // 严重度单调递增原则：低严重度状态不得覆盖已有高严重度异常状态
-                        let current_sev = state_severity(self.snapshot.heatmap_blocks[idx]);
-                        let new_sev = state_severity(state_val);
-                        if new_sev >= current_sev {
-                            self.snapshot.heatmap_blocks[idx] = state_val;
+                        if let Some((idx, state_val)) = msg.heatmap_sample {
+                            if idx < self.snapshot.heatmap_blocks.len() {
+                                // 严重度单调递增原则：低严重度状态不得覆盖已有高严重度异常状态
+                                let current_sev = state_severity(self.snapshot.heatmap_blocks[idx]);
+                                let new_sev = state_severity(state_val);
+                                if new_sev >= current_sev {
+                                    self.snapshot.heatmap_blocks[idx] = state_val;
+                                }
+                            }
+                        }
+
+                        if let Some(start) = self.start_instant {
+                            let elapsed = start.elapsed().as_secs_f64();
+                            self.append_speed(elapsed, self.snapshot.current_speed_mb);
+                        }
+
+                        if msg.phase == H2wPhase::CleaningUp {
+                            self.snapshot.status_message = "校验完成，正在自动清理测试文件并释放空间...".to_string();
+                        }
+
+                        if msg.is_finished {
+                            self.snapshot.status = if msg.error.is_some() {
+                                TaskStatus::Error
+                            } else {
+                                TaskStatus::Finished
+                            };
+                            self.snapshot.error = msg.error.clone();
+                            self.snapshot.status_message = msg.error.unwrap_or_else(|| {
+                                match msg.mode {
+                                    H2wMode::Write => "写入测试完成".to_string(),
+                                    H2wMode::Verify => "校验测试完成".to_string(),
+                                    H2wMode::WriteAndVerify => "全流程写验测试完成".to_string(),
+                                }
+                            });
+                            self.h2w_rx = None;
+                            break;
                         }
                     }
-                }
-
-                if let Some(start) = self.start_instant {
-                    let elapsed = start.elapsed().as_secs_f64();
-                    self.append_speed(elapsed, self.snapshot.current_speed_mb);
-                }
-
-                if msg.phase == H2wPhase::CleaningUp {
-                    self.snapshot.status_message = "校验完成，正在自动清理测试文件并释放空间...".to_string();
-                }
-
-                if msg.is_finished {
-                    self.snapshot.status = if msg.error.is_some() {
-                        TaskStatus::Error
-                    } else {
-                        TaskStatus::Finished
-                    };
-                    self.snapshot.error = msg.error.clone();
-                    self.snapshot.status_message = msg.error.unwrap_or_else(|| {
-                        match msg.mode {
-                            H2wMode::Write => "写入测试完成".to_string(),
-                            H2wMode::Verify => "校验测试完成".to_string(),
-                            H2wMode::WriteAndVerify => "全流程写验测试完成".to_string(),
-                        }
-                    });
-                    self.h2w_rx = None;
-                    break;
+                    Err(crossbeam_channel::TryRecvError::Empty) => break,
+                    Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                        self.snapshot.status = TaskStatus::Error;
+                        self.snapshot.status_message = "后台工作线程异常终止 (管道已断开)".to_string();
+                        self.snapshot.error = Some("后台任务非正常退出".to_string());
+                        self.h2w_rx = None;
+                        break;
+                    }
                 }
             }
         }
