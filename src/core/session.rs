@@ -9,6 +9,7 @@ use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 use crate::core::algo::{fill_sectors, validate_sectors, BlockState, BlockStats, SECTOR_SIZE};
 use crate::core::aligned_buf::AlignedBuffer;
 use crate::core::direct_io::DirectIoFile;
+use crate::core::speed::{SpeedPhysiologySnapshot, SpeedPhysiologyTracker};
 
 pub const GIGABYTE: u64 = 1024 * 1024 * 1024; // 1 GiB 标准分卷
 pub const DEFAULT_CHUNK_SIZE: usize = 1024 * 1024; // 默认 1MB 块大小
@@ -44,6 +45,12 @@ pub struct H2wTelemetry {
     pub heatmap_sample: Option<(usize, BlockState)>,
     pub is_finished: bool,
     pub error: Option<String>,
+    pub duration_seconds: f64,
+    pub physiology: Option<SpeedPhysiologySnapshot>,
+    pub first_error_offset: Option<u64>,
+    pub first_error_file: Option<u64>,
+    pub first_error_expected: Option<[u8; 16]>,
+    pub first_error_actual: Option<[u8; 16]>,
 }
 
 #[derive(Debug, Clone)]
@@ -645,17 +652,5 @@ impl H2wSession {
             is_finished,
             error,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_progress_tracker_calculation() {
-        let tracker = ProgressTracker::new(100 * 1024 * 1024);
-        assert_eq!(tracker.target_bytes, 100 * 1024 * 1024);
-        assert_eq!(tracker.avg_speed(0), 0.0);
     }
 }

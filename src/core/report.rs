@@ -104,7 +104,7 @@ impl DiagnosticReport {
             0.0
         };
 
-        let peak_mb = physiology.map(|p| p.peak_speed_bps / (1024.0 * 1024.0)).unwrap_or(telemetry.peak_speed_bps / (1024.0 * 1024.0));
+        let peak_mb = physiology.map(|p| p.peak_speed_bps / (1024.0 * 1024.0)).unwrap_or(telemetry.speed_bps / (1024.0 * 1024.0));
         let avg_mb = physiology.map(|p| p.average_speed_bps / (1024.0 * 1024.0)).unwrap_or(telemetry.speed_bps / (1024.0 * 1024.0));
         let valley_mb = physiology.map(|p| p.valley_speed_bps / (1024.0 * 1024.0)).unwrap_or(0.0);
         let median_mb = physiology.map(|p| p.median_speed_bps / (1024.0 * 1024.0)).unwrap_or(avg_mb);
@@ -396,12 +396,11 @@ mod tests {
         let telemetry = H2wTelemetry {
             mode: H2wMode::Verify,
             phase: crate::core::session::H2wPhase::Completed,
-            current_file_num: 8,
+            current_file: 8,
             bytes_processed: 8 * 1024 * 1024 * 1024,
             total_bytes_expected: 64 * 1024 * 1024 * 1024,
             speed_bps: 12_000_000.0,
-            peak_speed_bps: 25_000_000.0,
-            duration_seconds: 680.0,
+                        duration_seconds: 680.0,
             eta_seconds: 0,
             stats: BlockStats {
                 good: 14_000_000,

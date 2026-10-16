@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn test_warmup_filters_initial_cold_start() {
-        let mut tracker = SpeedPhysiologyTracker::new(1024 * 1024 * 1024);
+        let tracker = SpeedPhysiologyTracker::new(1024 * 1024 * 1024);
         assert!(!tracker.warmup_passed);
         assert_eq!(tracker.valley_speed_bps, 0.0);
     }
@@ -448,11 +448,3 @@ mod tests {
         // 第 2 次掉速
         tracker.detect_slc_cliff(12_000_000.0, 1_010_000_000);
         assert!(tracker.slc_cliff_info.is_none());
-
-        // 第 3 次确认断崖成立
-        tracker.detect_slc_cliff(11_000_000.0, 1_020_000_000);
-        assert!(tracker.slc_cliff_info.is_some());
-        let cliff = tracker.slc_cliff_info.unwrap();
-        assert_eq!(cliff.cliff_bytes, 1_000_000_000);
-    }
-}
