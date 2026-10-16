@@ -193,6 +193,17 @@
   4. 状态机自愈与系统盘绝对安全绝缘：poll() 捕获管道 Disconnected 异常防止 Worker 崩溃导致 UI 按钮永久置灰卡死；热力图采样严重度单调递增保持；StorageTarget 对系统引导卷 (C:) 实施一票否决；规范 diskpart 语法为 REM 并移除多余 active；默认开启单向安全加盐，空闲时静默休眠节能。
 
 
+
+### 法庭级维权存证报告中枢与全维度生理速度审计大成版全绿交付记录 (Run 38968080140)
+- 流水线状态：Run ID 38968080140 (Status: completed success，全量 33 项核心单元测试 100% 满分全绿通过)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部 33 项单元测试 (2m 25s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-x86_64-pc-windows-msvc.zip (2m 5s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-aarch64-pc-windows-msvc.zip (1m 56s)
+- 产物详情与验证：
+  - Windows x64 二进制：f3-win.exe (精确 3,143,680 字节, 时间戳 2026-10-16T21:20:45.813Z)
+  - Windows ARM64 二进制：f3-win-arm64.exe (精确 2,998,272 字节)
+  - 进程安全与热更新：严格遵守不停止、不干扰任何已有进程铁律，通过 Windows 原生更名热替换机制成功安全部署就位
+
 ### 法庭级维权存证报告中枢与全维度生理速度审计大成版交付记录 (2026-10-17 司法存证升级)
 1. 写入与读取双阶段全维度生理速度模型 (src/core/speed.rs & session.rs):
    - 基于 Welford 单趟流式方差与 P² 在线分位数算法，实现 O(1) 恒定内存 (仅 280 字节，零堆分配) 的速度与闪存体质分析；
