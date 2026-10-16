@@ -67,14 +67,14 @@ pub fn fill_sector(buf: &mut [u8; SECTOR_SIZE], offset: u64, salt: u64) {
 
     // 扇区第一个 64 位存放明文 offset (Salt 绝不落盘)
     if let Some(first) = chunks.next() {
-        first.copy_from_slice(&offset.to_ne_bytes());
+        first.copy_from_slice(&offset.to_le_bytes());
     }
 
     // 后续 63 个 64 位依次填充伪随机数，初始种子经单向雪崩置换
     let mut random_number = one_way_seed(offset, salt);
     for chunk in chunks {
         random_number = next_random_number(random_number);
-        chunk.copy_from_slice(&random_number.to_ne_bytes());
+        chunk.copy_from_slice(&random_number.to_le_bytes());
     }
 }
 
@@ -100,7 +100,7 @@ pub fn validate_sector(
 ) -> (BlockState, u64) {
     let mut chunks = buf.chunks_exact(8);
     let found_offset = match chunks.next() {
-        Some(first) => u64::from_ne_bytes(first.try_into().unwrap()),
+        Some(first) => u64::from_le_bytes(first.try_into().unwrap()),
         None => return (BlockState::Bad, 0),
     };
 
@@ -109,7 +109,7 @@ pub fn validate_sector(
 
     for chunk in chunks {
         random_number = next_random_number(random_number);
-        let val = u64::from_ne_bytes(chunk.try_into().unwrap());
+        let val = u64::from_le_bytes(chunk.try_into().unwrap());
         if val != random_number {
             bit_error_count += (val ^ random_number).count_ones();
             if bit_error_count > BIT_ERROR_TOLERANCE {
@@ -190,7 +190,7 @@ mod tests {
         assert_eq!(found, offset);
 
         // 验证模逆元 0x6789abcdeeeeeeef 无法反解加盐后的种子
-        let first_random = u64::from_ne_bytes(sector[8..16].try_into().unwrap());
+        let first_random = u64::from_le_bytes(sector[8..16].try_into().unwrap());
         let inv_mult = 0x6789_ABCD_EEEE_EEEF_u64;
         let naive_cracked_s0 = first_random.wrapping_sub(17).wrapping_mul(inv_mult);
         let naive_cracked_salt = naive_cracked_s0 ^ offset;

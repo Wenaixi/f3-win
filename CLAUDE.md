@@ -191,3 +191,27 @@
   2. 双向对流探针彻底终结位黑洞与回绕漏报：在每个指数跳跃阶梯先写高位专属探针再深度排空 32MB 缓存，高位读回防位黑洞丢弃、低位读回防物理回绕覆盖，并设置小于 2MB 安全熔断保护扇区 0 (MBR)。
   3. Win32 Direct I/O 同步错误直取与假盘证据保护：彻底剔除非重叠同步句柄上的 GetOverlappedResult 误用，直取真实 Win32 硬件错误码；写入循环精准区分磁盘写满 (112/39) 与硬件掉盘 (1117/23)；自动清理增加防伪守卫 (overwritten > 0 假盘严禁删除测试文件，完整保留维权凭据)。
   4. 状态机自愈与系统盘绝对安全绝缘：poll() 捕获管道 Disconnected 异常防止 Worker 崩溃导致 UI 按钮永久置灰卡死；热力图采样严重度单调递增保持；StorageTarget 对系统引导卷 (C:) 实施一票否决；规范 diskpart 语法为 REM 并移除多余 active；默认开启单向安全加盐，空闲时静默休眠节能。
+### 现代防伪凭证中枢与深层容灾大成版交付记录 (2026-10-17 多子代理深度加固)
+1. 现代防伪凭证注册表 SaltRegistry 与加盐读写闭环：
+   - 彻底破案并修复加盐勾选后读取校验满屏报错的致命 Bug：原代码在校验时再次调用 SystemTime 生成了全新 Salt，导致与写入时的 Salt 失配；
+   - 打造现代防伪凭证中枢 (SaltRegistry)：在 exe 同级目录下维护 f3_salt_registry.json，按驱动器卷序列号 (VolumeSerialNumber) 与盘符双主键绑定；
+   - 写入时生成高熵 Salt 并立即原子化落盘，校验时优先根据卷序列号自动反查已落盘的历史 Salt，实现免输入全自动匹配；
+   - 物理安全隔离：Salt 落盘在主机系统盘 (exe 同级目录)，U 盘硬件主控微码物理上无法跨设备窥探主机系统盘，彻底阻断了恶意固件偷取 Salt 实施算力回放的通路；
+   - UI 增加防伪凭证呈现，支持查看、复制与自定义输入 Salt。
+2. 密码学真单向有损压缩与协议字节序规范：
+   - 升级 one_way_seed：引入非线性有损乘积压缩，摧毁 SplitMix64 双射代数可逆性，在计算上彻底消灭逆元求解可能；
+   - 全链路统一采用标准小端序 (to_le_bytes / from_le_bytes)，杜绝 ARM64 跨架构数据流偏差。
+3. 闪电探测引擎全面排雷与防作弊加固：
+   - 修复 scratch_sec 动态安全避让，彻底消除冲刷数据覆写高位探针导致正品盘被误判为假盘的致命假阳性；
+   - 指数推进改用 checked_shl(1) 与 checked_add，消除极大容量下的左移溢出与 ilog2(0) 崩溃；
+   - overwhelm_cache 采用高熵伪随机流填充 512B 扇区，彻底击穿假盘主控硬件压缩去重欺骗，并在循环内加入 cancel_flag 响应；
+   - 基准扇区核验引入强恒等性断言 (ref_found == Some(BASE_PROBE_SECTOR))。
+4. Win32 Direct I/O 驱动容灾与系统盘绝对防呆：
+   - 精准解构 Win32 原始错误码 (code as u32 & 0xFFFF == 112/39) 与英文提示，彻底消灭英文 Windows 下写满被误判为硬件故障崩溃的缺陷；
+   - 修复读取端末尾非对齐文件容错，杜绝下一次 I/O 触发 Win32 Error 87；
+   - StorageTarget::prepare_for_probe 增加 Zero-TOCTOU 现场硬件总线复核，杜绝设备拔插时间差漂移；
+   - SafePartitionFixer 注入 90 秒超时看门狗与强行 kill，杜绝假盘硬件死锁卡死 Worker 线程；并在 diskpart 脚本增加 attributes disk clear readonly 与 convert mbr。
+5. 控制器高并发状态机全管道容灾：
+   - 补齐 probe_rx、fix_rx、cleanup_rx 的 Disconnected 异常捕获，彻底杜绝 Worker 线程异常退出时 UI 永久置灰卡死；
+   - 彻底清空 reset_for_new_task 中的幽灵 Plan (fix_plan / probe_result)，杜绝误格正常盘；
+   - 隔离全新 Arc<AtomicBool> 并升级为 Release/Acquire 内存序，杜绝 ARM64 跨核心感知延迟；准确识别 Aborted 取消文案。

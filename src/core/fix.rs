@@ -76,9 +76,28 @@ impl DiskpartRunner for SystemDiskpartRunner {
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW 消除黑框闪烁
         }
 
-        let output = cmd.output().map_err(|e| {
+        let mut child = cmd.spawn().map_err(|e| {
             format!("启动 diskpart.exe 失败 (请确认具备管理员权限): {}", e)
         })?;
+
+        // 90 秒超时看门狗轮询，杜绝假盘硬件掉线时永久阻塞挂死 Worker 线程
+        let timeout = std::time::Duration::from_secs(90);
+        let start = std::time::Instant::now();
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) => {
+                    if start.elapsed() > timeout {
+                        let _ = child.kill();
+                        return Err("diskpart 执行超时 (硬件主控无响应，可能已掉盘或固件死锁)".to_string());
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+                Err(e) => return Err(format!("等待 diskpart 退出失败: {}", e)),
+            }
+        };
+
+        let output = child.wait_with_output().map_err(|e| format!("获取 diskpart 输出失败: {}", e))?;
 
         let stdout_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let stderr_str = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -161,7 +180,9 @@ impl F3FixPlan {
             REM 真实物理容量: {} 字节 ({:.2} GB)\n\
             REM 安全截断分区: {} MB\n\
             select disk {}\n\
+            attributes disk clear readonly\n\
             clean\n\
+            convert mbr\n\
             create partition primary size={}\n\
             format fs={} quick\n\
             assign\n",

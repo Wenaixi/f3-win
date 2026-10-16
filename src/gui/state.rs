@@ -24,6 +24,7 @@ pub struct AppState {
     // 用户测试配置与高级设置
     pub salt: u64,
     pub use_random_salt: bool,
+    pub salt_hex: String,
     pub chunk_size_mb: usize,
     pub start_file_num: u64,
     pub end_file_num: Option<u64>,
@@ -39,6 +40,7 @@ impl Default for AppState {
             controller: EngineController::new(),
             salt: 0,
             use_random_salt: true, // 默认开启单向安全加盐，开箱即防算力回放作弊
+            salt_hex: String::new(),
             chunk_size_mb: 1,
             start_file_num: 0,
             end_file_num: None,

@@ -4,6 +4,7 @@ use eframe::egui::{self, Color32, ProgressBar, RichText};
 use crate::core::controller::{TaskSnapshot, TaskStatus};
 use crate::core::fix::SafePartitionFixer;
 use crate::core::session::{H2wConfig, H2wMode};
+use crate::core::salt::SaltRegistry;
 use crate::gui::components::device_selector::{
     render_storage_device_selector, render_storage_volume_selector,
 };
@@ -445,22 +446,64 @@ impl F3App {
     }
 
     fn start_h2w_task(&mut self, mode: H2wMode) {
+        let target_dir = self.state.inventory.selected_path();
+        
+        // 核心修复：严密闭环的 Salt 决策与落盘机制
+        let effective_salt = if self.state.use_random_salt {
+            match mode {
+                H2wMode::Write => {
+                    // 写入阶段：生成高质量高熵随机 Salt 并立即安全落盘至 exe 同目录
+                    use std::time::SystemTime;
+                    let new_salt = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .map(|d| d.as_nanos() as u64)
+                        .unwrap_or(0x5A5A_A5A5_1234_5678);
+                    
+                    self.state.salt = new_salt;
+                    self.state.salt_hex = format!("0x{:016X}", new_salt);
+                    
+                    // 立即落盘到 exe 同级目录下的 f3_salt_registry.json
+                    let _ = SaltRegistry::register_salt(&target_dir, new_salt);
+                    new_salt
+                }
+                H2wMode::Verify => {
+                    // 校验阶段：优先从 exe 同目录注册表自动反查已落盘的历史 Salt
+                    if let Some(saved_salt) = SaltRegistry::query_salt(&target_dir) {
+                        self.state.salt = saved_salt;
+                        self.state.salt_hex = format!("0x{:016X}", saved_salt);
+                        saved_salt
+                    } else if !self.state.salt_hex.trim().is_empty() {
+                        // 备用：从界面输入框解析用户指定的十六进制 Salt
+                        let clean_hex = self.state.salt_hex.trim().trim_start_matches("0x").trim_start_matches("0X");
+                        u64::from_str_radix(clean_hex, 16).unwrap_or(self.state.salt)
+                    } else {
+                        self.state.salt
+                    }
+                }
+                H2wMode::WriteAndVerify => {
+                    use std::time::SystemTime;
+                    let new_salt = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .map(|d| d.as_nanos() as u64)
+                        .unwrap_or(0x5A5A_A5A5_1234_5678);
+                    self.state.salt = new_salt;
+                    self.state.salt_hex = format!("0x{:016X}", new_salt);
+                    let _ = SaltRegistry::register_salt(&target_dir, new_salt);
+                    new_salt
+                }
+            }
+        } else {
+            0
+        };
+
         let config = H2wConfig {
-            target_dir: self.state.inventory.selected_path(),
+            target_dir,
             mode,
             start_file_num: self.state.start_file_num,
             end_file_num: self.state.end_file_num,
             max_bytes: self.state.max_test_gb.map(|gb| gb * 1024 * 1024 * 1024),
             chunk_size: self.state.chunk_size_mb * 1024 * 1024,
-            salt: if self.state.use_random_salt {
-                use std::time::SystemTime;
-                SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .map(|d| d.as_nanos() as u64)
-                    .unwrap_or(0x5A5A_A5A5_1234_5678)
-            } else {
-                self.state.salt
-            },
+            salt: effective_salt,
             auto_cleanup: self.state.auto_cleanup_after_read,
         };
 

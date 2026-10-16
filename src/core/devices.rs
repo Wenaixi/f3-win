@@ -351,6 +351,17 @@ impl StorageTarget {
 
     // 执行物理探测前置准备：验证安全性，并独占锁定该磁盘上的全部挂载卷
     pub fn prepare_for_probe(&self) -> Result<VolumeLockGuard, String> {
+        // Zero-TOCTOU 零时差现场硬件总线复核：杜绝拔插时间差导致的物理设备漂移
+        let live_dev = PhysicalDeviceInfo::query_by_index(self.device.drive_index)
+            .ok_or_else(|| format!("目标物理磁盘 PhysicalDrive{} 已断开连接", self.device.drive_index))?;
+
+        if !live_dev.is_safe_target || live_dev.drive_index == 0 {
+            return Err(format!(
+                "安全硬隔离拦截：PhysicalDrive{} 未通过现场硬件总线核验 (非移动设备或系统主盘)",
+                live_dev.drive_index
+            ));
+        }
+
         if !self.is_safe_for_raw_probe() {
             return Err(format!(
                 "目标磁盘 PhysicalDrive{} 未通过安全核验 (系统主盘或固定磁盘已锁定)",

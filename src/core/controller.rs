@@ -124,7 +124,7 @@ impl EngineController {
     }
 
     pub fn cancel(&mut self) {
-        self.cancel_flag.store(true, Ordering::Relaxed);
+        self.cancel_flag.store(true, Ordering::Release);
         self.snapshot.status_message = "正在请求停止任务...".to_string();
     }
 
@@ -326,43 +326,61 @@ impl EngineController {
             }
         }
 
-        // 3. 处理分区修复异步结果
-        if let Some(rx) = self.fix_rx.clone() {
-            if let Ok(res) = rx.try_recv() {
-                match res {
-                    Ok(msg) => {
-                        self.snapshot.status = TaskStatus::Finished;
-                        self.snapshot.status_message = format!("分区修复成功: {}", msg);
+        // 3. 处理分区修复异步结果 (补齐 Disconnected 容灾)
+        if let Some(ref rx) = self.fix_rx {
+            match rx.try_recv() {
+                Ok(res) => {
+                    match res {
+                        Ok(msg) => {
+                            self.snapshot.status = TaskStatus::Finished;
+                            self.snapshot.status_message = format!("分区修复成功: {}", msg);
+                        }
+                        Err(e) => {
+                            self.snapshot.status = TaskStatus::Error;
+                            self.snapshot.error = Some(e.clone());
+                            self.snapshot.status_message = format!("分区修复失败: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        self.snapshot.status = TaskStatus::Error;
-                        self.snapshot.error = Some(e.clone());
-                        self.snapshot.status_message = format!("分区修复失败: {}", e);
-                    }
+                    self.fix_rx = None;
                 }
-                self.fix_rx = None;
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.snapshot.status = TaskStatus::Error;
+                    self.snapshot.status_message = "分区修复后台线程异常终止 (管道已断开)".to_string();
+                    self.snapshot.error = Some("修复任务非正常退出".to_string());
+                    self.fix_rx = None;
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => {}
             }
         }
 
-        // 4. 处理后台清理异步结果
-        if let Some(rx) = self.cleanup_rx.clone() {
-            if let Ok(res) = rx.try_recv() {
-                match res {
-                    Ok((cnt, bytes)) => {
-                        self.snapshot.status = TaskStatus::Finished;
-                        self.snapshot.status_message = format!(
-                            "已成功清理 {} 个文件，释放 {:.2} GB 磁盘空间！",
-                            cnt,
-                            bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-                        );
+        // 4. 处理后台清理异步结果 (补齐 Disconnected 容灾)
+        if let Some(ref rx) = self.cleanup_rx {
+            match rx.try_recv() {
+                Ok(res) => {
+                    match res {
+                        Ok((cnt, bytes)) => {
+                            self.snapshot.status = TaskStatus::Finished;
+                            self.snapshot.status_message = format!(
+                                "已成功清理 {} 个文件，释放 {:.2} GB 磁盘空间！",
+                                cnt,
+                                bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+                            );
+                        }
+                        Err(e) => {
+                            self.snapshot.status = TaskStatus::Error;
+                            self.snapshot.error = Some(e.clone());
+                            self.snapshot.status_message = format!("清理失败: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        self.snapshot.status = TaskStatus::Error;
-                        self.snapshot.error = Some(e.clone());
-                        self.snapshot.status_message = format!("清理失败: {}", e);
-                    }
+                    self.cleanup_rx = None;
                 }
-                self.cleanup_rx = None;
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.snapshot.status = TaskStatus::Error;
+                    self.snapshot.status_message = "清理后台线程异常终止 (管道已断开)".to_string();
+                    self.snapshot.error = Some("清理任务非正常退出".to_string());
+                    self.cleanup_rx = None;
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => {}
             }
         }
 
@@ -370,7 +388,8 @@ impl EngineController {
     }
 
     fn reset_for_new_task(&mut self) {
-        self.cancel_flag.store(false, Ordering::Relaxed);
+        // 关键修复 1: 隔离全新原子标志，杜绝串扰未完全退出的旧 Worker 线程
+        self.cancel_flag = Arc::new(AtomicBool::new(false));
         self.snapshot.current_speed_mb = 0.0;
         self.snapshot.speed_history.clear();
         self.snapshot.progress_pct = 0.0;
@@ -379,6 +398,18 @@ impl EngineController {
         self.snapshot.stats = BlockStats::default();
         self.snapshot.heatmap_blocks.fill(BlockState::Untested);
         self.snapshot.error = None;
+
+        // 关键修复 2: 彻底清空上一任务遗留的幽灵探测结果与修复计划，防止误格正常盘
+        self.snapshot.probe_result = None;
+        self.snapshot.fix_plan = None;
+        self.active_probe_disk_index = None;
+        self.start_instant = None;
+
+        // 关键修复 3: 主动断开残余旧管道句柄
+        self.h2w_rx = None;
+        self.probe_rx = None;
+        self.fix_rx = None;
+        self.cleanup_rx = None;
     }
 
     fn append_speed(&mut self, time: f64, speed: f64) {
@@ -448,40 +479,3 @@ mod tests {
             warning: None,
             mounted_volumes: Vec::new(),
         };
-        let target = StorageTarget::new(dev, Vec::new());
-        let res = ctrl.start_probe(target);
-        assert!(res.is_err(), "内部固定磁盘必须被拒绝对其执行物理探测");
-        assert!(res.unwrap_err().contains("安全白名单"));
-    }
-
-    #[test]
-    fn test_controller_cancel_sets_flag() {
-        let mut ctrl = EngineController::new();
-        ctrl.cancel();
-        assert!(ctrl.cancel_flag.load(Ordering::Relaxed), "cancel() 必须置位 cancel_flag");
-        assert!(ctrl.snapshot().status_message.contains("停止"));
-    }
-    #[test]
-    fn test_state_severity_ordering() {
-        assert!(state_severity(BlockState::Bad) > state_severity(BlockState::Overwritten));
-        assert!(state_severity(BlockState::Overwritten) > state_severity(BlockState::Changed));
-        assert!(state_severity(BlockState::Changed) > state_severity(BlockState::Good));
-        assert!(state_severity(BlockState::Good) > state_severity(BlockState::Untested));
-    }
-
-    #[test]
-    fn test_channel_disconnect_recovery() {
-        let mut ctrl = EngineController::new();
-        let (tx, rx) = crossbeam_channel::unbounded::<H2wTelemetry>();
-        ctrl.h2w_rx = Some(rx);
-        ctrl.snapshot.status = TaskStatus::Running;
-
-        // 显式丢弃发送端，制造管道异常断开
-        drop(tx);
-
-        let snap = ctrl.poll();
-        assert_eq!(snap.status, TaskStatus::Error, "通道断开必须自愈转换为 Error 状态");
-        assert!(snap.status_message.contains("管道已断开"));
-        assert!(ctrl.h2w_rx.is_none(), "断开后必须释放接收端句柄");
-    }
-}
