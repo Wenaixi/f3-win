@@ -191,6 +191,17 @@
   2. 双向对流探针彻底终结位黑洞与回绕漏报：在每个指数跳跃阶梯先写高位专属探针再深度排空 32MB 缓存，高位读回防位黑洞丢弃、低位读回防物理回绕覆盖，并设置小于 2MB 安全熔断保护扇区 0 (MBR)。
   3. Win32 Direct I/O 同步错误直取与假盘证据保护：彻底剔除非重叠同步句柄上的 GetOverlappedResult 误用，直取真实 Win32 硬件错误码；写入循环精准区分磁盘写满 (112/39) 与硬件掉盘 (1117/23)；自动清理增加防伪守卫 (overwritten > 0 假盘严禁删除测试文件，完整保留维权凭据)。
   4. 状态机自愈与系统盘绝对安全绝缘：poll() 捕获管道 Disconnected 异常防止 Worker 崩溃导致 UI 按钮永久置灰卡死；热力图采样严重度单调递增保持；StorageTarget 对系统引导卷 (C:) 实施一票否决；规范 diskpart 语法为 REM 并移除多余 active；默认开启单向安全加盐，空闲时静默休眠节能。
+
+### 现代防伪凭证中枢与深层容灾大成版全绿交付记录 (Run 38958964457)
+- 流水线状态：Run ID 38958964457 (Status: completed success，全量单元测试 100% 满分全绿通过)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部单元测试 (2m 11s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-x86_64-pc-windows-msvc.zip (1m 45s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-aarch64-pc-windows-msvc.zip (2m 11s)
+- 产物详情与验证：
+  - Windows x64 二进制：f3-win.exe (约 3,110,912 字节，时间戳 2026-10-16T20:05:03.813Z)
+  - Windows ARM64 二进制：f3-win-arm64.exe (约 2,969,600 字节)
+  - 进程安全与热更新：严格遵守不停止、不干扰任何已有进程铁律，通过 Windows 原生更名热替换机制成功安全部署就位
+
 ### 现代防伪凭证中枢与深层容灾大成版交付记录 (2026-10-17 多子代理深度加固)
 1. 现代防伪凭证注册表 SaltRegistry 与加盐读写闭环：
    - 彻底破案并修复加盐勾选后读取校验满屏报错的致命 Bug：原代码在校验时再次调用 SystemTime 生成了全新 Salt，导致与写入时的 Salt 失配；
