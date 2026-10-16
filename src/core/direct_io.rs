@@ -282,16 +282,20 @@ impl BlockIo for MemoryBlockDevice {
             return Ok(0);
         }
 
+        // 位黑洞模式：超出真实容量直接返回全 0 (模拟物理颗粒缺失)
+        if let Some(real) = self.bit_bucket_bytes {
+            if offset >= real {
+                buf.fill(0);
+                return Ok(buf.len());
+            }
+        }
+
         // 真实物理回绕映射
         let mapped_offset = if let Some(real) = self.wrap_around_bytes {
             if real > 0 { offset % real } else { offset }
         } else {
             offset
         };
-
-        if offset >= self.virtual_size_bytes {
-            return Ok(0);
-        }
 
         let sector_idx = mapped_offset / 512;
         let sector_offset = (mapped_offset % 512) as usize;
@@ -310,6 +314,17 @@ impl BlockIo for MemoryBlockDevice {
     }
 
     fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, String> {
+        if offset >= self.virtual_size_bytes {
+            return Err("写入超出虚拟设备边界".to_string());
+        }
+
+        // 位黑洞模式：超出真实容量的写入直接静默丢弃 (模拟 FTL 不刷入物理颗粒)
+        if let Some(real) = self.bit_bucket_bytes {
+            if offset >= real {
+                return Ok(buf.len());
+            }
+        }
+
         let mapped_offset = if let Some(real) = self.wrap_around_bytes {
             if real > 0 { offset % real } else { offset }
         } else {

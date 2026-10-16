@@ -780,6 +780,7 @@ mod tests {
         dev.bus_type = StorageBusType::Usb;
         dev.is_removable = true;
         dev.is_safe_target = true;
+        dev.mounted_volumes = vec!['E']; // 移除系统盘 C:，赋予合规移动卷 E:
         let target_usb = StorageTarget::new(dev, Vec::new());
         assert!(target_usb.is_safe_for_raw_probe(), "合规移动 U 盘必须允许探测");
     }

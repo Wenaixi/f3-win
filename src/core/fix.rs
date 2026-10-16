@@ -349,7 +349,7 @@ mod tests {
         assert!(script.contains("create partition primary size="), "必须创建主分区");
         assert!(script.contains("format fs=fat32 quick"), "32GB 应当使用 FAT32");
         assert!(script.contains("assign"), "必须分配盘符");
-        assert!(script.contains("active"), "必须激活分区");
+        assert!(!script.contains("active"), "普通数据分区严禁激活以兼容 GPT");
     }
 
     #[test]
