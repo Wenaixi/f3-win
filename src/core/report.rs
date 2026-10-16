@@ -721,7 +721,7 @@ mod tests {
         assert_eq!(report.audit_kind, AuditKind::VerifyOnly);
         assert!(report.is_fake);
         let md = report.generate_markdown();
-        assert!(md.contains("存储介质物理容量真实性技术检验报告"));
+        assert!(md.contains("存储介质物理容量真实性司法鉴定级检验报告"));
         assert!(md.contains("0x12345678"));
         assert!(md.contains("消费者权益保护法"));
         assert!(md.contains("Expected Hex"));
@@ -767,7 +767,7 @@ mod tests {
         assert!(!report.is_fake);
         let md = report.generate_markdown();
         assert!(md.contains("写入性能与 SLC 掉速独立审计报告"));
-        assert!(md.contains("物理写入阶段性能全景"));
+        assert!(md.contains("写入测试性能全景"));
     }
 
     #[test]
