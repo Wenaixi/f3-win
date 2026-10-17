@@ -43,11 +43,19 @@ fn ensure_administrator_elevation() {
 fn main() -> eframe::Result<()> {
     ensure_administrator_elevation();
 
+    // 内嵌 64x64 极简品牌像素矩阵，零运行时解码依赖与开销
+    let icon_data = eframe::egui::IconData {
+        rgba: include_bytes!("../assets/icon_64.rgba").to_vec(),
+        width: 64,
+        height: 64,
+    };
+
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_inner_size([960.0, 700.0])
             .with_min_inner_size([820.0, 580.0])
-            .with_title("F3 (管理员)"),
+            .with_title("F3 (管理员)")
+            .with_icon(icon_data),
         ..Default::default()
     };
 

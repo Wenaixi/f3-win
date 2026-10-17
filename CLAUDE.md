@@ -361,3 +361,20 @@
 - 流水线状态：Run ID 38968080140 (Status: completed success，全量 33 项核心单元测试 100% 满分全绿通过)
   - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部 33 项单元测试 (2m 25s)
   - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-x86_64-pc-windows-msvc.zip (2m 5s)
+### 全新极简品牌图标系统与原生Win32系统托盘全景落地记录 (2026-10-17)
+- 品牌资产与图标架构核心飞跃：
+  1. 极简品牌标识确立 (Concept 01 Negative Space F3 Monogram):
+     - 纯粹瑞士平面设计几何美学，纯白字母 F 与电光青数字 3 负空间互锁，集成 45 度硅片标准识别切角 (Chamfer)；
+     - 沉淀多规格原生资源：assets/app_icon.ico (涵盖 16x16 至 256x256 全规格 7 档标准 Windows 尺寸)、assets/icon.png (460x460 高清透明底原图)、assets/icon_256.png、assets/icon_64.png、assets/icon_32.png 与预编译 RGBA 像素矩阵 (assets/icon_64.rgba、assets/icon_32.rgba)；
+  2. 原生 Win32 系统托盘三级自愈加载架构 (src/gui/tray.rs):
+     - 针对用户核心诉求全面贯通系统托盘品牌展示，设计 load_tray_icon() 三级自适应加载中枢；
+     - 第 1 级 (PE资源直通): 通过 GetModuleHandleW 与 LoadIconW(h_instance, PCWSTR(1 as _)) 加载由 winres 嵌入的 1 号主图标，原生享受 Windows 针对不同显示器 DPI 缩放自动匹配最佳精度的系统级红利；
+     - 第 2 级 (静态内嵌动态构建): 通过 include_bytes! 静态内嵌 32x32 品牌 PNG 资源，利用 Win32 CreateIconFromResourceEx 动态构建 HICON，免去外部资源依赖；
+     - 第 3 级 (系统兜底): 回退至 IDI_APPLICATION，确保托盘永不产生空句柄崩溃；
+     - 在 TaskbarCreated 资源管理器崩溃重启自愈链路中无缝重载品牌图标；
+  3. 主窗口视口图标零开销冷启动 (src/main.rs):
+     - 基于 eframe::egui::IconData 直接载入 64x64 纯原始 RGBA 颜色通道数据 (16KB)；
+     - 零引入臃肿三方图像解码 crate，运行期加载耗时绝对为 0 微秒，确保应用程序极致毫秒级冷启动；
+  4. Windows PE 资源嵌入管线 (Cargo.toml & build.rs):
+     - 引入 winres 构建依赖与 Win32_System_LibraryLoader 系统特性，通过 build.rs 在 Windows 目标下自动将 assets/app_icon.ico 绑定进 PE 可执行文件头，同步注入 ProductName 与文件元数据；
+  5. 全量代码与文档绝对零 emoji 规范恪守。

@@ -22,7 +22,8 @@ windows = { version = "0.58", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Security",
-    "Win32_Graphics_Gdi"
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader"
 ] }
 
 # 线程通信与并发
@@ -36,3 +37,5 @@ lto = true             # 开启跨 Crate 链接时优化
 codegen-units = 1      # 最大化编译器分析与内联
 panic = "abort"        # 剔除 panic 展开堆栈体积
 strip = true           # 剥离符号表
+[build-dependencies]
+winres = "0.1"

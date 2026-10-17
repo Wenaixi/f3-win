@@ -192,6 +192,37 @@ unsafe fn show_tray_context_menu(hwnd: HWND) {
     let _ = PostMessageW(hwnd, WM_NULL, WPARAM(0), LPARAM(0));
 }
 
+/// 加载系统托盘品牌图标 (三级容灾自适应架构)
+unsafe fn load_tray_icon() -> HICON {
+    // 1. 优先尝试从 PE 资源中加载 1 号主图标 (由 winres 编译嵌入，支持多分辨率与系统 DPI 自动适配)
+    if let Ok(hmodule) = windows::Win32::System::LibraryLoader::GetModuleHandleW(None) {
+        let h_instance = HINSTANCE(hmodule.0);
+        if let Ok(icon) = LoadIconW(h_instance, PCWSTR(1 as _)) {
+            if !icon.is_invalid() {
+                return icon;
+            }
+        }
+    }
+
+    // 2. 次级保底: 直接从静态编译期内嵌的 32x32 极简品牌 PNG 资源中动态构建 HICON
+    static EMBEDDED_ICON_PNG: &[u8] = include_bytes!("../../assets/icon_32.png");
+    if let Ok(icon) = windows::Win32::UI::WindowsAndMessaging::CreateIconFromResourceEx(
+        EMBEDDED_ICON_PNG,
+        true,
+        0x00030000,
+        0,
+        0,
+        windows::Win32::UI::WindowsAndMessaging::LR_DEFAULTCOLOR,
+    ) {
+        if !icon.is_invalid() {
+            return icon;
+        }
+    }
+
+    // 3. 终极兜底: 使用 Windows 系统默认应用程序图标
+    LoadIconW(None, IDI_APPLICATION).unwrap_or_default()
+}
+
 unsafe fn make_notify_icon_data(hwnd: HWND, tooltip: &str) -> NOTIFYICONDATAW {
     let mut nid = std::mem::zeroed::<NOTIFYICONDATAW>();
     nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
@@ -199,7 +230,7 @@ unsafe fn make_notify_icon_data(hwnd: HWND, tooltip: &str) -> NOTIFYICONDATAW {
     nid.uID = 1;
     nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     nid.uCallbackMessage = WM_TRAY_CALLBACK;
-    nid.hIcon = LoadIconW(None, IDI_APPLICATION).unwrap_or_default();
+    nid.hIcon = load_tray_icon();
 
     let tip_u16: Vec<u16> = tooltip.encode_utf16().collect();
     let len = tip_u16.len().min(127);
