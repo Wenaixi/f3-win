@@ -6,6 +6,7 @@ use std::process::{Command, Stdio};
 use std::io::Write;
 
 /// 应用程序全局路径信息摘要
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppPathInfo {
     /// 可执行程序本身完整路径
@@ -48,6 +49,7 @@ impl AppPathInfo {
 }
 
 /// 在 Windows 资源管理器中打开目录或精准定位选中文件
+#[allow(dead_code)]
 pub fn open_in_explorer(path: &Path) -> Result<(), String> {
     if !path.exists() {
         // 若目录尚不存在，尝试向上一级查找
@@ -81,6 +83,7 @@ pub fn open_in_explorer(path: &Path) -> Result<(), String> {
 }
 
 /// 将指定文本复制到 Windows 系统剪贴板
+#[allow(dead_code)]
 pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
     let mut child = Command::new("clip")
         .stdin(Stdio::piped())
