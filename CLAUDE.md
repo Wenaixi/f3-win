@@ -198,6 +198,30 @@
 
 
 
+
+### 底层生理测速深度融合与全细节极致优化大成版交付记录 (Run 39025806862)
+- 流水线状态：Run ID 39025806862 (Status: completed success，全量单元测试 100% 满分全绿通过)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部单元测试 (2m 3s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-x86_64-pc-windows-msvc.zip (2m 10s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-aarch64-pc-windows-msvc.zip (2m 4s)
+- 产物详情与验证：
+  - Windows x64 二进制：f3-win.exe (精确 3,217,920 字节, SHA-256: EDED52C26EFAFBF6B6C14755956192F0C5B5EA96A73AF40999F630190672ABD9，时间戳 2026-10-17 10:44:48)
+  - Windows ARM64 二进制：f3-win-arm64.exe (精确 3,060,736 字节, SHA-256: FF5A9654620714FD1870855EC92538148E6F671F577B2413F5E4764D60ECF5BD)
+- 深度架构与细节优化落地成果：
+  1. 底层生理测速引擎 100% 深度融合 (src/core/session.rs & speed.rs):
+     - 将原本简易的 ProgressTracker 与工业级 SpeedPhysiologyTracker 深度内聚，在写入执行 (execute_write) 与读取校验执行 (execute_verify) 处理每一个物理数据块的微秒间隙，实时驱动 Welford 流式方差、P² 在线分位数、RMSSD 相继差抖动与 3 阶段 SLC 耗尽防抖状态机更新；
+     - 遥测发射点全面升级为 make_telemetry_with_tracker，所有周期心跳与终结包均携带 100% live 硬件实测物理快照 (Some(tracker.snapshot(bytes)))；
+  2. 控制器遥测管道与只读快照闭环 (src/core/controller.rs):
+     - TaskSnapshot 扩充 duration_seconds、physiology 以及 first_error_* 取证字段，poll() 单帧循环实时吸收同步，并在 reset_for_new_task() 时实施严格状态隔离，防止跨会话幽灵数据串扰；
+  3. 读写双端专属报告公文体系全维度解耦与实测直通 (src/core/report.rs & app.rs):
+     - DiagnosticReport 结构体增加对称的读取测速字段 (verify_peak_speed_mb / verify_valley_speed_mb / verify_median_speed_mb / verify_cv_jitter / verify_stall_ratio)，build_write_audit 与 build_verify_audit 分别直传实测物理快照，彻底消灭任何人工乘数估算；
+     - 写入测试页底部专属呈现【物理写入性能与颗粒体质检验书】(render_write_report_card)；
+     - 读取校验页底部专属呈现【容量真实性与读写生理鉴定结论书】(render_verify_report_card)；
+  4. 客观严谨的总线规范与自由垂直长截图支持:
+     - 彻底剔除主观浮夸的“伪装 USB 3.0 (装饰性蓝色胶芯)”文案，实事求是标明为【USB 2.0 (High-Speed 480Mbps 物理通道，读取带宽上限约 43 MB/s)】；
+     - CentralPanel 注入 ScrollArea 垂直滚动，彻底根除 700px 窗口边缘裁切问题，支持鼠标滚轮自由浏览与 Win + Shift + S 完整长截图；
+  5. 全量代码、注释与公文界面绝对零 emoji 规范恪守。
+
 ### 剔除主观伪装假设与实事求是USB 2.0规范化大成版交付记录 (Run 39013880095)
 - 流水线状态：Run ID 39013880095 (Status: completed success，全量单元测试 100% 满分全绿通过)
   - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部单元测试 (2m 17s)
@@ -298,21 +322,3 @@
    - 实现 auto_archive_evidence：检测到假盘时自动在 exe 同级目录生成以时间戳和卷序列号命名的 f3_evidence_<serial>_<timestamp>.md 证据档案，永久防灭失！
 5. 界面交互全流程打通 (src/gui/app.rs):
    - 写入页增加「写入阶段存证看板」，读取页升级为「终极法庭级证据看板」，支持一键复制 Markdown 格式与导出证据文件。
-
-### 现代防伪凭证中枢与深层容灾大成版全绿交付记录 (Run 38958964457)
-- 流水线状态：Run ID 38958964457 (Status: completed success，全量单元测试 100% 满分全绿通过)
-  - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部单元测试 (2m 11s)
-  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-x86_64-pc-windows-msvc.zip (1m 45s)
-  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-aarch64-pc-windows-msvc.zip (2m 11s)
-- 产物详情与验证：
-  - Windows x64 二进制：f3-win.exe (精确 3,139,584 字节, SHA-256: B98A2B4CE833CBDDD7B17401A1D14595549EA2D09F0DE45D79E7804A2BD3F141，时间戳 2026-10-16T20:05:03.813Z)
-  - Windows ARM64 二进制：f3-win-arm64.exe (精确 2,993,664 字节, SHA-256: 7FCA4123155C3D3CB9F1C94B1E4ED3F3B67F5ECB4D1D5D5BAC10217FE3C5D319)
-  - 进程安全与热更新：严格遵守不停止、不干扰任何已有进程铁律，通过 Windows 原生更名热替换机制成功安全部署就位
-
-### 现代防伪凭证中枢与深层容灾大成版交付记录 (2026-10-17 多子代理深度加固)
-1. 现代防伪凭证注册表 SaltRegistry 与加盐读写闭环：
-   - 彻底破案并修复加盐勾选后读取校验满屏报错的致命 Bug：原代码在校验时再次调用 SystemTime 生成了全新 Salt，导致与写入时的 Salt 失配；
-   - 打造现代防伪凭证中枢 (SaltRegistry)：在 exe 同级目录下维护 f3_salt_registry.json，按驱动器卷序列号 (VolumeSerialNumber) 与盘符双主键绑定；
-   - 写入时生成高熵 Salt 并立即原子化落盘，校验时优先根据卷序列号自动反查已落盘的历史 Salt，实现免输入全自动匹配；
-   - 物理安全隔离：Salt 落盘在主机系统盘 (exe 同级目录)，U 盘硬件主控微码物理上无法跨设备窥探主机系统盘，彻底阻断了恶意固件偷取 Salt 实施算力回放的通路；
-   - UI 增加防伪凭证呈现，支持查看、复制与自定义输入 Salt。
