@@ -21,7 +21,8 @@ windows = { version = "0.58", features = [
     "Win32_System_Ioctl",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
-    "Win32_Security"
+    "Win32_Security",
+    "Win32_Graphics_Gdi"
 ] }
 
 # 线程通信与并发

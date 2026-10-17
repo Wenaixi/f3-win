@@ -33,6 +33,11 @@ pub struct AppState {
 
     // 全局持久化的读写速度全景与生理审计档案 (写入与读取双端并存)
     pub audit_record: SpeedAuditRecord,
+
+    // 系统托盘与弹窗控制状态
+    pub minimize_to_tray_on_close: bool,
+    pub show_path_info_modal: bool,
+    pub show_exit_confirm_modal: bool,
 }
 
 /// 读写双向速度与生理特征审计记录
@@ -71,6 +76,9 @@ impl Default for AppState {
             max_test_gb: None,
             auto_cleanup_after_read: false,
             audit_record: SpeedAuditRecord::default(),
+            minimize_to_tray_on_close: true,
+            show_path_info_modal: false,
+            show_exit_confirm_modal: false,
         }
     }
 }
