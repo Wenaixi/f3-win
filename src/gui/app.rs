@@ -5,7 +5,7 @@ use crate::core::controller::{TaskSnapshot, TaskStatus};
 use crate::core::fix::SafePartitionFixer;
 use crate::core::session::{H2wConfig, H2wMode, H2wTelemetry};
 use crate::core::salt::SaltRegistry;
-use crate::core::report::{DiagnosticReport, ReportFormat};
+use crate::core::report::DiagnosticReport;
 use crate::gui::components::device_selector::{
     render_storage_device_selector, render_storage_volume_selector,
 };
@@ -557,7 +557,7 @@ impl F3App {
         ui.add_space(15.0);
         egui::Frame::none()
             .fill(Color32::from_rgb(22, 24, 29))
-            .stroke(egui::Stroke::new(1.5, Color32::from_rgb(52, 152, 219)))
+            .stroke(egui::Stroke::new(1.5_f32, Color32::from_rgb(52, 152, 219)))
             .rounding(egui::Rounding::same(8.0))
             .inner_margin(egui::Margin::same(16.0))
             .show(ui, |ui| {
@@ -718,7 +718,7 @@ impl F3App {
         ui.add_space(15.0);
         egui::Frame::none()
             .fill(Color32::from_rgb(22, 24, 29))
-            .stroke(egui::Stroke::new(1.5, if report.is_fake { Color32::from_rgb(231, 76, 60) } else { Color32::from_rgb(46, 204, 113) }))
+            .stroke(egui::Stroke::new(1.5_f32, if report.is_fake { Color32::from_rgb(231, 76, 60) } else { Color32::from_rgb(46, 204, 113) }))
             .rounding(egui::Rounding::same(8.0))
             .inner_margin(egui::Margin::same(16.0))
             .show(ui, |ui| {

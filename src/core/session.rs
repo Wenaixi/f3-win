@@ -98,53 +98,18 @@ impl ProgressTracker {
     }
 
     #[inline]
-    pub fn snapshot(&self) -> SpeedPhysiologySnapshot {
-        self.physiology.snapshot()
+    pub fn snapshot(&self, current_bytes: u64) -> SpeedPhysiologySnapshot {
+        self.physiology.snapshot(current_bytes)
     }
 
     fn sample(&mut self, current_bytes: u64) -> Option<(f64, u64)> {
-        let elapsed = self.last_sample_time.elapsed().as_secs_f64();
-        if elapsed >= 0.3 {
-            let speed = (current_bytes - self.last_sample_bytes) as f64 / elapsed;
-            // 实时驱动 Welford 方差 / P² 在线分位数 / 3阶段 SLC 断崖防抖状态机
-            self.physiology.update(speed, current_bytes);
-            let total_elapsed = self.start_time.elapsed().as_secs_f64();
-
-            // 统计最高峰值速度
-            if speed > self.peak_speed_bps {
-                self.peak_speed_bps = speed;
-            }
-
-            // 统计最低谷底速度 (跳过启动最初 1.5 秒的冷启动阶段)
-            if total_elapsed > 1.5 {
-                if speed < self.valley_speed_bps {
-                    self.valley_speed_bps = speed;
-                }
-                // 统计严重卡顿停顿 (瞬时速度低于 1MB/s 视为硬件 GC 死锁或总线挂起)
-                if speed < 1_000_000.0 {
-                    self.freeze_count += 1;
-                    self.total_freeze_secs += elapsed;
-                }
-            }
-
-            // 捕捉 SLC Cache 耗尽拐点：当峰值已大于 20MB/s 且当前速度跌落超过 60% 持续存在
-            if self.slc_cliff_bytes.is_none() && self.peak_speed_bps > 20_000_000.0 && total_elapsed > 3.0 {
-                if speed < self.peak_speed_bps * 0.4 {
-                    self.slc_cliff_bytes = Some(current_bytes);
-                }
-            }
-
-            self.last_sample_time = Instant::now();
-            self.last_sample_bytes = current_bytes;
-            let eta = if speed > 50_000.0 && self.target_bytes > current_bytes {
-                ((self.target_bytes - current_bytes) as f64 / speed) as u64
-            } else {
-                0
-            };
-            Some((speed, eta))
-        } else {
-            None
-        }
+        // 直接委托给高精度生理测速引擎，驱动 Welford 方差 / P² 在线分位数 / 3阶段 SLC 断崖防抖状态机
+        let (speed, eta, _snap) = self.physiology.sample(current_bytes)?;
+        self.peak_speed_bps = self.physiology.peak_speed_bps;
+        self.valley_speed_bps = self.physiology.valley_speed_bps;
+        self.slc_cliff_bytes = self.physiology.slc_cliff_info.map(|c| c.cliff_bytes);
+        self.last_sample_bytes = current_bytes;
+        Some((speed, eta))
     }
 
     fn avg_speed(&self, current_bytes: u64) -> f64 {
@@ -732,7 +697,7 @@ impl H2wSession {
             error,
         );
         t.duration_seconds = tracker.start_time.elapsed().as_secs_f64();
-        t.physiology = Some(tracker.snapshot());
+        t.physiology = Some(tracker.snapshot(bytes_processed));
         t
     }
 }
