@@ -132,13 +132,17 @@ impl eframe::App for F3App {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            match self.state.current_tab {
-                AppTab::WriteTest => self.render_write_tab(ui, &snapshot),
-                AppTab::ReadVerify => self.render_read_tab(ui, &snapshot),
-                AppTab::RapidProbe => self.render_probe_tab(ui, &snapshot),
-                AppTab::PartitionFix => self.render_fix_tab(ui, &snapshot),
-                AppTab::Settings => self.render_settings_tab(ui),
-            }
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    match self.state.current_tab {
+                        AppTab::WriteTest => self.render_write_tab(ui, &snapshot),
+                        AppTab::ReadVerify => self.render_read_tab(ui, &snapshot),
+                        AppTab::RapidProbe => self.render_probe_tab(ui, &snapshot),
+                        AppTab::PartitionFix => self.render_fix_tab(ui, &snapshot),
+                        AppTab::Settings => self.render_settings_tab(ui),
+                    }
+                });
         });
     }
 }
