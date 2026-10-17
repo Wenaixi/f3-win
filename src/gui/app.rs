@@ -661,11 +661,11 @@ impl F3App {
 
         // 读取真实物理接口带宽与通道推断
         let read_inferred_bus = if read_peak < 43.0 {
-            "伪装 USB 3.0 / USB 3.2 (装饰性蓝色胶芯，实际物理读取通道被锁死在 USB 2.0 High-Speed 480Mbps 红线之下，带宽上限约 43 MB/s)"
+            "USB 2.0 (High-Speed 480Mbps 物理通道，读取带宽上限约 43 MB/s)"
         } else if read_peak < 150.0 {
-            "标准 USB 3.0 Gen1 (5Gbps 真实物理高速读取通道，带宽充裕)"
+            "USB 3.0 Gen1 (5Gbps 物理通道)"
         } else {
-            "高速 USB 3.2 Gen2 / SSD 级高速读取物理桥接通道"
+            "USB 3.2 / 固态级高速物理通道"
         };
 
         // 闪存颗粒电荷保持力与读取响应推断
