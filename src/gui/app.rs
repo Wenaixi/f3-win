@@ -37,6 +37,27 @@ impl eframe::App for F3App {
         if self.prev_status == TaskStatus::Running && snapshot.status == TaskStatus::Finished {
             self.state.inventory.refresh();
 
+            // 持久化记录写入与读取双端速度全景数据，供电子版报告实时并列展示
+            match snapshot.kind {
+                crate::core::controller::TaskKind::Write => {
+                    self.state.audit_record.write_tested = true;
+                    self.state.audit_record.write_avg_mb = snapshot.current_speed_mb;
+                    self.state.audit_record.write_bytes = snapshot.total_bytes_processed;
+                }
+                crate::core::controller::TaskKind::Verify => {
+                    self.state.audit_record.read_tested = true;
+                    self.state.audit_record.read_avg_mb = snapshot.current_speed_mb;
+                    self.state.audit_record.read_bytes = snapshot.total_bytes_processed;
+                }
+                crate::core::controller::TaskKind::WriteAndVerify => {
+                    self.state.audit_record.write_tested = true;
+                    self.state.audit_record.read_tested = true;
+                    self.state.audit_record.read_avg_mb = snapshot.current_speed_mb;
+                    self.state.audit_record.read_bytes = snapshot.total_bytes_processed;
+                }
+                _ => {}
+            }
+
             // 只要检测到容量虚标或坏道，在测试完成边界静默自动在 exe 同级目录生成 f3_evidence_<serial>_<timestamp>.md 档案！
             if snapshot.stats.overwritten > 0 || snapshot.stats.bad > 0 {
                 let active_target = self.state.inventory.active_target();
@@ -219,6 +240,54 @@ impl F3App {
 
         ui.add_space(10.0);
         render_speed_plot(ui, &snapshot.speed_history, "写入", "write_speed_plot");
+
+        // 写入测试完成时，在底部直接渲染专业电子版技术检验报告公文卡片 (同时展示写入和读取速度，可直接截屏)
+        if (snapshot.status == TaskStatus::Finished && snapshot.total_bytes_processed > 0) || self.state.audit_record.write_tested {
+            let active_target = self.state.inventory.active_target();
+            let dev = active_target.as_ref().map(|t| &t.device);
+            let serial = SaltRegistry::get_volume_serial(&self.state.inventory.selected_path().to_string_lossy());
+            let dummy_telemetry = H2wTelemetry {
+                mode: H2wMode::Write,
+                phase: crate::core::session::H2wPhase::Completed,
+                current_file: 1,
+                total_files: None,
+                bytes_processed: if snapshot.total_bytes_processed > 0 { snapshot.total_bytes_processed } else { self.state.audit_record.write_bytes },
+                total_bytes_expected: if snapshot.total_bytes_processed > 0 { snapshot.total_bytes_processed } else { self.state.audit_record.write_bytes },
+                speed_bps: if snapshot.current_speed_mb > 0.0 { snapshot.current_speed_mb * 1024.0 * 1024.0 } else { self.state.audit_record.write_avg_mb * 1024.0 * 1024.0 },
+                duration_seconds: self.state.audit_record.write_duration_secs,
+                eta_seconds: 0,
+                stats: snapshot.stats,
+                heatmap_sample: None,
+                is_finished: true,
+                error: None,
+                physiology: None,
+                first_error_offset: None,
+                first_error_file: None,
+                first_error_expected: None,
+                first_error_actual: None,
+            };
+            let mut report = DiagnosticReport::build(
+                dev,
+                serial,
+                &self.state.inventory.selected_path(),
+                &dummy_telemetry,
+                self.state.salt,
+                None,
+            );
+
+            // 若先前测试过读取，将读取端全景速度指标一并注入报告，实现双向对比！
+            if self.state.audit_record.read_tested {
+                report.verify_tested = true;
+                if report.verify_avg_speed_mb <= 0.0 {
+                    report.verify_avg_speed_mb = self.state.audit_record.read_avg_mb;
+                }
+                if report.verify_bytes <= 0 {
+                    report.verify_bytes = self.state.audit_record.read_bytes;
+                }
+            }
+
+            self.render_electronic_report_card(ui, &report);
+        }
     }
 
     fn render_read_tab(&mut self, ui: &mut egui::Ui, snapshot: &TaskSnapshot) {
@@ -285,82 +354,54 @@ impl F3App {
         ui.add_space(10.0);
         render_heatmap(ui, &snapshot.heatmap_blocks);
 
-        // 终极法庭级维权存证报告面板
-        if snapshot.status == TaskStatus::Finished && snapshot.stats.good + snapshot.stats.bad + snapshot.stats.overwritten > 0 {
-            ui.add_space(10.0);
-            ui.group(|ui| {
-                let active_target = self.state.inventory.active_target();
-                let dev = active_target.as_ref().map(|t| &t.device);
-                let serial = SaltRegistry::get_volume_serial(&self.state.inventory.selected_path().to_string_lossy());
-                
-                let dummy_telemetry = H2wTelemetry {
-                    mode: H2wMode::Verify,
-                    phase: crate::core::session::H2wPhase::Completed,
-                    current_file: 1,
-                    total_files: None,
-                    bytes_processed: snapshot.total_bytes_processed,
-                    total_bytes_expected: snapshot.total_bytes_processed,
-                    speed_bps: snapshot.current_speed_mb * 1024.0 * 1024.0,
-                    duration_seconds: 0.0,
-                    eta_seconds: 0,
-                    stats: snapshot.stats,
-                    heatmap_sample: None,
-                    is_finished: true,
-                    error: None,
-                    physiology: None,
-                    first_error_offset: None,
-                    first_error_file: None,
-                    first_error_expected: None,
-                    first_error_actual: None,
-                };
-                
-                let report = DiagnosticReport::build(
-                    dev,
-                    serial,
-                    &self.state.inventory.selected_path(),
-                    &dummy_telemetry,
-                    self.state.salt,
-                    None,
-                );
+        // 校验完成时，在底部直接渲染可截屏的专业电子版技术检验报告公文卡片 (同时展示写入和读取速度)
+        if (snapshot.status == TaskStatus::Finished && snapshot.total_bytes_processed > 0) || self.state.audit_record.read_tested {
+            let active_target = self.state.inventory.active_target();
+            let dev = active_target.as_ref().map(|t| &t.device);
+            let serial = SaltRegistry::get_volume_serial(&self.state.inventory.selected_path().to_string_lossy());
+            
+            let dummy_telemetry = H2wTelemetry {
+                mode: H2wMode::Verify,
+                phase: crate::core::session::H2wPhase::Completed,
+                current_file: 1,
+                total_files: None,
+                bytes_processed: if snapshot.total_bytes_processed > 0 { snapshot.total_bytes_processed } else { self.state.audit_record.read_bytes },
+                total_bytes_expected: if snapshot.total_bytes_processed > 0 { snapshot.total_bytes_processed } else { self.state.audit_record.read_bytes },
+                speed_bps: if snapshot.current_speed_mb > 0.0 { snapshot.current_speed_mb * 1024.0 * 1024.0 } else { self.state.audit_record.read_avg_mb * 1024.0 * 1024.0 },
+                duration_seconds: self.state.audit_record.read_duration_secs,
+                eta_seconds: 0,
+                stats: snapshot.stats,
+                heatmap_sample: None,
+                is_finished: true,
+                error: None,
+                physiology: None,
+                first_error_offset: None,
+                first_error_file: None,
+                first_error_expected: None,
+                first_error_actual: None,
+            };
+            
+            let mut report = DiagnosticReport::build(
+                dev,
+                serial,
+                &self.state.inventory.selected_path(),
+                &dummy_telemetry,
+                self.state.salt,
+                None,
+            );
 
-                if report.is_fake {
-                    ui.colored_label(Color32::from_rgb(255, 60, 60), RichText::new("【司法事实认定】：确认为严重容量虚标扩容假盘！").strong().size(15.0));
-                    ui.label(format!("标称销售容量: {:.2} GB | 实际可用容量: {:.2} GB | 虚假比例: {:.2}%", 
-                        report.announced_bytes as f64 / (1024.0*1024.0*1024.0),
-                        report.real_usable_bytes as f64 / (1024.0*1024.0*1024.0),
-                        report.fake_ratio_pct
-                    ));
-                    ui.label(format!("硬件推断: {} | 颗粒: {}", report.inference.inferred_bus, report.inference.flash_grade));
-                } else {
-                    ui.colored_label(Color32::from_rgb(40, 200, 60), RichText::new("【检验结论】：全盘无缓冲 Direct I/O 校验完全通过，物理介质真实合规！").strong());
+            // 若先前测试过写入，将写入端全景速度指标一并注入报告，实现双向对比！
+            if self.state.audit_record.write_tested {
+                report.write_tested = true;
+                if report.write_avg_speed_mb <= 0.0 {
+                    report.write_avg_speed_mb = self.state.audit_record.write_avg_mb;
                 }
+                if report.write_bytes <= 0 {
+                    report.write_bytes = self.state.audit_record.write_bytes;
+                }
+            }
 
-                ui.add_space(5.0);
-                ui.horizontal(|ui| {
-                    if ui.button(RichText::new("一键复制到剪贴板 (Markdown)")).clicked() {
-                        let _ = report.copy_to_clipboard();
-                        ui.output_mut(|o| o.copied_text = report.generate_markdown());
-                        self.state.controller.set_status_message("测试报告已复制到系统剪贴板".to_string());
-                    }
-                    if ui.button(RichText::new("一键导出到桌面 (.md)")).clicked() {
-                        if let Ok(p) = report.export_to_desktop(ReportFormat::Markdown) {
-                            self.state.controller.set_status_message(format!("已导出至桌面: {:?}", p));
-                        }
-                    }
-                    if ui.button(RichText::new("一键导出案卷文本 (.txt)")).clicked() {
-                        if let Ok(p) = report.export_to_desktop(ReportFormat::PlainText) {
-                            self.state.controller.set_status_message(format!("案卷文本已导出: {:?}", p));
-                        }
-                    }
-                    if report.is_fake {
-                        if ui.button(RichText::new("保存防篡改证据档案到本地 (.md)")).clicked() {
-                            if let Ok(p) = report.auto_archive_evidence() {
-                                self.state.controller.set_status_message(format!("证据档案已安全落盘: {:?}", p));
-                            }
-                        }
-                    }
-                });
-            });
+            self.render_electronic_report_card(ui, &report);
         }
     }
 
@@ -387,11 +428,19 @@ impl F3App {
         if let Some(ref res) = snapshot.probe_result {
             if let Some(ref err) = res.error {
                 ui.group(|ui| {
-                    ui.colored_label(
-                        Color32::RED,
-                        RichText::new(format!("无法执行探测: {}", err)).strong().size(15.0),
-                    );
-                    ui.label("提示: 请确认已允许管理员权限，且设备未被其他程序占用。");
+                    if err.contains("用户中止") || err.contains("手动中止") {
+                        ui.colored_label(
+                            Color32::from_rgb(241, 196, 15),
+                            RichText::new("探测任务已由用户手动中止。").strong().size(15.0),
+                        );
+                        ui.label("设备已安全解锁恢复挂载，可随时重新启动探测。");
+                    } else {
+                        ui.colored_label(
+                            Color32::RED,
+                            RichText::new(format!("无法执行探测: {}", err)).strong().size(15.0),
+                        );
+                        ui.label("提示: 请确认已允许管理员权限，且设备未被其他程序占用。");
+                    }
                 });
             } else {
                 ui.group(|ui| {
@@ -786,3 +835,22 @@ impl F3App {
                 if let Some(mono) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
                     mono.push("chinese_font".to_owned());
                 }
+
+                ctx.set_fonts(fonts);
+                break;
+            }
+        }
+    }
+}
+
+fn format_eta(seconds: u64) -> String {
+    if seconds == 0 {
+        "计算中...".to_string()
+    } else if seconds < 60 {
+        format!("{} 秒", seconds)
+    } else if seconds < 3600 {
+        format!("{} 分 {} 秒", seconds / 60, seconds % 60)
+    } else {
+        format!("{} 小时 {} 分", seconds / 3600, (seconds % 3600) / 60)
+    }
+}

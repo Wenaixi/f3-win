@@ -155,13 +155,40 @@ impl F3Probe {
             return Err(msg);
         }
 
-        let mut buf = AlignedBuffer::new(64 * 1024).map_err(|e| format!("分配对齐缓冲失败: {}", e))?;
+        let send_abort = |tx: &Sender<ProbeTelemetry>, phase: String, err_msg: String| {
+            let _ = tx.send(ProbeTelemetry {
+                progress_pct: 1.0,
+                current_phase: phase,
+                is_finished: true,
+                is_fake: false,
+                announced_size_bytes: announced_size,
+                real_size_bytes: announced_size,
+                trap: ProbeTrap::None,
+                error: Some(err_msg),
+            });
+        };
+
+        let mut buf = match AlignedBuffer::new(64 * 1024) {
+            Ok(b) => b,
+            Err(e) => {
+                let err_msg = format!("分配对齐缓冲失败: {}", e);
+                send_abort(&tx, err_msg.clone(), err_msg.clone());
+                return Err(err_msg);
+            }
+        };
 
         // 2. 写入低位基准探针 (LBA 2048, 1MB 偏移处)
         Self::create_probe_block(buf.as_mut_slice(), BASE_PROBE_SECTOR, 0x55);
-        dev.write_at(&buf.as_slice()[..512], BASE_PROBE_SECTOR * 512)
-            .map_err(|e| format!("写入低位基准探针失败: {}", e))?;
-        dev.flush().map_err(|e| format!("冲刷基准探针失败: {}", e))?;
+        if let Err(e) = dev.write_at(&buf.as_slice()[..512], BASE_PROBE_SECTOR * 512) {
+            let err_msg = format!("写入低位基准探针失败: {}", e);
+            send_abort(&tx, err_msg.clone(), err_msg.clone());
+            return Err(err_msg);
+        }
+        if let Err(e) = dev.flush() {
+            let err_msg = format!("冲刷基准探针失败: {}", e);
+            send_abort(&tx, err_msg.clone(), err_msg.clone());
+            return Err(err_msg);
+        }
 
         // 3. 初始大容量高熵缓存排空 (最多 32MB / 65536 扇区)
         let flush_count = (total_sectors / 16).clamp(512, 65536);
@@ -179,6 +206,13 @@ impl F3Probe {
         });
 
         if let Err(e) = self.overwhelm_cache(dev, &mut buf, default_scratch_sec, flush_count) {
+            let is_cancel = self.cancel_flag.load(Ordering::Acquire) || e.contains("用户中止");
+            let phase = if is_cancel {
+                "探测任务已由用户手动中止".to_string()
+            } else {
+                format!("缓存排空失败: {}", e)
+            };
+            send_abort(&tx, phase, e.clone());
             return Err(e);
         }
 
@@ -191,16 +225,7 @@ impl F3Probe {
 
         while power < total_sectors {
             if self.cancel_flag.load(Ordering::Acquire) {
-                let _ = tx.send(ProbeTelemetry {
-                    progress_pct: 1.0,
-                    current_phase: "探测任务已由用户手动中止".to_string(),
-                    is_finished: true,
-                    is_fake: false,
-                    announced_size_bytes: announced_size,
-                    real_size_bytes: announced_size,
-                    trap: ProbeTrap::None,
-                    error: Some("用户中止了探测任务".to_string()),
-                });
+                send_abort(&tx, "探测任务已由用户手动中止".to_string(), "用户中止了探测任务".to_string());
                 return Err("用户中止了探测任务".to_string());
             }
 
@@ -248,6 +273,13 @@ impl F3Probe {
 
                 // 执行 512 扇区 (256KB) 快速高熵冲刷排空
                 if let Err(e) = self.overwhelm_cache(dev, &mut buf, safe_scratch_sec, 512) {
+                    let is_cancel = self.cancel_flag.load(Ordering::Acquire) || e.contains("用户中止");
+                    let phase = if is_cancel {
+                        "探测任务已由用户手动中止".to_string()
+                    } else {
+                        format!("快速排空失败: {}", e)
+                    };
+                    send_abort(&tx, phase, e.clone());
                     return Err(e);
                 }
 
@@ -335,5 +367,56 @@ impl F3Probe {
         });
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::direct_io::MemoryBlockDevice;
+
+    #[test]
+    fn test_probe_abort_during_cache_flush() {
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let config = F3ProbeConfig {
+            total_sectors: 16384, // 8MB 虚拟设备
+        };
+        let probe = F3Probe::new(config, cancel_flag.clone());
+        let mut dev = MemoryBlockDevice::new(8 * 1024 * 1024);
+        let (tx, rx) = crossbeam_channel::unbounded();
+
+        // 预设或中途置位取消标志
+        cancel_flag.store(true, Ordering::Release);
+
+        let res = probe.run(&mut dev, tx);
+        assert!(res.is_err(), "探测任务在取消标志置位时必须返回 Err");
+
+        // 核心验证：通道中必须收到一条 is_finished == true 的消息，决不能静默退出丢失信号
+        let mut found_finished = false;
+        while let Ok(msg) = rx.try_recv() {
+            if msg.is_finished {
+                found_finished = true;
+                assert!(msg.error.is_some(), "终止消息必须包含错误或取消原因");
+                assert!(msg.current_phase.contains("用户手动中止") || msg.error.unwrap().contains("用户中止"));
+            }
+        }
+        assert!(found_finished, "探测取消后必须向通道发送 is_finished == true 的终结通知");
+    }
+
+    #[test]
+    fn test_probe_under_min_safe_sectors() {
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let config = F3ProbeConfig {
+            total_sectors: 100, // 容量过小 (< MIN_SAFE_SECTORS)
+        };
+        let probe = F3Probe::new(config, cancel_flag);
+        let mut dev = MemoryBlockDevice::new(100 * 512);
+        let (tx, rx) = crossbeam_channel::unbounded();
+
+        let res = probe.run(&mut dev, tx);
+        assert!(res.is_err());
+        let msg = rx.try_recv().expect("过小容量必须发送通知");
+        assert!(msg.is_finished);
+        assert!(msg.error.is_some());
     }
 }

@@ -30,6 +30,30 @@ pub struct AppState {
     pub end_file_num: Option<u64>,
     pub max_test_gb: Option<u64>,
     pub auto_cleanup_after_read: bool,
+
+    // 全局持久化的读写速度全景与生理审计档案 (写入与读取双端并存)
+    pub audit_record: SpeedAuditRecord,
+}
+
+/// 读写双向速度与生理特征审计记录
+#[derive(Debug, Clone, Default)]
+pub struct SpeedAuditRecord {
+    pub write_tested: bool,
+    pub write_avg_mb: f64,
+    pub write_peak_mb: f64,
+    pub write_valley_mb: f64,
+    pub write_median_mb: f64,
+    pub write_bytes: u64,
+    pub write_duration_secs: f64,
+    pub slc_cliff_bytes: Option<u64>,
+    pub slc_cliff_speed_before_mb: f64,
+    pub slc_cliff_speed_after_mb: f64,
+    pub slc_cliff_drop_pct: f64,
+
+    pub read_tested: bool,
+    pub read_avg_mb: f64,
+    pub read_bytes: u64,
+    pub read_duration_secs: f64,
 }
 
 impl Default for AppState {
@@ -46,6 +70,7 @@ impl Default for AppState {
             end_file_num: None,
             max_test_gb: None,
             auto_cleanup_after_read: false,
+            audit_record: SpeedAuditRecord::default(),
         }
     }
 }

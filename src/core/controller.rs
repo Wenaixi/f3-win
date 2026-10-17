@@ -300,72 +300,117 @@ impl EngineController {
 
         // 2. 处理探针探测消息
         if let Some(rx) = self.probe_rx.clone() {
-            while let Ok(msg) = rx.try_recv() {
-                self.snapshot.progress_pct = msg.progress_pct;
-                self.snapshot.status_message = msg.current_phase.clone();
+            loop {
+                match rx.try_recv() {
+                    Ok(msg) => {
+                        self.snapshot.progress_pct = msg.progress_pct;
+                        self.snapshot.status_message = msg.current_phase.clone();
 
-                if msg.is_finished {
-                    self.snapshot.status = if msg.error.is_some() {
-                        TaskStatus::Error
-                    } else {
-                        TaskStatus::Finished
-                    };
-                    self.snapshot.error = msg.error.clone();
+                        if msg.is_finished {
+                            let is_cancelled = self.cancel_flag.load(Ordering::Acquire)
+                                || msg.error.as_deref().map_or(false, |e| e.contains("用户中止") || e.contains("手动中止"));
+                            self.snapshot.status = if is_cancelled {
+                                TaskStatus::Finished
+                            } else if msg.error.is_some() {
+                                TaskStatus::Error
+                            } else {
+                                TaskStatus::Finished
+                            };
+                            self.snapshot.error = msg.error.clone();
 
-                    if msg.is_fake {
-                        if let Some(disk_idx) = self.active_probe_disk_index {
-                            self.snapshot.fix_plan = Some(F3FixPlan::new(
-                                disk_idx,
-                                msg.announced_size_bytes,
-                                msg.real_size_bytes,
-                            ));
+                            if msg.is_fake {
+                                if let Some(disk_idx) = self.active_probe_disk_index {
+                                    self.snapshot.fix_plan = Some(F3FixPlan::new(
+                                        disk_idx,
+                                        msg.announced_size_bytes,
+                                        msg.real_size_bytes,
+                                    ));
+                                }
+                            }
+
+                            self.snapshot.probe_result = Some(msg);
+                            self.probe_rx = None;
+                            break;
                         }
                     }
-
-                    self.snapshot.probe_result = Some(msg);
-                    self.probe_rx = None;
-                    break;
+                    Err(crossbeam_channel::TryRecvError::Empty) => break,
+                    Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                        let is_cancelled = self.cancel_flag.load(Ordering::Acquire);
+                        self.snapshot.status = if is_cancelled {
+                            TaskStatus::Finished
+                        } else {
+                            TaskStatus::Error
+                        };
+                        self.snapshot.status_message = if is_cancelled {
+                            "探测任务已由用户手动中止".to_string()
+                        } else {
+                            "后台探测线程异常终止 (管道已断开)".to_string()
+                        };
+                        if !is_cancelled && self.snapshot.error.is_none() {
+                            self.snapshot.error = Some("后台探测任务非正常退出".to_string());
+                        }
+                        self.probe_rx = None;
+                        break;
+                    }
                 }
             }
         }
 
         // 3. 处理分区修复异步结果
         if let Some(rx) = self.fix_rx.clone() {
-            if let Ok(res) = rx.try_recv() {
-                match res {
-                    Ok(msg) => {
-                        self.snapshot.status = TaskStatus::Finished;
-                        self.snapshot.status_message = format!("分区修复成功: {}", msg);
+            match rx.try_recv() {
+                Ok(res) => {
+                    match res {
+                        Ok(msg) => {
+                            self.snapshot.status = TaskStatus::Finished;
+                            self.snapshot.status_message = format!("分区修复成功: {}", msg);
+                        }
+                        Err(e) => {
+                            self.snapshot.status = TaskStatus::Error;
+                            self.snapshot.error = Some(e.clone());
+                            self.snapshot.status_message = format!("分区修复失败: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        self.snapshot.status = TaskStatus::Error;
-                        self.snapshot.error = Some(e.clone());
-                        self.snapshot.status_message = format!("分区修复失败: {}", e);
-                    }
+                    self.fix_rx = None;
                 }
-                self.fix_rx = None;
+                Err(crossbeam_channel::TryRecvError::Empty) => {}
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.snapshot.status = TaskStatus::Error;
+                    self.snapshot.error = Some("分区修复工作线程异常退出".to_string());
+                    self.snapshot.status_message = "分区修复线程异常终止 (管道已断开)".to_string();
+                    self.fix_rx = None;
+                }
             }
         }
 
         // 4. 处理后台清理异步结果
         if let Some(rx) = self.cleanup_rx.clone() {
-            if let Ok(res) = rx.try_recv() {
-                match res {
-                    Ok((cnt, bytes)) => {
-                        self.snapshot.status = TaskStatus::Finished;
-                        self.snapshot.status_message = format!(
-                            "已成功清理 {} 个文件，释放 {:.2} GB 磁盘空间！",
-                            cnt,
-                            bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-                        );
+            match rx.try_recv() {
+                Ok(res) => {
+                    match res {
+                        Ok((cnt, bytes)) => {
+                            self.snapshot.status = TaskStatus::Finished;
+                            self.snapshot.status_message = format!(
+                                "已成功清理 {} 个文件，释放 {:.2} GB 磁盘空间！",
+                                cnt,
+                                bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+                            );
+                        }
+                        Err(e) => {
+                            self.snapshot.status = TaskStatus::Error;
+                            self.snapshot.error = Some(e.clone());
+                            self.snapshot.status_message = format!("清理失败: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        self.snapshot.status = TaskStatus::Error;
-                        self.snapshot.error = Some(e.clone());
-                        self.snapshot.status_message = format!("清理失败: {}", e);
-                    }
+                    self.cleanup_rx = None;
                 }
-                self.cleanup_rx = None;
+                Err(crossbeam_channel::TryRecvError::Empty) => {}
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.snapshot.status = TaskStatus::Error;
+                    self.snapshot.error = Some("清理工作线程异常退出".to_string());
+                    self.snapshot.status_message = "清理线程异常终止 (管道已断开)".to_string();
+                    self.cleanup_rx = None;
+                }
             }
         }
 
@@ -500,5 +545,39 @@ mod tests {
         assert_eq!(snap.status, TaskStatus::Error, "通道断开必须自愈转换为 Error 状态");
         assert!(snap.status_message.contains("管道已断开"));
         assert!(ctrl.h2w_rx.is_none(), "断开后必须释放接收端句柄");
+    }
+
+    #[test]
+    fn test_probe_channel_disconnect_recovery() {
+        let mut ctrl = EngineController::new();
+        let (tx, rx) = crossbeam_channel::unbounded::<ProbeTelemetry>();
+        ctrl.probe_rx = Some(rx);
+        ctrl.snapshot.status = TaskStatus::Running;
+
+        // 显式丢弃发送端，制造管道异常断开
+        drop(tx);
+
+        let snap = ctrl.poll();
+        assert_eq!(snap.status, TaskStatus::Error, "探测通道断开必须自愈转换为 Error 状态");
+        assert!(snap.status_message.contains("管道已断开"));
+        assert!(ctrl.probe_rx.is_none(), "断开后必须释放探测接收端句柄");
+    }
+
+    #[test]
+    fn test_probe_channel_cancel_recovery() {
+        let mut ctrl = EngineController::new();
+        let (tx, rx) = crossbeam_channel::unbounded::<ProbeTelemetry>();
+        ctrl.probe_rx = Some(rx);
+        ctrl.snapshot.status = TaskStatus::Running;
+
+        // 用户主动调用 cancel()
+        ctrl.cancel();
+        // 工作线程退出并丢弃发送端
+        drop(tx);
+
+        let snap = ctrl.poll();
+        assert_eq!(snap.status, TaskStatus::Finished, "取消后探测通道断开必须转为 Finished 状态");
+        assert!(snap.status_message.contains("手动中止") || snap.status_message.contains("已中止"));
+        assert!(ctrl.probe_rx.is_none(), "断开后必须释放探测接收端句柄");
     }
 }

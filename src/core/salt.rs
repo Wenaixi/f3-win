@@ -106,7 +106,9 @@ impl SaltRegistry {
 
     /// 提取指定盘符路径的卷序列号 (如 "G:\\")
     pub fn get_volume_serial(drive_path: &str) -> Option<u32> {
-        let clean_path = format!("{}:\\", drive_path.chars().next()?.to_ascii_uppercase());
+        // 严格标准化为 Windows 卷根路径 (例如 "H:\")
+        let first_char = drive_path.chars().find(|c| c.is_ascii_alphabetic())?.to_ascii_uppercase();
+        let clean_path = format!("{}:\\", first_char);
         let wide: Vec<u16> = clean_path.encode_utf16().chain(std::iter::once(0)).collect();
         let mut serial = 0u32;
 
@@ -166,7 +168,8 @@ impl SaltRegistry {
         }
 
         // 2. 备用通过盘符前缀匹配
-        let letter_key = drive_path.chars().next()?.to_ascii_uppercase().to_string();
+        let letter_char = drive_path.chars().find(|c| c.is_ascii_alphabetic())?.to_ascii_uppercase();
+        let letter_key = letter_char.to_string();
         if let Some(record) = reg.records.get(&letter_key) {
             return Some(record.salt);
         }
