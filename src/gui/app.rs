@@ -250,6 +250,11 @@ impl F3App {
             let active_target = self.state.inventory.active_target();
             let dev = active_target.as_ref().map(|t| &t.device);
             let serial = SaltRegistry::get_volume_serial(&self.state.inventory.selected_path().to_string_lossy());
+            let duration_seconds = if snapshot.duration_seconds > 0.0 {
+                snapshot.duration_seconds
+            } else {
+                self.state.audit_record.write_duration_secs
+            };
             let dummy_telemetry = H2wTelemetry {
                 mode: H2wMode::Write,
                 phase: crate::core::session::H2wPhase::Completed,
@@ -258,25 +263,25 @@ impl F3App {
                 bytes_processed: if snapshot.total_bytes_processed > 0 { snapshot.total_bytes_processed } else { self.state.audit_record.write_bytes },
                 total_bytes_expected: if snapshot.total_bytes_processed > 0 { snapshot.total_bytes_processed } else { self.state.audit_record.write_bytes },
                 speed_bps: if snapshot.current_speed_mb > 0.0 { snapshot.current_speed_mb * 1024.0 * 1024.0 } else { self.state.audit_record.write_avg_mb * 1024.0 * 1024.0 },
-                duration_seconds: self.state.audit_record.write_duration_secs,
+                duration_seconds,
                 eta_seconds: 0,
                 stats: snapshot.stats,
                 heatmap_sample: None,
                 is_finished: true,
                 error: None,
-                physiology: None,
+                physiology: snapshot.physiology,
                 first_error_offset: None,
                 first_error_file: None,
                 first_error_expected: None,
                 first_error_actual: None,
             };
-            let mut report = DiagnosticReport::build(
+            let report = DiagnosticReport::build_write_audit(
                 dev,
                 serial,
                 &self.state.inventory.selected_path(),
                 &dummy_telemetry,
                 self.state.salt,
-                None,
+                snapshot.physiology,
             );
 
             self.render_write_report_card(ui, &report);
@@ -353,6 +358,11 @@ impl F3App {
             let dev = active_target.as_ref().map(|t| &t.device);
             let serial = SaltRegistry::get_volume_serial(&self.state.inventory.selected_path().to_string_lossy());
             
+            let duration_seconds = if snapshot.duration_seconds > 0.0 {
+                snapshot.duration_seconds
+            } else {
+                self.state.audit_record.read_duration_secs
+            };
             let dummy_telemetry = H2wTelemetry {
                 mode: H2wMode::Verify,
                 phase: crate::core::session::H2wPhase::Completed,
@@ -361,26 +371,26 @@ impl F3App {
                 bytes_processed: if snapshot.total_bytes_processed > 0 { snapshot.total_bytes_processed } else { self.state.audit_record.read_bytes },
                 total_bytes_expected: if snapshot.total_bytes_processed > 0 { snapshot.total_bytes_processed } else { self.state.audit_record.read_bytes },
                 speed_bps: if snapshot.current_speed_mb > 0.0 { snapshot.current_speed_mb * 1024.0 * 1024.0 } else { self.state.audit_record.read_avg_mb * 1024.0 * 1024.0 },
-                duration_seconds: self.state.audit_record.read_duration_secs,
+                duration_seconds,
                 eta_seconds: 0,
                 stats: snapshot.stats,
                 heatmap_sample: None,
                 is_finished: true,
                 error: None,
-                physiology: None,
-                first_error_offset: None,
-                first_error_file: None,
-                first_error_expected: None,
-                first_error_actual: None,
+                physiology: snapshot.physiology,
+                first_error_offset: snapshot.first_error_offset,
+                first_error_file: snapshot.first_error_file,
+                first_error_expected: snapshot.first_error_expected,
+                first_error_actual: snapshot.first_error_actual,
             };
             
-            let mut report = DiagnosticReport::build(
+            let report = DiagnosticReport::build_verify_audit(
                 dev,
                 serial,
                 &self.state.inventory.selected_path(),
                 &dummy_telemetry,
                 self.state.salt,
-                None,
+                snapshot.physiology,
             );
 
             self.render_verify_report_card(ui, &report);
@@ -646,10 +656,28 @@ impl F3App {
             0.0
         };
 
-        // 读取端最高峰值、最低谷底与稳态中位数 (与写入报告规格完全对齐)
-        let read_peak = if read_avg > 0.0 { read_avg * 1.15 } else { 0.0 };
-        let read_valley = if read_avg > 0.0 { read_avg * 0.85 } else { 0.0 };
-        let read_median = if read_avg > 0.0 { read_avg * 0.98 } else { 0.0 };
+        // 读取端最高峰值、最低谷底与稳态中位数 (100% 硬件实测值: Welford 方差 / P² 在线分位数)
+        let read_peak = if report.verify_peak_speed_mb > 0.0 {
+            report.verify_peak_speed_mb
+        } else if read_avg > 0.0 {
+            read_avg
+        } else {
+            0.0
+        };
+
+        let read_valley = if report.verify_valley_speed_mb > 0.0 {
+            report.verify_valley_speed_mb
+        } else {
+            0.0
+        };
+
+        let read_median = if report.verify_median_speed_mb > 0.0 {
+            report.verify_median_speed_mb
+        } else if read_avg > 0.0 {
+            read_avg
+        } else {
+            0.0
+        };
 
         let read_bytes = if report.verify_bytes > 0 {
             report.verify_bytes

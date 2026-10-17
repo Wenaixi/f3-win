@@ -85,6 +85,11 @@ pub struct DiagnosticReport {
     pub verify_bytes: u64,
     pub verify_duration_secs: f64,
     pub verify_avg_speed_mb: f64,
+    pub verify_peak_speed_mb: f64,
+    pub verify_valley_speed_mb: f64,
+    pub verify_median_speed_mb: f64,
+    pub verify_cv_jitter: f64,
+    pub verify_stall_ratio: f64,
     pub stats: BlockStats,
 
     pub first_error_offset: Option<u64>,
@@ -250,6 +255,11 @@ impl DiagnosticReport {
             verify_bytes: telemetry.bytes_processed,
             verify_duration_secs: telemetry.duration_seconds,
             verify_avg_speed_mb: avg_mb,
+            verify_peak_speed_mb: peak_mb,
+            verify_valley_speed_mb: valley_mb,
+            verify_median_speed_mb: median_mb,
+            verify_cv_jitter: cv_jitter,
+            verify_stall_ratio: stall_ratio,
             stats: telemetry.stats,
 
             first_error_offset: telemetry.first_error_offset,
@@ -389,9 +399,9 @@ impl DiagnosticReport {
             doc.push_str(&format!("| **校验总耗时** | {:.1} 秒 ({:.2} 分钟) | 连续满负荷物理耗时 |\n", self.verify_duration_secs, self.verify_duration_secs / 60.0));
             doc.push_str(&format!("| **物理平均传输速度** | **{:.2} MB/s** | 介质全局读取吞吐能力 |\n", self.verify_avg_speed_mb));
 
-            let read_peak = if self.verify_avg_speed_mb > 0.0 { self.verify_avg_speed_mb * 1.15 } else { 0.0 };
-            let read_valley = if self.verify_avg_speed_mb > 0.0 { self.verify_avg_speed_mb * 0.85 } else { 0.0 };
-            let read_median = if self.verify_avg_speed_mb > 0.0 { self.verify_avg_speed_mb * 0.98 } else { 0.0 };
+            let read_peak = if self.verify_peak_speed_mb > 0.0 { self.verify_peak_speed_mb } else { self.verify_avg_speed_mb };
+            let read_valley = self.verify_valley_speed_mb;
+            let read_median = if self.verify_median_speed_mb > 0.0 { self.verify_median_speed_mb } else { self.verify_avg_speed_mb };
 
             doc.push_str(&format!("| **最高读取峰值速度** | {:.2} MB/s | 通道突发读取冲刺能力 |\n", read_peak));
             doc.push_str(&format!("| **最低读取谷底速度 (防冷启动)** | {:.2} MB/s | 劣质坏块或弱电荷读取下限 |\n", read_valley));

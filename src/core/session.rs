@@ -9,7 +9,7 @@ use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 use crate::core::algo::{fill_sectors, validate_sectors, BlockState, BlockStats, SECTOR_SIZE};
 use crate::core::aligned_buf::AlignedBuffer;
 use crate::core::direct_io::DirectIoFile;
-use crate::core::speed::SpeedPhysiologySnapshot;
+use crate::core::speed::{SpeedPhysiologySnapshot, SpeedPhysiologyTracker};
 
 pub const GIGABYTE: u64 = 1024 * 1024 * 1024; // 1 GiB 标准分卷
 pub const DEFAULT_CHUNK_SIZE: usize = 1024 * 1024; // 默认 1MB 块大小
@@ -76,6 +76,8 @@ struct ProgressTracker {
     pub slc_cliff_bytes: Option<u64>,
     pub freeze_count: u32,
     pub total_freeze_secs: f64,
+    // 嵌入高精度生理测速引擎 (Welford 方差 / P² 在线分位数 / SLC 状态机)
+    pub physiology: SpeedPhysiologyTracker,
 }
 
 impl ProgressTracker {
@@ -91,13 +93,21 @@ impl ProgressTracker {
             slc_cliff_bytes: None,
             freeze_count: 0,
             total_freeze_secs: 0.0,
+            physiology: SpeedPhysiologyTracker::new(target_bytes),
         }
+    }
+
+    #[inline]
+    pub fn snapshot(&self) -> SpeedPhysiologySnapshot {
+        self.physiology.snapshot()
     }
 
     fn sample(&mut self, current_bytes: u64) -> Option<(f64, u64)> {
         let elapsed = self.last_sample_time.elapsed().as_secs_f64();
         if elapsed >= 0.3 {
             let speed = (current_bytes - self.last_sample_bytes) as f64 / elapsed;
+            // 实时驱动 Welford 方差 / P² 在线分位数 / 3阶段 SLC 断崖防抖状态机
+            self.physiology.update(speed, current_bytes);
             let total_elapsed = self.start_time.elapsed().as_secs_f64();
 
             // 统计最高峰值速度
@@ -280,7 +290,7 @@ impl H2wSession {
 
         loop {
             if self.cancel_flag.load(Ordering::Relaxed) {
-                let _ = tx.send(self.make_telemetry(
+                let _ = tx.send(self.make_telemetry_with_tracker(
                     H2wPhase::Aborted,
                     file_index + 1,
                     None,
@@ -292,6 +302,7 @@ impl H2wSession {
                     None,
                     true,
                     None,
+                    &tracker,
                 ));
                 return false;
             }
@@ -314,7 +325,7 @@ impl H2wSession {
             let mut direct_file = match DirectIoFile::create_write(&file_path) {
                 Ok(f) => f,
                 Err(e) => {
-                    let _ = tx.send(self.make_telemetry(
+                    let _ = tx.send(self.make_telemetry_with_tracker(
                         H2wPhase::Failed,
                         file_index + 1,
                         None,
@@ -326,6 +337,7 @@ impl H2wSession {
                         None,
                         true,
                         Some(format!("创建文件失败: {}", e)),
+                        &tracker,
                     ));
                     return false;
                 }
@@ -353,7 +365,7 @@ impl H2wSession {
                         file_offset += actual as u64;
 
                         if let Some((speed, eta)) = tracker.sample(total_written) {
-                            let _ = tx.send(self.make_telemetry(
+                            let _ = tx.send(self.make_telemetry_with_tracker(
                                 H2wPhase::Writing,
                                 file_index + 1,
                                 None,
@@ -365,6 +377,7 @@ impl H2wSession {
                                 None,
                                 false,
                                 None,
+                                &tracker,
                             ));
                         }
                     }
@@ -383,7 +396,7 @@ impl H2wSession {
                             break;
                         } else {
                             // 底层遇到真实物理坏道 (23)、设备断开掉盘 (1117) 或写保护，必须立刻报告失败并中止！
-                            let _ = tx.send(self.make_telemetry(
+                            let _ = tx.send(self.make_telemetry_with_tracker(
                                 H2wPhase::Failed,
                                 file_index + 1,
                                 None,
@@ -395,6 +408,7 @@ impl H2wSession {
                                 None,
                                 true,
                                 Some(format!("写入中途发生物理 I/O 故障: {}", e)),
+                                &tracker,
                             ));
                             return false;
                         }
@@ -410,7 +424,7 @@ impl H2wSession {
         }
 
         let is_terminal = self.config.mode == H2wMode::Write;
-        let _ = tx.send(self.make_telemetry(
+        let _ = tx.send(self.make_telemetry_with_tracker(
             if is_terminal { H2wPhase::Completed } else { H2wPhase::Writing },
             file_index + 1,
             None,
@@ -422,6 +436,7 @@ impl H2wSession {
             None,
             is_terminal,
             None,
+            &tracker,
         ));
 
         true
@@ -463,7 +478,7 @@ impl H2wSession {
 
         for (file_idx, (num, file_path)) in files.iter().enumerate() {
             if self.cancel_flag.load(Ordering::Relaxed) {
-                let _ = tx.send(self.make_telemetry(
+                let _ = tx.send(self.make_telemetry_with_tracker(
                     H2wPhase::Aborted,
                     (file_idx + 1) as u64,
                     Some(total_files),
@@ -475,6 +490,7 @@ impl H2wSession {
                     None,
                     true,
                     None,
+                    &tracker,
                 ));
                 return false;
             }
@@ -482,7 +498,7 @@ impl H2wSession {
             let mut direct_file = match DirectIoFile::open_read(file_path) {
                 Ok(f) => f,
                 Err(e) => {
-                    let _ = tx.send(self.make_telemetry(
+                    let _ = tx.send(self.make_telemetry_with_tracker(
                         H2wPhase::Failed,
                         (file_idx + 1) as u64,
                         Some(total_files),
@@ -494,6 +510,7 @@ impl H2wSession {
                         None,
                         true,
                         Some(e),
+                        &tracker,
                     ));
                     return false;
                 }
@@ -558,7 +575,7 @@ impl H2wSession {
                         file_offset += bytes_read as u64;
 
                         if let Some((speed, eta)) = tracker.sample(total_read) {
-                            let _ = tx.send(self.make_telemetry(
+                            let mut t = self.make_telemetry_with_tracker(
                                 H2wPhase::Verifying,
                                 (file_idx + 1) as u64,
                                 Some(total_files),
@@ -570,11 +587,17 @@ impl H2wSession {
                                 Some((cell_idx, dominant)),
                                 false,
                                 None,
-                            ));
+                                &tracker,
+                            );
+                            t.first_error_offset = first_error_offset;
+                            t.first_error_file = first_error_file;
+                            t.first_error_expected = first_error_expected;
+                            t.first_error_actual = first_error_actual;
+                            let _ = tx.send(t);
                         }
                     }
                     Err(e) => {
-                        let _ = tx.send(self.make_telemetry(
+                        let mut t = self.make_telemetry_with_tracker(
                             H2wPhase::Failed,
                             (file_idx + 1) as u64,
                             Some(total_files),
@@ -586,7 +609,13 @@ impl H2wSession {
                             None,
                             true,
                             Some(e),
-                        ));
+                            &tracker,
+                        );
+                        t.first_error_offset = first_error_offset;
+                        t.first_error_file = first_error_file;
+                        t.first_error_expected = first_error_expected;
+                        t.first_error_actual = first_error_actual;
+                        let _ = tx.send(t);
                         return false;
                     }
                 }
@@ -596,7 +625,7 @@ impl H2wSession {
         // 校验完毕后由后台线程无缝执行自动清理 (避免阻塞 UI 主线程)
         // 防伪维权保护守卫：只有在 100% 全绿正品盘 (未发生任何坏道、未发生任何回绕覆写且未发生位翻转) 时才允许自动清理！
         if self.config.auto_cleanup && stats.bad == 0 && stats.overwritten == 0 && stats.changed == 0 {
-            let _ = tx.send(self.make_telemetry(
+            let _ = tx.send(self.make_telemetry_with_tracker(
                 H2wPhase::CleaningUp,
                 total_files,
                 Some(total_files),
@@ -608,11 +637,12 @@ impl H2wSession {
                 None,
                 false,
                 None,
+                &tracker,
             ));
             let _ = Self::cleanup_h2w_files(&self.config.target_dir);
         }
 
-        let _ = tx.send(self.make_telemetry(
+        let mut t = self.make_telemetry_with_tracker(
             H2wPhase::Completed,
             total_files,
             Some(total_files),
@@ -624,7 +654,13 @@ impl H2wSession {
             None,
             true,
             None,
-        ));
+            &tracker,
+        );
+        t.first_error_offset = first_error_offset;
+        t.first_error_file = first_error_file;
+        t.first_error_expected = first_error_expected;
+        t.first_error_actual = first_error_actual;
+        let _ = tx.send(t);
 
         true
     }
@@ -664,5 +700,39 @@ impl H2wSession {
             first_error_expected: None,
             first_error_actual: None,
         }
+    }
+
+    #[inline]
+    fn make_telemetry_with_tracker(
+        &self,
+        phase: H2wPhase,
+        current_file: u64,
+        total_files: Option<u64>,
+        bytes_processed: u64,
+        total_bytes_expected: u64,
+        speed_bps: f64,
+        eta_seconds: u64,
+        stats: BlockStats,
+        heatmap_sample: Option<(usize, BlockState)>,
+        is_finished: bool,
+        error: Option<String>,
+        tracker: &ProgressTracker,
+    ) -> H2wTelemetry {
+        let mut t = self.make_telemetry(
+            phase,
+            current_file,
+            total_files,
+            bytes_processed,
+            total_bytes_expected,
+            speed_bps,
+            eta_seconds,
+            stats,
+            heatmap_sample,
+            is_finished,
+            error,
+        );
+        t.duration_seconds = tracker.start_time.elapsed().as_secs_f64();
+        t.physiology = Some(tracker.snapshot());
+        t
     }
 }

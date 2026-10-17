@@ -22,6 +22,7 @@ use crate::core::fix::{F3FixPlan, SafePartitionFixer};
 use crate::core::report::DiagnosticReport;
 use crate::core::probe::{F3Probe, F3ProbeConfig, ProbeTelemetry};
 use crate::core::session::{H2wConfig, H2wMode, H2wPhase, H2wSession, H2wTelemetry};
+use crate::core::speed::SpeedPhysiologySnapshot;
 
 // 任务运行状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +63,13 @@ pub struct TaskSnapshot {
     pub fix_plan: Option<F3FixPlan>,
     pub report: Option<DiagnosticReport>,
     pub error: Option<String>,
+    // 实时高精度物理生理测速快照 (写入与读取双端 live 实测数据)
+    pub duration_seconds: f64,
+    pub physiology: Option<SpeedPhysiologySnapshot>,
+    pub first_error_offset: Option<u64>,
+    pub first_error_file: Option<u64>,
+    pub first_error_expected: Option<[u8; 16]>,
+    pub first_error_actual: Option<[u8; 16]>,
 }
 
 impl Default for TaskSnapshot {
@@ -81,6 +89,12 @@ impl Default for TaskSnapshot {
             fix_plan: None,
             report: None,
             error: None,
+            duration_seconds: 0.0,
+            physiology: None,
+            first_error_offset: None,
+            first_error_file: None,
+            first_error_expected: None,
+            first_error_actual: None,
         }
     }
 }
@@ -247,6 +261,16 @@ impl EngineController {
                         self.snapshot.current_speed_mb = msg.speed_bps / (1024.0 * 1024.0);
                         self.snapshot.eta_seconds = msg.eta_seconds;
                         self.snapshot.stats = msg.stats;
+                        self.snapshot.duration_seconds = msg.duration_seconds;
+                        if msg.physiology.is_some() {
+                            self.snapshot.physiology = msg.physiology;
+                        }
+                        if msg.first_error_offset.is_some() {
+                            self.snapshot.first_error_offset = msg.first_error_offset;
+                            self.snapshot.first_error_file = msg.first_error_file;
+                            self.snapshot.first_error_expected = msg.first_error_expected;
+                            self.snapshot.first_error_actual = msg.first_error_actual;
+                        }
 
                         if let Some((idx, state_val)) = msg.heatmap_sample {
                             if idx < self.snapshot.heatmap_blocks.len() {
@@ -433,6 +457,12 @@ impl EngineController {
         self.snapshot.probe_result = None;
         self.snapshot.fix_plan = None;
         self.snapshot.report = None;
+        self.snapshot.duration_seconds = 0.0;
+        self.snapshot.physiology = None;
+        self.snapshot.first_error_offset = None;
+        self.snapshot.first_error_file = None;
+        self.snapshot.first_error_expected = None;
+        self.snapshot.first_error_actual = None;
         self.active_probe_disk_index = None;
         self.start_instant = None;
 
