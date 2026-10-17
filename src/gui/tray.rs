@@ -62,7 +62,7 @@ const IDM_OPEN_EVIDENCE_DIR: usize = 1005;
 const IDM_EXIT: usize = 1006;
 
 struct TrayWorkerState {
-    hwnd: HWND,
+    hwnd: isize,
     event_tx: Sender<TrayEvent>,
     cmd_rx: Receiver<TrayControlCmd>,
     taskbar_created_msg: u32,
@@ -299,7 +299,7 @@ impl TrayManager {
 
                     {
                         *TRAY_STATE.lock() = Some(TrayWorkerState {
-                            hwnd,
+                            hwnd: hwnd.0 as isize,
                             event_tx,
                             cmd_rx,
                             taskbar_created_msg: taskbar_msg,

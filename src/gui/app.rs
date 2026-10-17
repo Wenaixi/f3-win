@@ -38,43 +38,53 @@ impl eframe::App for F3App {
         // 单行获取深层任务控制器轮询出的最新只读快照
         let snapshot = self.state.controller.poll().clone();
 
-        // 轮询消费来自后台系统托盘的交互事件
-        if let Some(ref tray) = self.tray {
-            while let Some(event) = tray.try_recv_event() {
-                match event {
-                    TrayEvent::ShowWindow => {
+        // 轮询消费来自后台系统托盘的交互事件 (预先排空收集至列表，彻底解耦 self.tray 借用)
+        let tray_events: Vec<TrayEvent> = self
+            .tray
+            .as_ref()
+            .map(|tray| {
+                let mut events = Vec::new();
+                while let Some(ev) = tray.try_recv_event() {
+                    events.push(ev);
+                }
+                events
+            })
+            .unwrap_or_default();
+
+        for event in tray_events {
+            match event {
+                TrayEvent::ShowWindow => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                TrayEvent::ShowPathInfoModal => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    self.state.show_path_info_modal = true;
+                }
+                TrayEvent::OpenExeDir => {
+                    let info = AppPathInfo::gather(None);
+                    let _ = paths::open_in_explorer(&info.exe_dir);
+                }
+                TrayEvent::OpenSelectedVolume => {
+                    let vol = self.state.inventory.selected_path();
+                    let _ = paths::open_in_explorer(&vol);
+                }
+                TrayEvent::OpenEvidenceDir => {
+                    let info = AppPathInfo::gather(None);
+                    let _ = paths::open_in_explorer(&info.evidence_dir);
+                }
+                TrayEvent::RequestExit => {
+                    let is_running = self.state.controller.poll().status == TaskStatus::Running;
+                    if is_running {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                    }
-                    TrayEvent::ShowPathInfoModal => {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                        self.state.show_path_info_modal = true;
-                    }
-                    TrayEvent::OpenExeDir => {
-                        let info = AppPathInfo::gather(None);
-                        let _ = paths::open_in_explorer(&info.exe_dir);
-                    }
-                    TrayEvent::OpenSelectedVolume => {
-                        let vol = self.state.inventory.selected_path();
-                        let _ = paths::open_in_explorer(&vol);
-                    }
-                    TrayEvent::OpenEvidenceDir => {
-                        let info = AppPathInfo::gather(None);
-                        let _ = paths::open_in_explorer(&info.evidence_dir);
-                    }
-                    TrayEvent::RequestExit => {
-                        let is_running = self.state.controller.poll().status == TaskStatus::Running;
-                        if is_running {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                            self.state.show_exit_confirm_modal = true;
-                        } else {
-                            if let Some(ref mut t) = self.tray {
-                                t.destroy();
-                            }
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        self.state.show_exit_confirm_modal = true;
+                    } else {
+                        if let Some(ref mut t) = self.tray {
+                            t.destroy();
                         }
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 }
             }
