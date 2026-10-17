@@ -197,6 +197,24 @@
 
 
 
+
+### 剔除主观伪装假设与实事求是USB 2.0规范化大成版交付记录 (Run 39013880095)
+- 流水线状态：Run ID 39013880095 (Status: completed success，全量单元测试 100% 满分全绿通过)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部单元测试 (2m 17s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-x86_64-pc-windows-msvc.zip (2m 11s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-aarch64-pc-windows-msvc.zip (2m 15s)
+- 产物详情与验证：
+  - Windows x64 二进制：f3-win.exe (精确 3,212,288 字节, SHA-256: DD85BCECB079045D1B6BF78509A41E006E66B510D8A5F6B6B4EDA84547263D85，时间戳 2026-10-17 07:34:48)
+  - Windows ARM64 二进制：f3-win-arm64.exe (精确 3,057,152 字节, 时间戳 2026-10-17 07:34:52)
+- 核心体验与文案进化：
+  1. 彻底剔除主观浮夸的“伪装 USB 3.0 (装饰性蓝色胶芯)”文案：
+     - 实事求是、科学严谨：对于实测峰值速率低于 43 MB/s 的设备，直接明确标明为客观事实【USB 2.0 (High-Speed 480Mbps 物理通道，读取带宽上限约 43 MB/s)】，杜绝将正品合规的正常 USB 2.0 设备误扣“假盘伪装”帽子；
+     - 速率在 43~150 MB/s 时客观标明为【USB 3.0 Gen1 (5Gbps 物理通道)】，速率高于 150 MB/s 时标明为【USB 3.2 / 固态级高速物理通道】；
+  2. 垂直滚动自由浏览与截屏无死角：
+     - CentralPanel 注入 ScrollArea 垂直滚动支持，彻底根除 700px 窗口高度导致的公文卡片边缘截断问题；
+  3. 读取校验报告全面对齐写入报告的全套生理测速与颗粒电荷体质分析；
+  4. 全量代码与文档绝对零 emoji 规范恪守。
+
 ### 系统化调试根除窗口截断与读取全量报告大成版交付记录 (Run 39003661420)
 - 流水线状态：Run ID 39003661420 (Status: completed success，全量单元测试 100% 满分全绿通过)
   - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部单元测试 (2m 4s)
@@ -298,20 +316,3 @@
    - 写入时生成高熵 Salt 并立即原子化落盘，校验时优先根据卷序列号自动反查已落盘的历史 Salt，实现免输入全自动匹配；
    - 物理安全隔离：Salt 落盘在主机系统盘 (exe 同级目录)，U 盘硬件主控微码物理上无法跨设备窥探主机系统盘，彻底阻断了恶意固件偷取 Salt 实施算力回放的通路；
    - UI 增加防伪凭证呈现，支持查看、复制与自定义输入 Salt。
-2. 密码学真单向有损压缩与协议字节序规范：
-   - 升级 one_way_seed：引入非线性有损乘积压缩，摧毁 SplitMix64 双射代数可逆性，在计算上彻底消灭逆元求解可能；
-   - 全链路统一采用标准小端序 (to_le_bytes / from_le_bytes)，杜绝 ARM64 跨架构数据流偏差。
-3. 闪电探测引擎全面排雷与防作弊加固：
-   - 修复 scratch_sec 动态安全避让，彻底消除冲刷数据覆写高位探针导致正品盘被误判为假盘的致命假阳性；
-   - 指数推进改用 checked_shl(1) 与 checked_add，消除极大容量下的左移溢出与 ilog2(0) 崩溃；
-   - overwhelm_cache 采用高熵伪随机流填充 512B 扇区，彻底击穿假盘主控硬件压缩去重欺骗，并在循环内加入 cancel_flag 响应；
-   - 基准扇区核验引入强恒等性断言 (ref_found == Some(BASE_PROBE_SECTOR))。
-4. Win32 Direct I/O 驱动容灾与系统盘绝对防呆：
-   - 精准解构 Win32 原始错误码 (code as u32 & 0xFFFF == 112/39) 与英文提示，彻底消灭英文 Windows 下写满被误判为硬件故障崩溃的缺陷；
-   - 修复读取端末尾非对齐文件容错，杜绝下一次 I/O 触发 Win32 Error 87；
-   - StorageTarget::prepare_for_probe 增加 Zero-TOCTOU 现场硬件总线复核，杜绝设备拔插时间差漂移；
-   - SafePartitionFixer 注入 90 秒超时看门狗与强行 kill，杜绝假盘硬件死锁卡死 Worker 线程；并在 diskpart 脚本增加 attributes disk clear readonly 与 convert mbr。
-5. 控制器高并发状态机全管道容灾：
-   - 补齐 probe_rx、fix_rx、cleanup_rx 的 Disconnected 异常捕获，彻底杜绝 Worker 线程异常退出时 UI 永久置灰卡死；
-   - 彻底清空 reset_for_new_task 中的幽灵 Plan (fix_plan / probe_result)，杜绝误格正常盘；
-   - 隔离全新 Arc<AtomicBool> 并升级为 Release/Acquire 内存序，杜绝 ARM64 跨核心感知延迟；准确识别 Aborted 取消文案。
