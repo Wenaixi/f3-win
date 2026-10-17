@@ -10,3 +10,4 @@ pub mod salt;
 
 pub mod speed;
 pub mod report;
+pub mod paths;

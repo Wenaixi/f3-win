@@ -1,7 +1,7 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use crate::core::devices::PhysicalDeviceInfo;
+use crate::core::devices::{PhysicalDeviceInfo, StorageBusType};
 use crate::core::algo::BlockStats;
 use crate::core::session::{H2wMode, H2wTelemetry};
 use crate::core::speed::SpeedPhysiologySnapshot;
@@ -283,29 +283,65 @@ impl DiagnosticReport {
         has_bad: bool,
         is_fake: bool,
     ) -> HardwareInference {
-        let bus_str = device.map(|d| d.bus_type.display_name()).unwrap_or("USB");
-        let inferred_bus = if bus_str.contains("USB") {
-            if peak_speed_mb < 43.0 {
-                "USB 2.0 (High-Speed 480Mbps 物理通道)".to_string()
-            } else if peak_speed_mb < 150.0 {
-                "USB 3.0 Gen1 (5Gbps 高速物理通道)".to_string()
-            } else {
-                "USB 3.2 / 固态级高速物理通道".to_string()
+        let bus_type = device.map(|d| d.bus_type).unwrap_or(StorageBusType::Usb);
+        let inferred_bus = match bus_type {
+            StorageBusType::Usb => {
+                if peak_speed_mb < 1.5 {
+                    "USB 1.1 Full-Speed (12Mbps 物理通道，实测有效上限约 1.2 MB/s)".to_string()
+                } else if peak_speed_mb < 43.5 {
+                    "USB 2.0 High-Speed (480Mbps 物理通道，实际读取带宽上限约 43.5 MB/s)".to_string()
+                } else if peak_speed_mb < 450.0 {
+                    "USB 3.2 Gen 1x1 (5Gbps 物理通道，SuperSpeed 理论 500MB/s，BOT/UASP 实测上限约 450 MB/s)".to_string()
+                } else if peak_speed_mb < 1050.0 {
+                    "USB 3.2 Gen 2x1 (10Gbps 高速物理通道，128b/132b 编码，实测上限约 1050 MB/s)".to_string()
+                } else if peak_speed_mb < 2050.0 {
+                    "USB 3.2 Gen 2x2 (20Gbps Type-C 双通道高速，实测上限约 2050 MB/s)".to_string()
+                } else if peak_speed_mb < 3800.0 {
+                    "USB4 Gen 3x2 / Thunderbolt 3/4 (40Gbps PCIe 隧道物理通道)".to_string()
+                } else {
+                    "USB4 2.0 / Thunderbolt 5 (80/120Gbps PAM3 超高速物理通道)".to_string()
+                }
             }
-        } else {
-            bus_str.to_string()
+            StorageBusType::Sd | StorageBusType::Mmc => {
+                if peak_speed_mb < 12.5 {
+                    "SD 1.01 Default Speed (3.3V 25MHz 4-bit 物理总线，上限 12.5 MB/s)".to_string()
+                } else if peak_speed_mb < 25.0 {
+                    "SD 1.10 High Speed (3.3V 50MHz 4-bit 物理总线，上限 25.0 MB/s)".to_string()
+                } else if peak_speed_mb < 50.0 {
+                    "UHS-I SDR50/DDR50 (SD 3.01 1.8V 物理总线，上限 50.0 MB/s)".to_string()
+                } else if peak_speed_mb < 104.0 {
+                    "UHS-I SDR104 (SD 3.01 1.8V 208MHz 4-bit 物理总线，实测上限约 95 MB/s)".to_string()
+                } else if peak_speed_mb < 312.0 {
+                    "UHS-II (SD 4.00 LVDS 双排引脚物理总线，半双工上限 312 MB/s)".to_string()
+                } else if peak_speed_mb < 624.0 {
+                    "UHS-III (SD 6.00 双排引脚全双工差分物理总线，上限 624 MB/s)".to_string()
+                } else {
+                    "SD Express (SD 7.00/8.00 PCIe Gen3/Gen4 + NVMe 超高速总线，最高可达 3940 MB/s)".to_string()
+                }
+            }
+            StorageBusType::Sata => {
+                "SATA 3.0 (6Gbps 物理通道，实测有效带宽约 550 MB/s)".to_string()
+            }
+            StorageBusType::Nvme => {
+                "PCIe NVMe 原生固态物理通道".to_string()
+            }
+            StorageBusType::Unknown(id) => {
+                format!("标准外部存储总线 (TypeID: {})", id)
+            }
         };
 
         let flash_grade = if avg_speed_mb < 1.0 {
-            "极度报废黑片 / 严重漏电下脚料 / 报废 MicroSD(TF) 废旧打胶封装芯片 (坏块率 >50%，绝缘层破损，电荷极速泄露)".to_string()
+            "Grade F (极度报废黑片 / 严重漏电下脚料 / 报废 MicroSD(TF) 废旧打胶封装芯片，坏块率极高，绝缘层破损电荷极速泄露)".to_string()
         } else if avg_speed_mb < 3.0 {
-            "深度降级 TLC 晶圆残次片 / 二手翻新拆机片 (Ink Die，未通过原厂测试，物理擦写寿命仅剩数十次)".to_string()
+            "Grade D (深度降级 TLC 晶圆残次片 / 二手翻新拆机片 Ink Die，未通过晶圆原厂品控测试，物理擦写寿命极短)".to_string()
         } else if avg_speed_mb < 8.0 {
-            "降级 QLC / 3D TLC 晶圆边缘次品白片 (出 SLC 缓存后直写速度极低，无交错并行能力)".to_string()
-        } else if avg_speed_mb < 20.0 {
-            "常规合格降级 3D TLC 原厂白片 / 低速 Good Die (B-Grade)".to_string()
+            "Grade C (降级次品白片 / 3D QLC 边缘晶圆次品，单 Die 单通道无交错并行能力，出 SLC 缓存后直写速度极低)".to_string()
+        } else if avg_speed_mb < 25.0 {
+            "Grade B (常规合格商业级 3D TLC 原厂白片 / Good Die B-Grade，消费级主流存储体质)".to_string()
+        } else if avg_speed_mb < 80.0 {
+            "Grade A (原厂高良率 Good Die / eMMC 5.1 / UFS 级颗粒，多 Die 多通道并行交错读写)".to_string()
         } else {
-            "正品原厂高良率 NAND 闪存颗粒".to_string()
+            "Grade S (企业级 / 高阶 PCIe NVMe 闪存阵列颗粒，配备独立硬件 DRAM 缓存，高负载持续平稳不掉速)".to_string()
         };
 
         let fraud_type = if has_overwritten {
@@ -319,9 +355,9 @@ impl DiagnosticReport {
         };
 
         let pathology_analysis = if is_fake || avg_speed_mb < 8.0 {
-            "【芯片级病理解析】：该设备在初始阶段测得的高速写入，系闪存主控在前端开辟的极小容量动态 SLC Cache 模拟加速所致；当模拟缓存耗尽后，速度呈现断崖式下跌，暴露出背后极低性能的劣质物理颗粒；测试过程中的剧烈速度锯齿波动与卡顿归零，是由于主控芯片极其廉价低端，无外置 DRAM 物理缓存，在执行后台坏块磨损均衡与垃圾回收 (Garbage Collection, GC) 时芯片算力死锁，导致 USB 数据总线发生周期性传输阻塞。该生理特征为典型黑产扩容假盘的标志性行为。".to_string()
+            "【芯片级物理病理解析】：该设备在初始阶段测得的高速传输，系主控在前端开辟的极小容量动态 SLC Cache 模拟加速所致；当模拟缓存耗尽后，速度呈现断崖式下跌，暴露出背后极低性能的劣质物理颗粒；测试过程中的剧烈速度锯齿波动与卡顿归零，系由于廉价主控芯片无外置 DRAM 物理缓存，在执行后台坏块磨损均衡与垃圾回收 (Garbage Collection, GC) 物理块擦除锁定 (tBERS 典型耗时 2~5ms) 时芯片算力死锁，导致数据总线发生周期性传输阻塞。该生理特征为典型黑产劣质盘的标志性行为。".to_string()
         } else {
-            "数据传输平稳连续，主控调度及坏块映射状态良好，未见异常死锁或缓存断崖。".to_string()
+            "【芯片级物理生理诊断】：数据传输平稳连续，闪存主控转换层 (FTL) 逻辑与物理映射状态健康，浮栅电荷保持力优良，芯片内部未见异常 GC 阻塞、坏块重映射死锁或温控热节流降频。".to_string()
         };
 
         HardwareInference {
@@ -407,14 +443,9 @@ impl DiagnosticReport {
             doc.push_str(&format!("| **最低读取谷底速度 (防冷启动)** | {:.2} MB/s | 劣质坏块或弱电荷读取下限 |\n", read_valley));
             doc.push_str(&format!("| **稳态中位数速度 (P²)** | {:.2} MB/s | 排除突发冲刺后的真实颗粒读速 |\n", read_median));
 
-            let read_inferred_bus = if read_peak < 43.0 {
-                "USB 2.0 (High-Speed 480Mbps 物理通道，读取带宽上限约 43 MB/s)"
-            } else if read_peak < 150.0 {
-                "USB 3.0 Gen1 (5Gbps 物理通道)"
-            } else {
-                "USB 3.2 / 固态级高速物理通道"
-            };
-            doc.push_str(&format!("| **物理读取通道推断** | **{}** | 硬件接口读取规格判定 |\n\n", read_inferred_bus));
+            doc.push_str(&format!("| **物理读取通道推断** | **{}** | 硬件物理总线接口规格判定 |\n", self.inference.inferred_bus));
+            doc.push_str(&format!("| **闪存读取体质推断** | **{}** | 浮栅电荷保持与读取体质评级 |\n\n", self.inference.flash_grade));
+            doc.push_str(&format!("> **【芯片级读取生理诊断】**：{}\n\n", self.inference.pathology_analysis));
 
             doc.push_str("### 【逐扇区健康四态分布统计】\n\n");
             doc.push_str("| 扇区校验分类 | 扇区计数 (512B) | 对应容量 | 比例 | 技术状态说明 |\n");
@@ -579,7 +610,22 @@ impl DiagnosticReport {
         }
 
         if self.verify_tested {
-            out.push_str("[五、读取校验比特级微观失配现场]\n");
+            out.push_str("[五、物理读取性能全景与扇区健康审计]\n");
+            out.push_str(&format!("  * 校验总量: {:.2} GB ({} 字节)\n", gb(self.verify_bytes), self.verify_bytes));
+            out.push_str(&format!("  * 校验耗时: {:.1} 秒 ({:.2} 分钟)\n", self.verify_duration_secs, self.verify_duration_secs / 60.0));
+            out.push_str(&format!("  * 平均读速: {:.2} MB/s\n", self.verify_avg_speed_mb));
+            let r_peak = if self.verify_peak_speed_mb > 0.0 { self.verify_peak_speed_mb } else { self.verify_avg_speed_mb };
+            let r_med = if self.verify_median_speed_mb > 0.0 { self.verify_median_speed_mb } else { self.verify_avg_speed_mb };
+            out.push_str(&format!("  * 峰值读速: {:.2} MB/s\n", r_peak));
+            out.push_str(&format!("  * 谷底读速: {:.2} MB/s (冷启动滤波)\n", self.verify_valley_speed_mb));
+            out.push_str(&format!("  * 稳态中位: {:.2} MB/s (P²在线估算)\n", r_med));
+            out.push_str(&format!("  * 速度抖动: {:.3} (CV 离散系数)\n", self.verify_cv_jitter));
+            out.push_str(&format!("  * 卡顿停顿: {:.2}%\n", self.verify_stall_ratio * 100.0));
+            out.push_str(&format!("  * 接口推断: {}\n", self.inference.inferred_bus));
+            out.push_str(&format!("  * 颗粒推断: {}\n", self.inference.flash_grade));
+            out.push_str(&format!("  * 生理分析: {}\n\n", self.inference.pathology_analysis));
+
+            out.push_str("  [逐扇区健康四态分布统计]\n");
             out.push_str(&format!("  * 健康扇区 (Good):        {} ({:.2} GB)\n", self.stats.good, gb(self.stats.good * 512)));
             out.push_str(&format!("  * 损毁扇区 (Bad):         {} ({:.2} GB)\n", self.stats.bad, gb(self.stats.bad * 512)));
             out.push_str(&format!("  * 变异扇区 (Changed):     {} ({:.2} GB)\n", self.stats.changed, gb(self.stats.changed * 512)));
@@ -856,5 +902,130 @@ mod tests {
             assert!(saved_path.exists());
             let _ = std::fs::remove_file(saved_path);
         }
+    }
+
+    #[test]
+    fn test_infer_hardware_usb_tiers() {
+        let dummy_dev = PhysicalDeviceInfo {
+            drive_index: 1,
+            path: r"\\.\PhysicalDrive1".to_string(),
+            vendor_id: "SanDisk".to_string(),
+            product_id: "Ultra".to_string(),
+            serial_number: "123456".to_string(),
+            bus_type: StorageBusType::Usb,
+            total_bytes: 32 * 1024 * 1024 * 1024,
+            is_removable: true,
+            is_safe_target: true,
+            warning: None,
+            mounted_volumes: vec!['G'],
+        };
+
+        // Tier 0: < 1.5 MB/s -> USB 1.1 Full-Speed
+        let inf0 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 1.0, 0.8, false, false, false);
+        assert!(inf0.inferred_bus.contains("USB 1.1 Full-Speed"));
+
+        // Tier 1: 1.5 .. 43.5 MB/s -> USB 2.0 High-Speed
+        let inf1 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 35.0, 28.0, false, false, false);
+        assert!(inf1.inferred_bus.contains("USB 2.0 High-Speed"));
+
+        // Tier 2: 43.5 .. 450.0 MB/s -> USB 3.2 Gen 1x1
+        let inf2 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 150.0, 90.0, false, false, false);
+        assert!(inf2.inferred_bus.contains("USB 3.2 Gen 1x1"));
+
+        // Tier 3: 450.0 .. 1050.0 MB/s -> USB 3.2 Gen 2x1
+        let inf3 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 800.0, 650.0, false, false, false);
+        assert!(inf3.inferred_bus.contains("USB 3.2 Gen 2x1"));
+
+        // Tier 4: 1050.0 .. 2050.0 MB/s -> USB 3.2 Gen 2x2
+        let inf4 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 1800.0, 1600.0, false, false, false);
+        assert!(inf4.inferred_bus.contains("USB 3.2 Gen 2x2"));
+
+        // Tier 5: 2050.0 .. 3800.0 MB/s -> USB4 Gen 3x2 / Thunderbolt 3/4
+        let inf5 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 3200.0, 2800.0, false, false, false);
+        assert!(inf5.inferred_bus.contains("USB4 Gen 3x2"));
+
+        // Tier 6: >= 3800.0 MB/s -> USB4 2.0 / Thunderbolt 5
+        let inf6 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 4500.0, 4100.0, false, false, false);
+        assert!(inf6.inferred_bus.contains("USB4 2.0"));
+    }
+
+    #[test]
+    fn test_infer_hardware_sd_tiers() {
+        let dummy_sd = PhysicalDeviceInfo {
+            drive_index: 2,
+            path: r"\\.\PhysicalDrive2".to_string(),
+            vendor_id: "Generic".to_string(),
+            product_id: "SD Reader".to_string(),
+            serial_number: "789012".to_string(),
+            bus_type: StorageBusType::Sd,
+            total_bytes: 64 * 1024 * 1024 * 1024,
+            is_removable: true,
+            is_safe_target: true,
+            warning: None,
+            mounted_volumes: vec!['H'],
+        };
+
+        // SD 1.01 Default Speed
+        let s0 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 10.0, 8.0, false, false, false);
+        assert!(s0.inferred_bus.contains("Default Speed"));
+
+        // SD 1.10 High Speed
+        let s1 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 20.0, 18.0, false, false, false);
+        assert!(s1.inferred_bus.contains("High Speed"));
+
+        // UHS-I SDR50
+        let s2 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 40.0, 32.0, false, false, false);
+        assert!(s2.inferred_bus.contains("UHS-I SDR50"));
+
+        // UHS-I SDR104
+        let s3 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 90.0, 75.0, false, false, false);
+        assert!(s3.inferred_bus.contains("UHS-I SDR104"));
+
+        // UHS-II
+        let s4 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 250.0, 180.0, false, false, false);
+        assert!(s4.inferred_bus.contains("UHS-II"));
+
+        // UHS-III
+        let s5 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 500.0, 420.0, false, false, false);
+        assert!(s5.inferred_bus.contains("UHS-III"));
+
+        // SD Express
+        let s6 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 1200.0, 950.0, false, false, false);
+        assert!(s6.inferred_bus.contains("SD Express"));
+    }
+
+    #[test]
+    fn test_flash_grades_coverage() {
+        let dummy_dev = PhysicalDeviceInfo {
+            drive_index: 1,
+            path: r"\\.\PhysicalDrive1".to_string(),
+            vendor_id: "Test".to_string(),
+            product_id: "Disk".to_string(),
+            serial_number: "000".to_string(),
+            bus_type: StorageBusType::Usb,
+            total_bytes: 32 * 1024 * 1024 * 1024,
+            is_removable: true,
+            is_safe_target: true,
+            warning: None,
+            mounted_volumes: vec!['G'],
+        };
+
+        let g_f = DiagnosticReport::infer_hardware(Some(&dummy_dev), 15.0, 0.5, false, false, true);
+        assert!(g_f.flash_grade.contains("Grade F"));
+
+        let g_d = DiagnosticReport::infer_hardware(Some(&dummy_dev), 20.0, 2.0, false, false, false);
+        assert!(g_d.flash_grade.contains("Grade D"));
+
+        let g_c = DiagnosticReport::infer_hardware(Some(&dummy_dev), 30.0, 5.0, false, false, false);
+        assert!(g_c.flash_grade.contains("Grade C"));
+
+        let g_b = DiagnosticReport::infer_hardware(Some(&dummy_dev), 40.0, 15.0, false, false, false);
+        assert!(g_b.flash_grade.contains("Grade B"));
+
+        let g_a = DiagnosticReport::infer_hardware(Some(&dummy_dev), 100.0, 50.0, false, false, false);
+        assert!(g_a.flash_grade.contains("Grade A"));
+
+        let g_s = DiagnosticReport::infer_hardware(Some(&dummy_dev), 800.0, 200.0, false, false, false);
+        assert!(g_s.flash_grade.contains("Grade S"));
     }
 }

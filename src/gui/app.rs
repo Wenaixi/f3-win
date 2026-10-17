@@ -687,33 +687,7 @@ impl F3App {
             0
         };
 
-        // 读取真实物理接口带宽与通道推断
-        let read_inferred_bus = if read_peak < 43.0 {
-            "USB 2.0 (High-Speed 480Mbps 物理通道，读取带宽上限约 43 MB/s)"
-        } else if read_peak < 150.0 {
-            "USB 3.0 Gen1 (5Gbps 物理通道)"
-        } else {
-            "USB 3.2 / 固态级高速物理通道"
-        };
 
-        // 闪存颗粒电荷保持力与读取响应推断
-        let read_flash_quality = if report.stats.bad + report.stats.overwritten > 0 {
-            "极度报废黑片 / 存在大量物理覆写与丢弃"
-        } else if report.stats.changed > 0 {
-            "闪存绝缘浮栅层漏电老化 / 存在弱电荷位翻转，数据长期保持力不足"
-        } else if read_avg > 80.0 {
-            "正品原厂高良率 NAND 闪存颗粒 (Good Die / 读取响应极快，电荷稳定)"
-        } else if read_avg > 25.0 {
-            "正品主流 NAND 闪存颗粒 (读取吞吐平稳合规)"
-        } else {
-            "低速白片 / 经济型下脚料闪存颗粒"
-        };
-
-        let read_pathology = if report.is_fake {
-            "【芯片级读取病理解析】：在读取超出物理芯片真实边界的扇区时，闪存主控固件直接执行模运算地址回绕或伪造全0丢弃，导致数据校验大面积失效，确证为典型黑产扩容假盘。"
-        } else {
-            "【芯片级读取体质分析】：全盘数据读取平稳连续，闪存转换层 (FTL) 逻辑与物理映射状态健康，浮栅电荷保持完好，未见读取延迟抖动或坏块重映射阻塞，介质读写体质优良！"
-        };
 
         ui.add_space(15.0);
         egui::Frame::none()
@@ -803,9 +777,9 @@ impl F3App {
                 });
 
                 ui.add_space(4.0);
-                ui.monospace(format!("- 硬件读取通道推断: {}", read_inferred_bus));
-                ui.monospace(format!("- 闪存颗粒电荷体质: {}", read_flash_quality));
-                ui.label(RichText::new(format!("- 读取生理特征解读: {}", read_pathology)).color(Color32::from_rgb(200, 200, 200)));
+                ui.monospace(format!("- 硬件物理总线通道推断: {}", report.inference.inferred_bus));
+                ui.monospace(format!("- 闪存颗粒综合品质等级: {}", report.inference.flash_grade));
+                ui.label(RichText::new(format!("- 物理生理特征深度解读: {}", report.inference.pathology_analysis)).color(Color32::from_rgb(200, 200, 200)));
 
                 // 5. 比特级微观失配现场证据 (Hexdump)
                 if report.stats.bad + report.stats.overwritten + report.stats.changed > 0 {
