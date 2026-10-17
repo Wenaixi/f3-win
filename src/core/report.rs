@@ -411,7 +411,7 @@ impl DiagnosticReport {
 
         doc.push_str("## 六、 物理颗粒与芯片硬件推断结论\n\n");
         if self.is_fake {
-            doc.push_str("### ❌ 综合技术鉴定结论：确认为严重容量虚标的伪劣扩容假盘！\n\n");
+            doc.push_str("### [欺诈定性] 综合技术鉴定结论：确认为严重容量虚标的伪劣扩容假盘！\n\n");
             doc.push_str(&format!("1. **标称销售容量**：{:.2} GB\n", gb(self.announced_bytes)));
             doc.push_str(&format!("2. **真实物理可用容量**：**{:.2} GB**\n", gb(self.real_usable_bytes)));
             doc.push_str(&format!("3. **虚假虚标欺诈容量**：**{:.2} GB** (真实可用仅占标称容量的 **{:.2}%**)\n", gb(self.fake_bytes), 100.0 - self.fake_ratio_pct));

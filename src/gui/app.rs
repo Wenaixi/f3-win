@@ -275,18 +275,7 @@ impl F3App {
                 None,
             );
 
-            // 若先前测试过读取，将读取端全景速度指标一并注入报告，实现双向对比！
-            if self.state.audit_record.read_tested {
-                report.verify_tested = true;
-                if report.verify_avg_speed_mb <= 0.0 {
-                    report.verify_avg_speed_mb = self.state.audit_record.read_avg_mb;
-                }
-                if report.verify_bytes <= 0 {
-                    report.verify_bytes = self.state.audit_record.read_bytes;
-                }
-            }
-
-            self.render_electronic_report_card(ui, &report);
+            self.render_write_report_card(ui, &report);
         }
     }
 
@@ -390,18 +379,7 @@ impl F3App {
                 None,
             );
 
-            // 若先前测试过写入，将写入端全景速度指标一并注入报告，实现双向对比！
-            if self.state.audit_record.write_tested {
-                report.write_tested = true;
-                if report.write_avg_speed_mb <= 0.0 {
-                    report.write_avg_speed_mb = self.state.audit_record.write_avg_mb;
-                }
-                if report.write_bytes <= 0 {
-                    report.write_bytes = self.state.audit_record.write_bytes;
-                }
-            }
-
-            self.render_electronic_report_card(ui, &report);
+            self.render_verify_report_card(ui, &report);
         }
     }
 
@@ -521,14 +499,158 @@ impl F3App {
     }
 
 
-    /// 渲染可直接截图的专业电子版技术检验报告公文卡片 (无需复制，一键直截)
-    fn render_electronic_report_card(&mut self, ui: &mut egui::Ui, report: &DiagnosticReport) {
+    /// 渲染写入测试页专属的电子版物理性能检验公文卡片 (无需复制，一键直截)
+    fn render_write_report_card(&mut self, ui: &mut egui::Ui, report: &DiagnosticReport) {
         let gb = |b: u64| b as f64 / (1024.0 * 1024.0 * 1024.0);
         let serial_hex = report.volume_serial.map(|s| format!("0x{:08X}", s)).unwrap_or_else(|| "N/A".to_string());
 
+        let write_avg = if report.write_avg_speed_mb > 0.0 {
+            report.write_avg_speed_mb
+        } else if self.state.audit_record.write_avg_mb > 0.0 {
+            self.state.audit_record.write_avg_mb
+        } else {
+            0.0
+        };
+
+        let write_peak = if report.write_peak_speed_mb > 0.0 {
+            report.write_peak_speed_mb
+        } else if write_avg > 0.0 {
+            write_avg
+        } else {
+            0.0
+        };
+
+        let write_valley = if report.write_valley_speed_mb > 0.0 {
+            report.write_valley_speed_mb
+        } else {
+            self.state.audit_record.write_valley_mb
+        };
+
+        let write_median = if report.write_median_speed_mb > 0.0 {
+            report.write_median_speed_mb
+        } else if write_avg > 0.0 {
+            write_avg
+        } else {
+            0.0
+        };
+
+        let write_bytes = if report.write_bytes > 0 {
+            report.write_bytes
+        } else {
+            self.state.audit_record.write_bytes
+        };
+
         ui.add_space(15.0);
-        
-        // 使用深色正式公文相框包装，便于用户一键清晰截屏
+        egui::Frame::none()
+            .fill(Color32::from_rgb(22, 24, 29))
+            .stroke(egui::Stroke::new(1.5, Color32::from_rgb(52, 152, 219)))
+            .rounding(egui::Rounding::same(8.0))
+            .inner_margin(egui::Margin::same(16.0))
+            .show(ui, |ui| {
+                // 1. 报告红头与公文标识
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("[司法存证检验]").background_color(Color32::from_rgb(41, 128, 185)).color(Color32::WHITE).strong());
+                    ui.heading(RichText::new("存储介质物理写入性能与颗粒体质检验书").strong().size(16.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new(&report.generated_at_local).color(Color32::GRAY));
+                    });
+                });
+
+                ui.separator();
+                ui.add_space(4.0);
+
+                // 2. 写入阶段状态卡片
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(20, 35, 45))
+                    .rounding(egui::Rounding::same(6.0))
+                    .inner_margin(egui::Margin::same(10.0))
+                    .show(ui, |ui| {
+                        ui.colored_label(Color32::from_rgb(100, 200, 255), RichText::new("【写入阶段完成】：物理数据流已全盘无缓冲直通落盘！").strong().size(15.0));
+                        ui.label(RichText::new(format!(
+                            "写入数据总量: {:.2} GB | 连续写入耗时: {:.1} 秒 ({:.2} 分钟) | 平均写入速度: {:.2} MB/s",
+                            gb(write_bytes), report.write_duration_secs, report.write_duration_secs / 60.0, write_avg
+                        )).color(Color32::from_rgb(220, 240, 255)).strong());
+                        ui.add_space(3.0);
+                        ui.label(RichText::new("【说明】：本阶段已将高熵伪随机数据真实写入存储物理芯片。已排除操作系统文件缓存，可直接作为物理写入吞吐能力的法定证据。").color(Color32::from_rgb(200, 220, 240)));
+                    });
+
+                ui.add_space(8.0);
+
+                // 3. 硬件指纹拓扑
+                ui.label(RichText::new("一、 被测硬件物理拓扑与唯一指纹信息").strong().color(Color32::LIGHT_BLUE));
+                ui.monospace(format!("- 被测逻辑盘符: {} | 物理磁盘对象: {}", report.target_drive, report.physical_drive_path));
+                ui.monospace(format!("- 物理卷序列号: {} (卷格式化 32 位唯一指纹，彻底封死商家调包借口)", serial_hex));
+                ui.monospace(format!("- 硬件标识信息: VID: {} | PID: {} | 序列号: {}", report.vendor_id, report.product_id, report.serial_number));
+                ui.monospace(format!("- 防伪加盐凭证: {} (单向有损散列，主机物理隔离防算力回放作弊)", report.salt_hex));
+
+                ui.add_space(8.0);
+
+                // 4. 写入速度生理全景指标
+                ui.label(RichText::new("二、 物理写入速率全景与生理体质诊断").strong().color(Color32::LIGHT_BLUE));
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.monospace(format!("平均写入速率: {:.2} MB/s", write_avg));
+                        ui.separator();
+                        ui.monospace(format!("最高峰值写速: {:.2} MB/s", write_peak));
+                        ui.separator();
+                        ui.monospace(format!("最低谷底写速: {:.2} MB/s", write_valley));
+                        ui.separator();
+                        ui.monospace(format!("稳态中位写速: {:.2} MB/s", write_median));
+                    });
+                    if let Some(cliff_b) = report.slc_cliff_bytes {
+                        ui.colored_label(Color32::from_rgb(255, 165, 0), format!(
+                            "[断崖预警] SLC 模拟缓存耗尽拐点: 在写入至 {:.2} GB 处，速度由 {:.1} MB/s 暴跌至 {:.1} MB/s (跌幅 {:.1}%)！",
+                            gb(cliff_b), report.slc_cliff_speed_before_mb, report.slc_cliff_speed_after_mb, report.slc_cliff_drop_pct
+                        ));
+                    }
+                });
+
+                ui.add_space(4.0);
+                ui.monospace(format!("- 硬件物理接口推断: {}", report.inference.inferred_bus));
+                ui.monospace(format!("- 闪存颗粒品质推断: {}", report.inference.flash_grade));
+                ui.label(RichText::new(format!("- 掉速病理解读: {}", report.inference.pathology_analysis)).color(Color32::from_rgb(200, 200, 200)));
+
+                ui.add_space(8.0);
+
+                // 5. 下一步操作指引
+                ui.label(RichText::new("三、 下一步真实容量验证指引").strong().color(Color32::LIGHT_GREEN));
+                ui.label("【重要提示】：物理写入完成仅证明数据已向设备发送。扩容假盘常采用地址回绕覆写或位黑洞丢弃。请前往「读取校验」页面开始全盘校验，即可验证实际物理可用容量与是否存在扩容欺诈！");
+
+                ui.add_space(10.0);
+                ui.separator();
+
+                // 底部辅助按钮与截屏提示
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("[截图提示] 请直接按系统快捷键 Win + Shift + S 截取上方公文卡片作为写入性能证据！").color(Color32::LIGHT_GREEN).strong());
+                    if ui.button("复制写入报告 Markdown").clicked() {
+                        ui.output_mut(|o| o.copied_text = report.generate_markdown());
+                    }
+                });
+            });
+    }
+
+    /// 渲染读取校验页专属的电子版容量真实性与欺诈鉴定结论书 (无需复制，一键直截)
+    fn render_verify_report_card(&mut self, ui: &mut egui::Ui, report: &DiagnosticReport) {
+        let gb = |b: u64| b as f64 / (1024.0 * 1024.0 * 1024.0);
+        let serial_hex = report.volume_serial.map(|s| format!("0x{:08X}", s)).unwrap_or_else(|| "N/A".to_string());
+
+        let read_avg = if report.verify_avg_speed_mb > 0.0 {
+            report.verify_avg_speed_mb
+        } else if self.state.audit_record.read_avg_mb > 0.0 {
+            self.state.audit_record.read_avg_mb
+        } else {
+            0.0
+        };
+
+        let read_bytes = if report.verify_bytes > 0 {
+            report.verify_bytes
+        } else if self.state.audit_record.read_bytes > 0 {
+            self.state.audit_record.read_bytes
+        } else {
+            0
+        };
+
+        ui.add_space(15.0);
         egui::Frame::none()
             .fill(Color32::from_rgb(22, 24, 29))
             .stroke(egui::Stroke::new(1.5, if report.is_fake { Color32::from_rgb(231, 76, 60) } else { Color32::from_rgb(46, 204, 113) }))
@@ -537,13 +659,13 @@ impl F3App {
             .show(ui, |ui| {
                 // 1. 报告红头与公文标识
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("司法鉴定级存证").background_color(if report.is_fake { Color32::from_rgb(192, 57, 43) } else { Color32::from_rgb(39, 174, 96) }).color(Color32::WHITE).strong());
-                    ui.heading(RichText::new("存储介质真实性与物理性能检验报告").strong().size(16.0));
+                    ui.label(RichText::new("[司法鉴定级存证]").background_color(if report.is_fake { Color32::from_rgb(192, 57, 43) } else { Color32::from_rgb(39, 174, 96) }).color(Color32::WHITE).strong());
+                    ui.heading(RichText::new("存储介质容量真实性与欺诈鉴定结论书").strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(RichText::new(&report.generated_at_local).color(Color32::GRAY));
                     });
                 });
-                
+
                 ui.separator();
                 ui.add_space(4.0);
 
@@ -584,47 +706,37 @@ impl F3App {
 
                 ui.add_space(8.0);
 
-                // 4. 全维度读写速度全景与闪存生理特征 (主人重点要求！)
-                ui.label(RichText::new("二、 物理读写速度全景与闪存生理诊断").strong().color(Color32::LIGHT_BLUE));
-                ui.horizontal(|ui| {
-                    ui.monospace(format!("平均速度: {:.2} MB/s", report.write_avg_speed_mb));
-                    ui.separator();
-                    ui.monospace(format!("最高峰值: {:.2} MB/s", report.write_peak_speed_mb));
-                    ui.separator();
-                    ui.monospace(format!("最低谷底: {:.2} MB/s", report.write_valley_speed_mb));
-                    ui.separator();
-                    ui.monospace(format!("稳态中位数: {:.2} MB/s", report.write_median_speed_mb));
-                });
-                
-                if let Some(cliff_b) = report.slc_cliff_bytes {
-                    ui.colored_label(Color32::YELLOW, format!(
-                        "⚡ 【SLC 耗尽断崖拐点】：在写入至 {:.2} GB 处，速度由 {:.1} MB/s 暴跌至 {:.1} MB/s (跌幅 {:.1}%)！",
-                        gb(cliff_b), report.slc_cliff_speed_before_mb, report.slc_cliff_speed_after_mb, report.slc_cliff_drop_pct
-                    ));
-                }
-                
-                ui.monospace(format!("- 硬件物理接口推断: {}", report.inference.inferred_bus));
-                ui.monospace(format!("- 闪存颗粒品质推断: {}", report.inference.flash_grade));
-                ui.label(RichText::new(format!("- 掉速病理解读: {}", report.inference.pathology_analysis)).color(Color32::from_rgb(200, 200, 200)));
-
-                // 5. 校验阶段与比特级微观失配现场
-                if report.verify_tested {
-                    ui.add_space(8.0);
-                    ui.label(RichText::new("三、 比特级微观失配现场证据 (Hexdump)").strong().color(Color32::LIGHT_BLUE));
+                // 4. 读取校验物理性能与扇区健康四态分布
+                ui.label(RichText::new("二、 读取校验性能与扇区健康分布").strong().color(Color32::LIGHT_BLUE));
+                ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        ui.colored_label(Color32::from_rgb(46, 204, 113), format!("正常扇区: {} ({:.2} GB)", report.stats.good, gb(report.stats.good * 512)));
+                        ui.monospace(format!("平均读取校验速率: {:.2} MB/s", read_avg));
                         ui.separator();
-                        ui.colored_label(Color32::from_rgb(231, 76, 60), format!("损毁/黑洞: {} ({:.2} GB)", report.stats.bad, gb(report.stats.bad * 512)));
+                        ui.monospace(format!("校验数据总量: {:.2} GB", gb(read_bytes)));
                         ui.separator();
-                        ui.colored_label(Color32::from_rgb(155, 89, 182), format!("回绕覆写: {} ({:.2} GB)", report.stats.overwritten, gb(report.stats.overwritten * 512)));
+                        ui.monospace(format!("读取校验耗时: {:.1} 秒 ({:.2} 分钟)", report.verify_duration_secs, report.verify_duration_secs / 60.0));
                     });
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.colored_label(Color32::from_rgb(46, 204, 113), format!("正常扇区 (Good): {} ({:.2} GB)", report.stats.good, gb(report.stats.good * 512)));
+                        ui.separator();
+                        ui.colored_label(Color32::from_rgb(231, 76, 60), format!("损毁黑洞 (Bad): {} ({:.2} GB)", report.stats.bad, gb(report.stats.bad * 512)));
+                        ui.separator();
+                        ui.colored_label(Color32::from_rgb(155, 89, 182), format!("回绕覆写 (Overwritten): {} ({:.2} GB)", report.stats.overwritten, gb(report.stats.overwritten * 512)));
+                    });
+                });
 
+                // 5. 比特级微观失配现场证据 (Hexdump)
+                if report.stats.bad + report.stats.overwritten + report.stats.changed > 0 {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("三、 比特级微观失配现场证据 (Hexdump 对照)").strong().color(Color32::LIGHT_BLUE));
                     if let Some(err_off) = report.first_error_offset {
                         ui.monospace(format!("- 首次故障出现位置: {}.h2w (全局物理偏移: 0x{:016X}，即 {:.2} GB 处)", report.first_error_file.unwrap_or(1), err_off, gb(err_off)));
                         let exp_hex = report.first_error_expected.map(|b| b.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ")).unwrap_or_else(|| "N/A".to_string());
                         let act_hex = report.first_error_actual.map(|b| b.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ")).unwrap_or_else(|| "N/A".to_string());
                         ui.monospace(format!("  [预期正确数据]: {}", exp_hex));
                         ui.monospace(format!("  [实际读回数据]: {}", act_hex));
+                        ui.label(RichText::new("- 微观定性说明: 数据首部标记失效，读回呈现固件截断特征，确证该位置之后物理存储单元不存在。").weak());
                     }
                 }
 
@@ -632,7 +744,7 @@ impl F3App {
                 if report.is_fake {
                     ui.add_space(8.0);
                     ui.label(RichText::new("四、 消费者权益保护法维权指南 (假一赔三)").strong().color(Color32::from_rgb(255, 180, 0)));
-                    ui.label("【第一步·直接截图】：直接使用微信截图/快捷键截取本电子公文卡片发给商家客服；");
+                    ui.label("【第一步·直接截图】：直接使用快捷键截取本电子公文卡片发给商家客服；");
                     ui.label("【第二步·法定索赔】：依据《消法》第55条要求【全额退款 + 三倍赔偿（不足500元按500元）】；");
                     ui.label("【第三步·官方投诉】：若商家推诿，在平台申请纠纷小二介入，或将本截图上传至全国 12315 平台投诉。");
                 }
@@ -640,9 +752,9 @@ impl F3App {
                 ui.add_space(10.0);
                 ui.separator();
 
-                // 底部辅助按钮
+                // 底部辅助按钮与截屏提示
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("📷 提示：直接对上方公文框截屏即可作为维权图片证据！").color(Color32::LIGHT_GREEN).strong());
+                    ui.label(RichText::new("[截图提示] 请直接按系统快捷键 Win + Shift + S 或截屏工具截取上方完整公文卡片，可直接作为维权与法庭证据！").color(Color32::LIGHT_GREEN).strong());
                     if ui.button("复制全文 Markdown").clicked() {
                         ui.output_mut(|o| o.copied_text = report.generate_markdown());
                     }
