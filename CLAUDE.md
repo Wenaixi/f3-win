@@ -200,7 +200,15 @@
 
 
 
-### 原生 Win32 系统托盘与核心路径信息中心大成版交付记录 (2026-10-17 托盘与路径中心就绪)
+### 原生 Win32 系统托盘与核心路径信息中心大成版交付记录 (Run 39033141048)
+- 流水线状态：Run ID 39033141048 (Status: completed success，全量核心单元测试 100% 满分全绿通过)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部单元测试 (1m 57s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-x86_64-pc-windows-msvc.zip (2m 12s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-aarch64-pc-windows-msvc.zip (2m 22s)
+- 产物详情与验证：
+  - Windows x64 二进制：f3-win.exe (精确 3,267,072 字节, SHA-256: FCA0C527BE5C09447AB7A9FD83DBBE84B21790055F2766DE998220361DDF3936，编译时间戳 2026-10-17 12:39:44)
+  - Windows ARM64 二进制：f3-win-arm64.exe (精确 3,105,280 字节, SHA-256: 660081A26A2EDF945F3971C13041248AA3694372594C9F77FEAAAA67B75CE629，编译时间戳 2026-10-17 12:39:54)
+- 架构与交互核心飞跃：
 1. 原生 Win32 系统托盘驱动中枢 (src/gui/tray.rs):
    - 零外部三方依赖：直接复用 Windows 平台原生 Shell_NotifyIconW、TrackPopupMenu 与 HWND_MESSAGE 隐形消息窗口，零引入多余 crate 依赖；
    - 异步解耦设计：专有 Win32 消息隐形窗口驱动事件循环，通过 crossbeam-channel 与 eframe/egui 60FPS 主循环完全非阻塞解耦，弹出右键菜单绝不阻塞主界面渲染；
