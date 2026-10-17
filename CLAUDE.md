@@ -200,6 +200,23 @@
 
 
 
+### 原生 Win32 系统托盘与核心路径信息中心大成版交付记录 (2026-10-17 托盘与路径中心就绪)
+1. 原生 Win32 系统托盘驱动中枢 (src/gui/tray.rs):
+   - 零外部三方依赖：直接复用 Windows 平台原生 Shell_NotifyIconW、TrackPopupMenu 与 HWND_MESSAGE 隐形消息窗口，零引入多余 crate 依赖；
+   - 异步解耦设计：专有 Win32 消息隐形窗口驱动事件循环，通过 crossbeam-channel 与 eframe/egui 60FPS 主循环完全非阻塞解耦，弹出右键菜单绝不阻塞主界面渲染；
+   - 资源管理器崩溃自愈 (TaskbarCreated)：动态注册 Windows Shell 广播消息，当 explorer.exe 重启时自动重新挂载托盘图标，托盘永不失联；
+   - RAII 彻底根除幽灵托盘图标：在 TrayManager 析构 (Drop) 时强制向系统下发 NIM_DELETE，解决 Windows 托盘常见的“划过才消失”幽灵残留；
+   - 动态生理状态 Tooltip：实时同步 Direct I/O 写入/校验瞬时速率与已处理 GB 字节数至任务栏托盘悬停提示看板；
+2. 核心路径服务中心与双模资源管理器联动 (src/core/paths.rs & app.rs):
+   - 统一汇集 AppPathInfo 权威路径事实：可执行程序绝对路径 (exe_path)、程序所在安装目录 (exe_dir)、进程工作目录 (working_dir)、当前选中测试卷 (selected_volume)、维权存证档案目录 (evidence_dir) 与系统临时目录 (temp_dir)；
+   - 资源管理器智能双模调用：针对文件精准传导 /select,<path> 参数高亮定位目标，针对目录直接秒级弹出开启；
+   - 跨进程剪贴板管道直通：复用 Windows 原生 clip.exe 管道，一键复制任意路径；
+   - 顶部导航栏直通按钮与高级设置页全景看板双轨覆盖；
+3. 窗口生命周期与硬件防呆退出拦截 (src/gui/app.rs & state.rs):
+   - 最小化到托盘防误触：在高级设置中默认开启「点击窗口关闭按钮 (×) 时最小化到系统托盘」，防止误触右上角关闭按钮导致耗费数小时的 Direct I/O 硬件测试中断；
+   - 运行中防呆二次确认：托盘菜单「安全退出」与窗口关闭操作在 Direct I/O 测试进行中实施模态拦截，明确提示硬件写入与卷锁风险，用户显式确认后先调度 controller.cancel() 释放设备句柄和卷排他锁，平稳优雅退出；
+4. 全量代码与文档绝对零 emoji 规范恪守。
+
 ### 全物理总线7阶梯与闪存6级体质工业级判定矩阵大成版交付记录 (Run 39031602542)
 - 流水线状态：Run ID 39031602542 (Status: completed success，全量 36 项核心单元测试 100% 满分全绿通过)
   - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部 36 项单元测试 (2m 14s)
