@@ -9,21 +9,26 @@ use crate::core::report::DiagnosticReport;
 use crate::gui::components::device_selector::{
     render_storage_device_selector, render_storage_volume_selector,
 };
+use crate::core::paths::{self, AppPathInfo};
 use crate::gui::components::heatmap::render_heatmap;
 use crate::gui::components::plot::render_speed_plot;
 use crate::gui::state::{AppState, AppTab};
+use crate::gui::tray::{TrayEvent, TrayManager};
 
 pub struct F3App {
     state: AppState,
     prev_status: TaskStatus,
+    tray: Option<TrayManager>,
 }
 
 impl F3App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         Self::setup_chinese_fonts(&cc.egui_ctx);
+        let tray = Some(TrayManager::new("F3 (管理员) - 闪存完整性测试就绪"));
         Self {
             state: AppState::default(),
             prev_status: TaskStatus::Idle,
+            tray,
         }
     }
 }
@@ -32,6 +37,78 @@ impl eframe::App for F3App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // 单行获取深层任务控制器轮询出的最新只读快照
         let snapshot = self.state.controller.poll().clone();
+
+        // 轮询消费来自后台系统托盘的交互事件
+        if let Some(ref tray) = self.tray {
+            while let Some(event) = tray.try_recv_event() {
+                match event {
+                    TrayEvent::ShowWindow => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
+                    TrayEvent::ShowPathInfoModal => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                        self.state.show_path_info_modal = true;
+                    }
+                    TrayEvent::OpenExeDir => {
+                        let info = AppPathInfo::gather(None);
+                        let _ = paths::open_in_explorer(&info.exe_dir);
+                    }
+                    TrayEvent::OpenSelectedVolume => {
+                        let vol = self.state.inventory.selected_path();
+                        let _ = paths::open_in_explorer(&vol);
+                    }
+                    TrayEvent::OpenEvidenceDir => {
+                        let info = AppPathInfo::gather(None);
+                        let _ = paths::open_in_explorer(&info.evidence_dir);
+                    }
+                    TrayEvent::RequestExit => {
+                        let is_running = self.state.controller.poll().status == TaskStatus::Running;
+                        if is_running {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                            self.state.show_exit_confirm_modal = true;
+                        } else {
+                            if let Some(ref mut t) = self.tray {
+                                t.destroy();
+                            }
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 拦截主窗口右上角关闭按钮 (×) 请求：
+        // 若开启了“最小化到托盘”，则仅隐藏主窗口保持后台任务无损运行；
+        // 若未开启且测试正在运行，弹出安全退出防呆拦截对话框。
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if self.state.minimize_to_tray_on_close {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            } else if snapshot.status == TaskStatus::Running {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.state.show_exit_confirm_modal = true;
+            } else if let Some(ref mut t) = self.tray {
+                t.destroy();
+            }
+        }
+
+        // 动态同步更新托盘图标悬停状态提示文案
+        if let Some(ref tray) = self.tray {
+            let tip = match snapshot.status {
+                TaskStatus::Running => format!(
+                    "F3 (管理员) - 正在测试: {:.1} MB/s (已处理 {:.2} GB)",
+                    snapshot.current_speed_mb,
+                    snapshot.total_bytes_processed as f64 / (1024.0 * 1024.0 * 1024.0)
+                ),
+                TaskStatus::Finished => "F3 (管理员) - 测试已完成 (就绪)".to_string(),
+                TaskStatus::Error => "F3 (管理员) - 测试异常中断".to_string(),
+                TaskStatus::Idle => "F3 (管理员) - 闪存完整性测试就绪".to_string(),
+            };
+            tray.set_tooltip(&tip);
+        }
 
         // 当异步任务刚刚执行完成时，自动静默刷新存储资产与磁盘空间
         if self.prev_status == TaskStatus::Running && snapshot.status == TaskStatus::Finished {
@@ -116,6 +193,12 @@ impl eframe::App for F3App {
                 ui.selectable_value(&mut self.state.current_tab, AppTab::RapidProbe, "闪电探测 (f3probe)");
                 ui.selectable_value(&mut self.state.current_tab, AppTab::PartitionFix, "分区修复 (f3fix)");
                 ui.selectable_value(&mut self.state.current_tab, AppTab::Settings, "设置");
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(RichText::new("路径信息中心").color(Color32::from_rgb(0, 180, 255))).clicked() {
+                        self.state.show_path_info_modal = true;
+                    }
+                });
             });
         });
 
@@ -144,6 +227,10 @@ impl eframe::App for F3App {
                     }
                 });
         });
+
+        // 渲染路径全景信息模态卡片与安全退出防呆拦截弹窗
+        self.render_path_info_modal(ctx);
+        self.render_exit_confirm_modal(ctx);
     }
 }
 
@@ -881,6 +968,165 @@ impl F3App {
                 }
             });
         });
+
+        ui.add_space(10.0);
+        ui.group(|ui| {
+            ui.label(RichText::new("系统托盘与窗口行为:").strong());
+            ui.checkbox(
+                &mut self.state.minimize_to_tray_on_close,
+                "点击窗口关闭按钮 (×) 时最小化到系统托盘 (保持后台任务无损运行)",
+            );
+            if ui.button("打开路径信息中心...").clicked() {
+                self.state.show_path_info_modal = true;
+            }
+        });
+
+        ui.add_space(10.0);
+        ui.group(|ui| {
+            ui.label(RichText::new("环境与核心路径信息概览:").strong());
+            let selected = Some(self.state.inventory.selected_path());
+            let path_info = AppPathInfo::gather(selected);
+
+            let mut row = |label: &str, p: &std::path::Path, is_file: bool| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(format!("{}:", label)).color(Color32::from_rgb(0, 180, 255)));
+                    ui.monospace(p.to_string_lossy().to_string());
+                    if ui.button("复制").clicked() {
+                        let _ = paths::copy_to_clipboard(&p.to_string_lossy());
+                    }
+                    if ui.button(if is_file { "定位" } else { "打开" }).clicked() {
+                        let _ = paths::open_in_explorer(p);
+                    }
+                });
+            };
+
+            row("程序执行文件", &path_info.exe_path, true);
+            row("程序所在目录", &path_info.exe_dir, false);
+            row("当前工作目录", &path_info.working_dir, false);
+            if let Some(ref vol) = path_info.selected_volume {
+                row("当前测试目标卷", vol, false);
+            }
+            row("维权存证档案目录", &path_info.evidence_dir, false);
+            row("系统临时文件目录", &path_info.temp_dir, false);
+        });
+
+        ui.add_space(10.0);
+        ui.group(|ui| {
+            ui.label(RichText::new("退出应用程序:").strong());
+            ui.horizontal(|ui| {
+                if ui
+                    .button(RichText::new("退出 F3 闪存测试").color(Color32::from_rgb(231, 76, 60)))
+                    .clicked()
+                {
+                    let is_running = self.state.controller.poll().status == TaskStatus::Running;
+                    if is_running {
+                        self.state.show_exit_confirm_modal = true;
+                    } else {
+                        if let Some(ref mut t) = self.tray {
+                            t.destroy();
+                        }
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+            });
+        });
+    }
+
+    /// 渲染核心路径信息全景模态对话框
+    fn render_path_info_modal(&mut self, ctx: &egui::Context) {
+        if !self.state.show_path_info_modal {
+            return;
+        }
+
+        let selected = Some(self.state.inventory.selected_path());
+        let path_info = AppPathInfo::gather(selected);
+
+        egui::Window::new("核心路径与运行环境信息")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_width(560.0);
+                ui.label(RichText::new("F3-Win 运行时目录与证据档案配置概览").strong().size(14.0));
+                ui.separator();
+                ui.add_space(6.0);
+
+                let render_row = |ui: &mut egui::Ui, title: &str, path: &std::path::Path, is_file: bool| {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(title).strong().color(Color32::from_rgb(0, 180, 255)));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button(if is_file { "在资源管理器中定位" } else { "在资源管理器中打开" }).clicked() {
+                                    let _ = paths::open_in_explorer(path);
+                                }
+                                if ui.button("复制路径").clicked() {
+                                    let _ = paths::copy_to_clipboard(&path.to_string_lossy());
+                                }
+                            });
+                        });
+                        ui.monospace(path.to_string_lossy().to_string());
+                    });
+                    ui.add_space(4.0);
+                };
+
+                render_row(ui, "程序执行文件 (Executable):", &path_info.exe_path, true);
+                render_row(ui, "程序所在目录 (Install Dir):", &path_info.exe_dir, false);
+                render_row(ui, "当前工作目录 (Working Dir):", &path_info.working_dir, false);
+                if let Some(ref vol) = path_info.selected_volume {
+                    render_row(ui, "当前测试目标卷 (Target Volume):", vol, false);
+                }
+                render_row(ui, "维权存证档案目录 (Evidence Dir):", &path_info.evidence_dir, false);
+                render_row(ui, "系统临时文件目录 (Temp Dir):", &path_info.temp_dir, false);
+
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(RichText::new("关闭对话框").strong()).clicked() {
+                            self.state.show_path_info_modal = false;
+                        }
+                    });
+                });
+            });
+    }
+
+    /// 渲染硬件测试运行中请求退出时的防呆二次确认弹窗
+    fn render_exit_confirm_modal(&mut self, ctx: &egui::Context) {
+        if !self.state.show_exit_confirm_modal {
+            return;
+        }
+
+        egui::Window::new("测试正在运行 - 退出确认")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_width(420.0);
+                ui.colored_label(
+                    Color32::from_rgb(231, 76, 60),
+                    RichText::new("警告：后台 Direct I/O 硬件测试正在进行中！").strong().size(14.0),
+                );
+                ui.label("如果现在退出，将中断正在进行的扇区写入/校验/探测，并提前释放卷排他锁。");
+                ui.label("是否确认中止当前任务并退出程序？");
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(6.0);
+
+                ui.horizontal(|ui| {
+                    if ui.button("取消 (继续测试)").clicked() {
+                        self.state.show_exit_confirm_modal = false;
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(RichText::new("强制中止并退出").color(Color32::from_rgb(231, 76, 60))).clicked() {
+                            self.state.controller.cancel();
+                            if let Some(ref mut t) = self.tray {
+                                t.destroy();
+                            }
+                            self.state.show_exit_confirm_modal = false;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    });
+                });
+            });
     }
 
     fn start_h2w_task(&mut self, mode: H2wMode) {
