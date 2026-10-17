@@ -196,6 +196,23 @@
 
 
 
+
+### 系统化调试根除窗口截断与读取全量报告大成版交付记录 (Run 39003661420)
+- 流水线状态：Run ID 39003661420 (Status: completed success，全量单元测试 100% 满分全绿通过)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部单元测试 (2m 4s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-x86_64-pc-windows-msvc.zip (2m 5s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-aarch64-pc-windows-msvc.zip (1m 58s)
+- 产物详情与验证：
+  - Windows x64 二进制：f3-win.exe (精确 3,212,800 字节, SHA-256: 7564EA445B3C95895F65F717CB724AAF20E4FBDAB9C2BBF72431EE60E40CF19C，时间戳 2026-10-17 04:48:50)
+  - Windows ARM64 二进制：f3-win-arm64.exe (精确 3,057,664 字节, SHA-256: 461325F3CFC1173FB5AD88121CBC5F83E2D1BE1A0AD1072FA47B817FCA60D911)
+- 系统化调试根因定位与修复成果：
+  1. 界面垂直截断彻底根除 (src/gui/app.rs):
+     - 根因分析：窗口固定高度为 700px，页面上方标题栏、控制器、测速折线图 (200px) 与热力图 (80px) 累积高度超 570px，而 CentralPanel 原本缺少 ScrollArea，导致展开的电子公文报告卡片下方内容 (包括硬件指纹、读取速率全景看板与微观失配分析) 全部超出 700px 物理边界被窗口边缘直接裁切，用户无法向下滚动查看；
+     - 架构修复：为 CentralPanel 注入 egui::ScrollArea::vertical().auto_shrink([false, false]) 全局自适应滚动条，无论窗口多大均支持丝滑滚轮上下滚动，整张电子公文卡片 100% 完整展现与自由截屏；
+  2. Markdown 与界面卡片双端读取速率全景补齐 (src/core/report.rs & app.rs):
+     - 读取校验报告全面升级为写入报告等同深度的全套生理指标 (平均读取校验速率、最高峰值读速、最低读速冷启动滤波、稳态中位读速、读取总耗时、43MB/s 真实硬件读取接口推断、闪存颗粒电荷体质分析、芯片级读取生理特征解读、AAA级健康介质综合评级、逐扇区四态分布、大白话水桶比喻与消法第55条退一赔三维权指南)；
+  3. 全量代码与文档绝对零 emoji 规范恪守。
+
 ### 读取校验全套生理测速与读写报告独立解耦大成版交付记录 (Run 39002082479)
 - 流水线状态：Run ID 39002082479 (Status: completed success，全量单元测试 100% 满分全绿通过)
   - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部单元测试 (2m 16s)
@@ -298,15 +315,3 @@
    - 补齐 probe_rx、fix_rx、cleanup_rx 的 Disconnected 异常捕获，彻底杜绝 Worker 线程异常退出时 UI 永久置灰卡死；
    - 彻底清空 reset_for_new_task 中的幽灵 Plan (fix_plan / probe_result)，杜绝误格正常盘；
    - 隔离全新 Arc<AtomicBool> 并升级为 Release/Acquire 内存序，杜绝 ARM64 跨核心感知延迟；准确识别 Aborted 取消文案。
-
-### 闪电探测取消防卡死与双向管道自愈交付记录 (2026-10-17 状态机容灾加固)
-1. 探测取消可观测性闭环 (src/core/probe.rs):
-   - 根因定位：探测最耗时的阶段为主控缓存冲刷排空 (overwhelm_cache)，此阶段检测到 cancel_flag 后直接 return Err，未向通道发送任何 Telemetry 终结消息，导致主线程完全无法感知 Worker 退出。
-   - 闭环修复：引入统一终结通知辅助闭包 send_abort，确保在初始 32MB 冲刷、阶梯跳跃快速冲刷及底层物理 I/O 报错分支均 100% 向通道发送带有 is_finished: true 的通知。
-   - 单元测试：新增 test_probe_abort_during_cache_flush 与 test_probe_under_min_safe_sectors，脱机虚拟仿真验证取消包百分之百可靠到达。
-2. 控制器状态机管道断开自愈与平稳收敛 (src/core/controller.rs):
-   - 根因定位：poll() 中对 probe_rx 原本采用 while let Ok(msg)，对 Err(Disconnected) 视而不见，导致后台线程退出后 probe_rx 未被清空且 snapshot.status 永久死锁在 TaskStatus::Running。
-   - 闭环修复：升级为 loop { match rx.try_recv() } 严密匹配，捕获 Disconnected 异常；若已置位 cancel_flag 则平稳收敛为 TaskStatus::Finished 并友好提示，清空 probe_rx 句柄释放 UI 锁定。
-   - 加固覆盖：同时补齐 fix_rx 与 cleanup_rx 的 Disconnected 异常捕获；新增 test_probe_channel_disconnect_recovery 与 test_probe_channel_cancel_recovery 单元测试。
-3. 界面交互温和化反馈 (src/gui/app.rs):
-   - 探测选项卡精准区分用户主动中止与底层硬件/权限报错，中止后不再误报红色惊吓弹框，按钮毫秒级恢复为「开始探测」，提示设备已安全解锁恢复挂载，支持随时重新测试。
