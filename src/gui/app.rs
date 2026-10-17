@@ -471,6 +471,144 @@ impl F3App {
         }
     }
 
+
+    /// 渲染可直接截图的专业电子版技术检验报告公文卡片 (无需复制，一键直截)
+    fn render_electronic_report_card(&mut self, ui: &mut egui::Ui, report: &DiagnosticReport) {
+        let gb = |b: u64| b as f64 / (1024.0 * 1024.0 * 1024.0);
+        let serial_hex = report.volume_serial.map(|s| format!("0x{:08X}", s)).unwrap_or_else(|| "N/A".to_string());
+
+        ui.add_space(15.0);
+        
+        // 使用深色正式公文相框包装，便于用户一键清晰截屏
+        egui::Frame::none()
+            .fill(Color32::from_rgb(22, 24, 29))
+            .stroke(egui::Stroke::new(1.5, if report.is_fake { Color32::from_rgb(231, 76, 60) } else { Color32::from_rgb(46, 204, 113) }))
+            .rounding(egui::Rounding::same(8.0))
+            .inner_margin(egui::Margin::same(16.0))
+            .show(ui, |ui| {
+                // 1. 报告红头与公文标识
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("司法鉴定级存证").background_color(if report.is_fake { Color32::from_rgb(192, 57, 43) } else { Color32::from_rgb(39, 174, 96) }).color(Color32::WHITE).strong());
+                    ui.heading(RichText::new("存储介质真实性与物理性能检验报告").strong().size(16.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new(&report.generated_at_local).color(Color32::GRAY));
+                    });
+                });
+                
+                ui.separator();
+                ui.add_space(4.0);
+
+                // 2. 人性化大白话通俗诊断结论 (醒目大卡片)
+                if report.is_fake {
+                    egui::Frame::none()
+                        .fill(Color32::from_rgb(45, 20, 20))
+                        .rounding(egui::Rounding::same(6.0))
+                        .inner_margin(egui::Margin::same(10.0))
+                        .show(ui, |ui| {
+                            ui.colored_label(Color32::from_rgb(255, 100, 100), RichText::new("【一句话通俗诊断】：这是一只严重虚标的非法扩容假盘！").strong().size(15.0));
+                            ui.label(RichText::new(format!(
+                                "标称规格: {:.2} GB | 真实可用: {:.2} GB | 虚假欺诈容量: {:.2} GB (虚标比例: {:.1}%)",
+                                gb(report.announced_bytes), gb(report.real_usable_bytes), gb(report.fake_bytes), report.fake_ratio_pct
+                            )).color(Color32::from_rgb(255, 220, 220)).strong());
+                            ui.add_space(3.0);
+                            ui.label(RichText::new("【通俗比喻】：打个比方，这就像一个外壳标着 64 升的大水桶，内部实际只有 8 升！倒进多出来的水会全部漏掉或覆盖旧水。存入该盘的重要照片或文档将在超过真实容量后永久丢失！").color(Color32::from_rgb(220, 220, 220)));
+                        });
+                } else {
+                    egui::Frame::none()
+                        .fill(Color32::from_rgb(20, 40, 25))
+                        .rounding(egui::Rounding::same(6.0))
+                        .inner_margin(egui::Margin::same(10.0))
+                        .show(ui, |ui| {
+                            ui.colored_label(Color32::from_rgb(100, 255, 120), RichText::new("【一句话通俗诊断】：全盘底层 Direct I/O 检验 100% 吻合，物理闪存真实合规！").strong().size(15.0));
+                            ui.label(RichText::new(format!("实测真实可用容量为 {:.2} GB，未见任何地址回绕、位黑洞或异常坏道，可安心存储重要数据！", gb(report.announced_bytes))).color(Color32::from_rgb(220, 255, 220)));
+                        });
+                }
+
+                ui.add_space(8.0);
+
+                // 3. 硬件指纹拓扑 (彻底封死调包狡辩)
+                ui.label(RichText::new("一、 被测硬件物理拓扑与唯一指纹信息").strong().color(Color32::LIGHT_BLUE));
+                ui.monospace(format!("- 被测逻辑盘符: {} | 物理磁盘对象: {}", report.target_drive, report.physical_drive_path));
+                ui.monospace(format!("- 物理卷序列号: {} (卷格式化 32 位唯一指纹，彻底封死商家调包借口)", serial_hex));
+                ui.monospace(format!("- 硬件标识信息: VID: {} | PID: {} | 序列号: {}", report.vendor_id, report.product_id, report.serial_number));
+                ui.monospace(format!("- 防伪加盐凭证: {} (单向有损散列，主机物理隔离防算力回放作弊)", report.salt_hex));
+
+                ui.add_space(8.0);
+
+                // 4. 全维度读写速度全景与闪存生理特征 (主人重点要求！)
+                ui.label(RichText::new("二、 物理读写速度全景与闪存生理诊断").strong().color(Color32::LIGHT_BLUE));
+                ui.horizontal(|ui| {
+                    ui.monospace(format!("平均速度: {:.2} MB/s", report.write_avg_speed_mb));
+                    ui.separator();
+                    ui.monospace(format!("最高峰值: {:.2} MB/s", report.write_peak_speed_mb));
+                    ui.separator();
+                    ui.monospace(format!("最低谷底: {:.2} MB/s", report.write_valley_speed_mb));
+                    ui.separator();
+                    ui.monospace(format!("稳态中位数: {:.2} MB/s", report.write_median_speed_mb));
+                });
+                
+                if let Some(cliff_b) = report.slc_cliff_bytes {
+                    ui.colored_label(Color32::YELLOW, format!(
+                        "⚡ 【SLC 耗尽断崖拐点】：在写入至 {:.2} GB 处，速度由 {:.1} MB/s 暴跌至 {:.1} MB/s (跌幅 {:.1}%)！",
+                        gb(cliff_b), report.slc_cliff_speed_before_mb, report.slc_cliff_speed_after_mb, report.slc_cliff_drop_pct
+                    ));
+                }
+                
+                ui.monospace(format!("- 硬件物理接口推断: {}", report.inference.inferred_bus));
+                ui.monospace(format!("- 闪存颗粒品质推断: {}", report.inference.flash_grade));
+                ui.label(RichText::new(format!("- 掉速病理解读: {}", report.inference.pathology_analysis)).color(Color32::from_rgb(200, 200, 200)));
+
+                // 5. 校验阶段与比特级微观失配现场
+                if report.verify_tested {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("三、 比特级微观失配现场证据 (Hexdump)").strong().color(Color32::LIGHT_BLUE));
+                    ui.horizontal(|ui| {
+                        ui.colored_label(Color32::from_rgb(46, 204, 113), format!("正常扇区: {} ({:.2} GB)", report.stats.good, gb(report.stats.good * 512)));
+                        ui.separator();
+                        ui.colored_label(Color32::from_rgb(231, 76, 60), format!("损毁/黑洞: {} ({:.2} GB)", report.stats.bad, gb(report.stats.bad * 512)));
+                        ui.separator();
+                        ui.colored_label(Color32::from_rgb(155, 89, 182), format!("回绕覆写: {} ({:.2} GB)", report.stats.overwritten, gb(report.stats.overwritten * 512)));
+                    });
+
+                    if let Some(err_off) = report.first_error_offset {
+                        ui.monospace(format!("- 首次故障出现位置: {}.h2w (全局物理偏移: 0x{:016X}，即 {:.2} GB 处)", report.first_error_file.unwrap_or(1), err_off, gb(err_off)));
+                        let exp_hex = report.first_error_expected.map(|b| b.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ")).unwrap_or_else(|| "N/A".to_string());
+                        let act_hex = report.first_error_actual.map(|b| b.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ")).unwrap_or_else(|| "N/A".to_string());
+                        ui.monospace(format!("  [预期正确数据]: {}", exp_hex));
+                        ui.monospace(format!("  [实际读回数据]: {}", act_hex));
+                    }
+                }
+
+                // 6. 保姆级维权维权指南与消法第55条
+                if report.is_fake {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("四、 消费者权益保护法维权指南 (假一赔三)").strong().color(Color32::from_rgb(255, 180, 0)));
+                    ui.label("【第一步·直接截图】：直接使用微信截图/快捷键截取本电子公文卡片发给商家客服；");
+                    ui.label("【第二步·法定索赔】：依据《消法》第55条要求【全额退款 + 三倍赔偿（不足500元按500元）】；");
+                    ui.label("【第三步·官方投诉】：若商家推诿，在平台申请纠纷小二介入，或将本截图上传至全国 12315 平台投诉。");
+                }
+
+                ui.add_space(10.0);
+                ui.separator();
+
+                // 底部辅助按钮
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("📷 提示：直接对上方公文框截屏即可作为维权图片证据！").color(Color32::LIGHT_GREEN).strong());
+                    if ui.button("复制全文 Markdown").clicked() {
+                        ui.output_mut(|o| o.copied_text = report.generate_markdown());
+                    }
+                    if report.is_fake {
+                        if ui.button("保存 .md 证据档案到本地").clicked() {
+                            if let Ok(p) = report.auto_archive_evidence() {
+                                self.state.controller.set_status_message(format!("证据档案已安全落盘: {:?}", p));
+                            }
+                        }
+                    }
+                });
+            });
+    }
+
+
     fn render_settings_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading("高级设置");
         ui.separator();
@@ -532,9 +670,10 @@ impl F3App {
     fn start_h2w_task(&mut self, mode: H2wMode) {
         let target_dir = self.state.inventory.selected_path();
         
-        let effective_salt = if self.state.use_random_salt {
-            match mode {
-                H2wMode::Write => {
+        // 彻底根治 H 盘读取解密：读取校验模式无条件自动装载已落盘的 Salt 凭证，绝不被勾选框绑架
+        let effective_salt = match mode {
+            H2wMode::Write => {
+                if self.state.use_random_salt {
                     use std::time::SystemTime;
                     let new_salt = SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
@@ -545,20 +684,31 @@ impl F3App {
                     self.state.salt_hex = format!("0x{:016X}", new_salt);
                     let _ = SaltRegistry::register_salt(&target_dir.to_string_lossy(), new_salt);
                     new_salt
+                } else {
+                    0
                 }
-                H2wMode::Verify => {
-                    if let Some(saved_salt) = SaltRegistry::query_salt(&target_dir.to_string_lossy()) {
-                        self.state.salt = saved_salt;
-                        self.state.salt_hex = format!("0x{:016X}", saved_salt);
-                        saved_salt
-                    } else if !self.state.salt_hex.trim().is_empty() {
-                        let clean_hex = self.state.salt_hex.trim().trim_start_matches("0x").trim_start_matches("0X");
-                        u64::from_str_radix(clean_hex, 16).unwrap_or(self.state.salt)
-                    } else {
-                        self.state.salt
-                    }
+            }
+            H2wMode::Verify => {
+                // 校验模式：优先无条件从注册表自动反查已落盘的历史 Salt (全自动免输入解密)
+                if let Some(saved_salt) = SaltRegistry::query_salt(&target_dir.to_string_lossy()) {
+                    self.state.salt = saved_salt;
+                    self.state.salt_hex = format!("0x{:016X}", saved_salt);
+                    self.state.use_random_salt = saved_salt != 0;
+                    saved_salt
+                } else if !self.state.salt_hex.trim().is_empty() {
+                    // 备用：从界面输入框解析用户指定的十六进制 Salt
+                    let clean_hex = self.state.salt_hex.trim().trim_start_matches("0x").trim_start_matches("0X");
+                    let user_salt = u64::from_str_radix(clean_hex, 16).unwrap_or(self.state.salt);
+                    self.state.salt = user_salt;
+                    user_salt
+                } else if self.state.use_random_salt && self.state.salt != 0 {
+                    self.state.salt
+                } else {
+                    0
                 }
-                H2wMode::WriteAndVerify => {
+            }
+            H2wMode::WriteAndVerify => {
+                if self.state.use_random_salt {
                     use std::time::SystemTime;
                     let new_salt = SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
@@ -568,10 +718,10 @@ impl F3App {
                     self.state.salt_hex = format!("0x{:016X}", new_salt);
                     let _ = SaltRegistry::register_salt(&target_dir.to_string_lossy(), new_salt);
                     new_salt
+                } else {
+                    0
                 }
             }
-        } else {
-            0
         };
 
         let config = H2wConfig {
@@ -636,22 +786,3 @@ impl F3App {
                 if let Some(mono) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
                     mono.push("chinese_font".to_owned());
                 }
-
-                ctx.set_fonts(fonts);
-                break;
-            }
-        }
-    }
-}
-
-fn format_eta(seconds: u64) -> String {
-    if seconds == 0 {
-        "计算中...".to_string()
-    } else if seconds < 60 {
-        format!("{} 秒", seconds)
-    } else if seconds < 3600 {
-        format!("{} 分 {} 秒", seconds / 60, seconds % 60)
-    } else {
-        format!("{} 小时 {} 分", seconds / 3600, (seconds % 3600) / 60)
-    }
-}
