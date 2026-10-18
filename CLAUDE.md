@@ -435,3 +435,21 @@
   - 本地正式就位最新生产版本：f3-win-v0.1.0.exe (3,373,056 字节) 与 f3-win-v0.1.0-arm64.exe (3,211,264 字节)；
   - 系统托盘已完整贯通「关于 F3-Win (v0.1.0)」右键菜单项与 Win32 原生 MessageBoxW 信息弹窗；
 - 全量代码、文档与记忆库绝对零 emoji 规范恪守。
+
+### 工业级 Git 忽略清单深度完善记录 (2026-10-19)
+- 治理目标：消除语法漏洞、封死大文件与凭据泄漏风险、全景覆盖 Windows/Rust 工程与现代编辑器临时产物；
+- 核心改进细节：
+  1. 修复注释语法漏洞：将原文件中非标准的 // 伪注释彻底修复为 Git 规范的 # 标准注释，杜绝路径匹配解析歧义；
+  2. 确立 8 维工业级防护边界：
+     - Rust 与 Cargo：覆盖 /target/、**/*.rs.bk、*.bk、cargo-timing.html；
+     - 二进制与符号产物：覆盖 *.exe、*.dll、*.so、*.dylib、*.pdb、*.ilk、*.exp、*.lib、*.obj、*.res；
+     - 发布与分发归档：覆盖 /dist/、/artifacts/、/artifacts_*/、/out/、/build/、各类压缩包 (*.zip, *.tar.*, *.7z) 与校验和文件 (*.sha256, *.sha512)；
+     - 核心业务数据防呆隔离：硬性拦截 *.h2w (严防单文件 1GB 测试数据误入库)、f3_salt_registry.*、f3_evidence_*、*.diskpart、*.dmp 崩溃转储；
+     - 本地环境与 CLI 状态：拦截 .local/ (GitHub CLI 临时状态与凭据)、/%SystemDrive%/、.env 本地环境；
+     - 现代 IDE 与编辑器：覆盖 VSCode (.vscode/)、JetBrains (.idea/, *.iml)、Visual Studio (.vs/, *.suo, *.user) 与常用交换文件；
+     - 操作系统级垃圾缓存：覆盖 Windows (Thumbs.db, Desktop.ini, $RECYCLE.BIN/) 与 macOS (.DS_Store 等)；
+     - 通用日志与临时文件：覆盖 *.log、*.tmp、*.temp、*.bak；
+  3. 工作区实效验证：
+     - 原先裸露在未跟踪列表中的 .local/ 与 dist/ 立即被正确静默忽略；
+     - 安全清理环境解析异常残留的空目录，工作区回归纯净健康状态；
+  4. 全量代码、文档与记忆库绝对零 emoji 规范恪守。
