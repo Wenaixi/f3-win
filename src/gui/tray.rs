@@ -103,7 +103,7 @@ unsafe extern "system" fn tray_wnd_proc(
             );
             let text_wide: Vec<u16> = text_owned.encode_utf16().collect();
             let _ = MessageBoxW(
-                Some(hwnd),
+                hwnd,
                 PCWSTR(text_wide.as_ptr()),
                 title,
                 MB_OK | MB_ICONINFORMATION,
