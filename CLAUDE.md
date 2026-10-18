@@ -417,3 +417,21 @@
      - 严格执行 cargo clippy 零警告门禁检查与全量 36 项核心单元测试；
      - 矩阵交叉编译 x86_64 与 aarch64，利用 softprops/action-gh-release@v2 自动创建 GitHub Release 并挂载发布制品；
   5. 全量代码与文档绝对零 emoji 规范恪守。
+
+### v0.1.0 正式发布流水线大成版全绿交付记录 (Run 39100719740)
+- 流水线状态与指标：Run ID 39100719740 (Tag: v0.1.0, Status: completed success, 全量子作业 100% 满分全绿)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy 并通过全部 36 项单元测试 (2m 19s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成并打包发布产物 (2m 21s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成并打包发布产物 (2m 22s)
+  - Publish GitHub Release：成功自动创建 GitHub Release v0.1.0 并挂载发布资产 (17s)
+- 官方发布页面：https://github.com/Wenaixi/f3-win/releases/tag/v0.1.0
+- 官方挂载资产清单：
+  - f3-win-v0.1.0-x86_64-pc-windows-msvc.zip (~3.65 MB, 包含 f3-win-v0.1.0-x86_64.exe 与 f3-win.exe)
+  - f3-win-v0.1.0-x86_64-pc-windows-msvc.zip.sha256 (SHA-256 校验和清单)
+  - f3-win-v0.1.0-aarch64-pc-windows-msvc.zip (~3.54 MB, 包含 f3-win-v0.1.0-arm64.exe 与 f3-win.exe)
+  - f3-win-v0.1.0-aarch64-pc-windows-msvc.zip.sha256 (SHA-256 校验和清单)
+- 本地部署状态：
+  - 根目录已彻底清理 19 个历史旧文件残留；
+  - 本地正式就位最新生产版本：f3-win-v0.1.0.exe (3,373,056 字节) 与 f3-win-v0.1.0-arm64.exe (3,211,264 字节)；
+  - 系统托盘已完整贯通「关于 F3-Win (v0.1.0)」右键菜单项与 Win32 原生 MessageBoxW 信息弹窗；
+- 全量代码、文档与记忆库绝对零 emoji 规范恪守。
