@@ -400,3 +400,20 @@
   4. 资源嵌入与可执行文件元数据 (Cargo.toml & build.rs):
      - 集成 winres 将图标嵌入 PE 资源表，自动注入 ProductName 与版本信息；
   5. 全量代码与文档绝对零 emoji 规范恪守。
+
+### v0.1.0 首次正式发版与自动化发布流水线落地记录 (2026-10-18)
+- 产物规范与版本化构建飞跃：
+  1. 产物带版本号规范固化：
+     - 构建与打包输出全面对齐语义化版本，统一命名为 f3-win-v0.1.0-x86_64.exe 与 f3-win-v0.1.0-arm64.exe；
+     - 归档 zip 文件统一为 f3-win-v0.1.0-${TARGET}.zip，并配套生成 SHA-256 校验和清单；
+  2. 系统托盘「关于」与动态版本号呈现 (src/gui/tray.rs & src/gui/app.rs):
+     - 新增 IDM_ABOUT 菜单指令与 TrayEvent::ShowAboutModal 事件枚举；
+     - 托盘右键菜单直观呈现「关于 F3-Win (v0.1.0)」；
+     - 点击唤起 Win32 原生 MessageBoxW 弹窗展示版本、版权与内核架构信息，并联动唤醒主窗口；
+  3. 专业更新日志文档规范 (CHANGELOG.md):
+     - 严格遵循 Keep a Changelog 1.1.0 与 Common Changelog 规范，全面结构化收录 v0.1.0 核心能力；
+  4. Git Tag 自动化发版流水线 (.github/workflows/release.yml):
+     - push tags: ['v*'] 触发专有发布工作流；
+     - 严格执行 cargo clippy 零警告门禁检查与全量 36 项核心单元测试；
+     - 矩阵交叉编译 x86_64 与 aarch64，利用 softprops/action-gh-release@v2 自动创建 GitHub Release 并挂载发布制品；
+  5. 全量代码与文档绝对零 emoji 规范恪守。

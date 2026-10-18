@@ -62,6 +62,10 @@ impl eframe::App for F3App {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                     self.state.show_path_info_modal = true;
                 }
+                TrayEvent::ShowAboutModal => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
                 TrayEvent::OpenExeDir => {
                     let info = AppPathInfo::gather(None);
                     let _ = paths::open_in_explorer(&info.exe_dir);

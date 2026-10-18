@@ -54,9 +54,27 @@ jobs:
         shell: pwsh
         run: |
           $Target = "${{ matrix.target }}"
-          $ExePath = "target/$Target/release/f3-win.exe"
-          $ZipName = "f3-win-$Target.zip"
-          Compress-Archive -Path $ExePath -DestinationPath $ZipName
+          $CargoContent = Get-Content Cargo.toml -Raw
+          $Version = "v0.1.0"
+          if ($CargoContent -match 'version\s*=\s*"([^"]+)"') {
+            $Version = "v" + $Matches[1]
+          }
+
+          $RawExe = "target/$Target/release/f3-win.exe"
+          $StageDir = "target/$Target/release/staged"
+          New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
+
+          if ($Target -like "*aarch64*") {
+            $VersionedExe = "f3-win-$Version-arm64.exe"
+          } else {
+            $VersionedExe = "f3-win-$Version-x86_64.exe"
+          }
+
+          Copy-Item -Path $RawExe -Destination "$StageDir/$VersionedExe"
+          Copy-Item -Path $RawExe -Destination "$StageDir/f3-win.exe"
+
+          $ZipName = "f3-win-$Version-$Target.zip"
+          Compress-Archive -Path "$StageDir/*" -DestinationPath $ZipName -Force
           $Hash = (Get-FileHash -Path $ZipName -Algorithm SHA256).Hash
           "$Hash  $ZipName" | Out-File -FilePath "$ZipName.sha256" -Encoding ascii
 
@@ -65,5 +83,5 @@ jobs:
         with:
           name: f3-win-${{ matrix.target }}
           path: |
-            f3-win-${{ matrix.target }}.zip
-            f3-win-${{ matrix.target }}.zip.sha256
+            f3-win-*.zip
+            f3-win-*.zip.sha256

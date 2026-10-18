@@ -1,0 +1,117 @@
+name: Tag Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-test:
+    name: Code Quality & Unit Tests
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Clippy Lint
+        run: cargo clippy --all-targets
+
+      - name: Run Core Unit Tests
+        run: cargo test --verbose
+
+  build-release:
+    name: Build Release Binaries
+    needs: check-and-test
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          - aarch64-pc-windows-msvc
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build Binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Artifact With Version
+        shell: pwsh
+        run: |
+          $Target = "${{ matrix.target }}"
+          $Tag = "${{ github.ref_name }}"
+          if (-not $Tag -or $Tag -eq "main" -or $Tag -eq "master") {
+            # 提取 Cargo.toml 中的版本号作为兜底
+            $CargoContent = Get-Content Cargo.toml -Raw
+            if ($CargoContent -match 'version\s*=\s*"([^"]+)"') {
+              $Tag = "v" + $Matches[1]
+            } else {
+              $Tag = "v0.1.0"
+            }
+          }
+
+          $RawExe = "target/$Target/release/f3-win.exe"
+          $StageDir = "target/$Target/release/staged"
+          New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
+
+          # 根据架构生成规范带版本号的 exe 文件名
+          if ($Target -like "*aarch64*") {
+            $VersionedExe = "f3-win-$Tag-arm64.exe"
+          } else {
+            $VersionedExe = "f3-win-$Tag-x86_64.exe"
+          }
+
+          Copy-Item -Path $RawExe -Destination "$StageDir/$VersionedExe"
+          # 同时保留默认名称以方便脚本集成
+          Copy-Item -Path $RawExe -Destination "$StageDir/f3-win.exe"
+
+          $ZipName = "f3-win-$Tag-$Target.zip"
+          Compress-Archive -Path "$StageDir/*" -DestinationPath $ZipName -Force
+
+          $Hash = (Get-FileHash -Path $ZipName -Algorithm SHA256).Hash
+          "$Hash  $ZipName" | Out-File -FilePath "$ZipName.sha256" -Encoding ascii
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            f3-win-*.zip
+            f3-win-*.zip.sha256
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Staged Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-dist/*.zip
+            release-dist/*.zip.sha256
+          body_path: CHANGELOG.md
+          generate_release_notes: false

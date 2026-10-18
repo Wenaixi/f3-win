@@ -17,12 +17,12 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW, PostMessageW, PostQuitMessage,
+    DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW, MessageBoxW, PostMessageW, PostQuitMessage,
     RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, TrackPopupMenu, TranslateMessage,
-    CW_USEDEFAULT, HCURSOR, HICON, HMENU, HWND_MESSAGE, IDI_APPLICATION, MF_SEPARATOR, MF_STRING,
-    MSG, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE, WM_COMMAND,
-    WM_DESTROY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_USER, WNDCLASSW,
-    WNDCLASS_STYLES,
+    CW_USEDEFAULT, HCURSOR, HICON, HMENU, HWND_MESSAGE, IDI_APPLICATION, MB_ICONINFORMATION, MB_OK,
+    MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE,
+    WM_COMMAND, WM_DESTROY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_USER,
+    WNDCLASSW, WNDCLASS_STYLES,
 };
 
 /// 托盘向主界面派发的交互事件
@@ -32,6 +32,8 @@ pub enum TrayEvent {
     ShowWindow,
     /// 弹出路径全景信息对话框
     ShowPathInfoModal,
+    /// 唤起关于应用信息对话框
+    ShowAboutModal,
     /// 在资源管理器中打开可执行程序所在目录
     OpenExeDir,
     /// 在资源管理器中打开当前选中的测试盘符
@@ -60,6 +62,7 @@ const IDM_OPEN_EXE_DIR: usize = 1003;
 const IDM_OPEN_VOLUME_DIR: usize = 1004;
 const IDM_OPEN_EVIDENCE_DIR: usize = 1005;
 const IDM_EXIT: usize = 1006;
+const IDM_ABOUT: usize = 1007;
 
 struct TrayWorkerState {
     hwnd: isize,
@@ -91,6 +94,26 @@ unsafe extern "system" fn tray_wnd_proc(
         }
     } else if msg == WM_COMMAND {
         let cmd_id = (wparam.0 & 0xFFFF) as usize;
+        if cmd_id == IDM_ABOUT {
+            let version = env!("CARGO_PKG_VERSION");
+            let title = w!("关于 F3-Win");
+            let text_owned = format!(
+                "F3-Win v{}\nFight Flash Fraud for Windows\n\n开源闪存真伪检测与自愈工具\nDirect I/O 原生高性能驱动架构\nhttps://github.com/Wenaixi/f3-win\0",
+                version
+            );
+            let text_wide: Vec<u16> = text_owned.encode_utf16().collect();
+            let _ = MessageBoxW(
+                Some(hwnd),
+                PCWSTR(text_wide.as_ptr()),
+                title,
+                MB_OK | MB_ICONINFORMATION,
+            );
+            if let Some(ref state) = *TRAY_STATE.lock() {
+                let _ = state.event_tx.send(TrayEvent::ShowAboutModal);
+            }
+            return LRESULT(0);
+        }
+
         let event = match cmd_id {
             IDM_SHOW_WINDOW => Some(TrayEvent::ShowWindow),
             IDM_PATH_INFO => Some(TrayEvent::ShowPathInfoModal),
@@ -175,6 +198,11 @@ unsafe fn show_tray_context_menu(hwnd: HWND) {
     let _ = AppendMenuW(menu, MF_STRING, IDM_OPEN_EXE_DIR, w!("打开程序目录"));
     let _ = AppendMenuW(menu, MF_STRING, IDM_OPEN_VOLUME_DIR, w!("打开当前测试盘符"));
     let _ = AppendMenuW(menu, MF_STRING, IDM_OPEN_EVIDENCE_DIR, w!("打开证据归档目录"));
+    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+    let version = env!("CARGO_PKG_VERSION");
+    let about_label = format!("关于 F3-Win (v{})\0", version);
+    let about_wide: Vec<u16> = about_label.encode_utf16().collect();
+    let _ = AppendMenuW(menu, MF_STRING, IDM_ABOUT, PCWSTR(about_wide.as_ptr()));
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let _ = AppendMenuW(menu, MF_STRING, IDM_EXIT, w!("安全退出 (Exit)"));
 
@@ -421,6 +449,7 @@ mod tests {
         assert_eq!(TrayEvent::ShowWindow, TrayEvent::ShowWindow);
         assert_ne!(TrayEvent::ShowWindow, TrayEvent::RequestExit);
         assert_eq!(TrayEvent::ShowPathInfoModal, TrayEvent::ShowPathInfoModal);
+        assert_eq!(TrayEvent::ShowAboutModal, TrayEvent::ShowAboutModal);
     }
 
     #[test]
