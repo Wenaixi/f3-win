@@ -220,8 +220,14 @@ impl F3Probe {
         flush_depth: u64,
     ) -> Result<Option<ProbeTrap>, String> {
         Self::create_probe_block(buf.as_mut_slice(), sec, session_salt, pattern_salt);
+        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
+            eprintln!("[临时诊断] write sec={} first16={:02x?}", sec, &buf.as_slice()[..16]);
+        }
         if dev.write_at(&buf.as_slice()[..SECTOR_SIZE], sec * 512).is_err() {
             return Ok(Some(ProbeTrap::BitBucket));
+        }
+        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
+            eprintln!("[临时诊断] after_write sec={} first16={:02x?}", sec, &buf.as_slice()[..16]);
         }
         if dev.flush().is_err() {
             return Ok(Some(ProbeTrap::BitBucket));
