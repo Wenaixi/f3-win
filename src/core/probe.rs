@@ -110,9 +110,6 @@ impl F3Probe {
 
         // 只填充本扇区的 512 字节，缓冲尾部若被写入会作为高位噪声冲刷到下游扇区
         let buf = &mut buf[..SECTOR_SIZE];
-        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
-            eprintln!("[临时诊断] create sec={} len={}", sector_num, buf.len());
-        }
 
         buf[0..8].copy_from_slice(&sec_bytes);
         buf[8..16].copy_from_slice(&check_val.to_le_bytes());
@@ -135,9 +132,6 @@ impl F3Probe {
             Ok(b) => u64::from_le_bytes(b),
             Err(_) => return false,
         };
-        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
-            eprintln!("[临时诊断] verify expect={} found={} first16={:02x?}", expected_sec, found_sec, &buf[..16]);
-        }
         if found_sec != expected_sec {
             return false;
         }
@@ -190,9 +184,6 @@ impl F3Probe {
 
             // 只写一个 64KB 块：整条缓冲写入会把冲刷区域放大 8 倍，越过采样点污染高位数据
             let block_bytes = buf.len().min((CACHE_FLUSH_BLOCK_SECTORS * SECTOR_SIZE as u64) as usize);
-            if std::env::var("F3_DEBUG_FLUSH").is_ok() {
-                eprintln!("[临时诊断] flush addr={} bytes={}", start_sec * 512, block_bytes);
-            }
             file.write_at(&buf.as_slice()[..block_bytes], start_sec * 512)
                 .map_err(|e| format!("缓存排空写入 LBA {} 失败: {}", start_sec, e))?;
         }
@@ -228,14 +219,8 @@ impl F3Probe {
         flush_depth: u64,
     ) -> Result<Option<ProbeTrap>, String> {
         Self::create_probe_block(buf.as_mut_slice(), sec, session_salt, pattern_salt);
-        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
-            eprintln!("[临时诊断] write sec={} first16={:02x?}", sec, &buf.as_slice()[..16]);
-        }
         if dev.write_at(&buf.as_slice()[..SECTOR_SIZE], sec * 512).is_err() {
             return Ok(Some(ProbeTrap::BitBucket));
-        }
-        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
-            eprintln!("[临时诊断] after_write sec={} first16={:02x?}", sec, &buf.as_slice()[..16]);
         }
         if dev.flush().is_err() {
             return Ok(Some(ProbeTrap::BitBucket));
@@ -248,13 +233,7 @@ impl F3Probe {
 
         // 回读本扇区专属探针，判定位黑洞假盘
         buf.as_mut_slice().fill(0);
-        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
-            eprintln!("[临时诊断] before_read={:02x?}", &buf.as_slice()[..16]);
-        }
         let rr = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], sec * 512);
-        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
-            eprintln!("[临时诊断] after_read={:02x?} ret={:?}", &buf.as_slice()[..16], rr.as_ref().map(|v| *v));
-        }
         let self_ok = rr.is_ok()
             && Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], sec, session_salt, pattern_salt);
 
@@ -267,9 +246,6 @@ impl F3Probe {
         let aux_ok = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], AUX_PROBE_SECTOR * 512).is_ok()
             && Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], AUX_PROBE_SECTOR, session_salt, 0x66);
 
-        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
-            eprintln!("[临时诊断] sec={} self_ok={} base_ok={} aux_ok={}", sec, self_ok, base_ok, aux_ok);
-        }
         // 基准探针被覆盖是回绕的确凿证据；仅本扇区探针失配而归属位黑洞丢弃
         if !base_ok || !aux_ok {
             return Ok(Some(ProbeTrap::WrapAround));
@@ -666,7 +642,6 @@ mod tests {
 
         let (tx, _rx) = crossbeam_channel::unbounded();
         let res = probe.run(&mut dev, tx).expect("探测应顺利执行完成并给出定性报告");
-        eprintln!("[临时诊断] wrap6MB fake={} trap={:?} real={} announced={}", res.is_fake, res.trap, res.real_size, res.announced_size);
 
         // 验证 Phase 2 二分逼近能够 100% 抓捕到 6MB 假盘，绝无漏报
         assert!(res.is_fake, "6MB 非二次幂回绕盘必须被 100% 检出为假盘");
@@ -686,10 +661,8 @@ mod tests {
         let probe = F3Probe::new(config, cancel_flag);
         let mut dev = MemoryBlockDevice::new(64 * 1024 * 1024);
 
-        std::env::set_var("F3_DEBUG_FLUSH", "1");
         let (tx, _rx) = crossbeam_channel::unbounded();
         let res = probe.run(&mut dev, tx).expect("探测应顺利执行完成");
-        eprintln!("[临时诊断] honest fake={} trap={:?} real={} announced={}", res.is_fake, res.trap, res.real_size, res.announced_size);
 
         assert!(!res.is_fake, "合规正品盘不得被误判为扩容盘");
         assert_eq!(res.trap, ProbeTrap::None);
