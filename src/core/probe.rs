@@ -389,6 +389,10 @@ impl F3Probe {
                 Some(s) => s,
                 None => break,
             };
+            // 采样点不能与基准探针重合，否则本次写入会自己覆盖基准，造成必然的假阳性
+            if test_sec == BASE_PROBE_SECTOR || test_sec == AUX_PROBE_SECTOR {
+                continue;
+            }
             // 越过标称容量即停止粗测，尾部由专门的尾端核验负责
             if test_sec >= total_sectors {
                 break;
