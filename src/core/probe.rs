@@ -136,7 +136,7 @@ impl F3Probe {
             Err(_) => return false,
         };
         if std::env::var("F3_DEBUG_FLUSH").is_ok() {
-            eprintln!("[临时诊断] verify expect={} found={} len={}", expected_sec, found_sec, buf.len());
+            eprintln!("[临时诊断] verify expect={} found={} first16={:02x?}", expected_sec, found_sec, &buf[..16]);
         }
         if found_sec != expected_sec {
             return false;
