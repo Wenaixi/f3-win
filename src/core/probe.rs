@@ -178,7 +178,9 @@ impl F3Probe {
                 chunk.copy_from_slice(&prng.to_le_bytes());
             }
 
-            file.write_at(buf.as_slice(), start_sec * 512)
+            // 只写一个 64KB 块：整条缓冲写入会把冲刷区域放大 8 倍，越过采样点污染高位数据
+            let block_bytes = buf.len().min((CACHE_FLUSH_BLOCK_SECTORS * SECTOR_SIZE as u64) as usize);
+            file.write_at(&buf.as_slice()[..block_bytes], start_sec * 512)
                 .map_err(|e| format!("缓存排空写入 LBA {} 失败: {}", start_sec, e))?;
         }
         file.flush()
@@ -186,12 +188,11 @@ impl F3Probe {
         Ok(())
     }
 
-    /// 把大扇区号按 64KB 块步长降到一个真实可写、且不与基准探针重叠的冲刷起点。
-    /// 采样点落在硬盘最尾端最容易暴露扩容盘的真实容量，因此选择「不越过采样点」的最大合法起点。
-    fn scratch_sector_for(sector: u64) -> u64 {
-        let high = sector.saturating_sub(sector % CACHE_FLUSH_BLOCK_SECTORS);
-        // 低容量设备的采样点会落进基准探针区，此时把冲刷起点抬到基准区之上，避免覆盖基准探针
-        high.max(AUX_PROBE_SECTOR + CACHE_FLUSH_BLOCK_SECTORS)
+    /// 选择本次缓存排空的起点，保证「起点 + flush_depth」整段严格落在采样点之前。
+    /// 排空必须覆盖采样点附近的高位数据才能把主控缓存冲干净，同时又不能越过采样点，
+    /// 否则会污染尚未验证的高位区域，把正品盘误判成回绕盘。
+    fn scratch_sector_for(sector: u64, flush_depth: u64) -> u64 {
+        sector.saturating_sub(flush_depth)
     }
 
     /// 单点探针测试：写入专属探针 -> 深度排空缓存 -> 回读校验，同时复核基准探针。
@@ -213,7 +214,7 @@ impl F3Probe {
             return Ok(Some(ProbeTrap::BitBucket));
         }
 
-        self.overwhelm_cache(dev, buf, Self::scratch_sector_for(sec), flush_depth)?;
+        self.overwhelm_cache(dev, buf, Self::scratch_sector_for(sec, flush_depth), flush_depth)?;
 
         // 回读本扇区专属探针，判定位黑洞假盘
         buf.as_mut_slice().fill(0);
@@ -320,7 +321,7 @@ impl F3Probe {
             error: None,
         });
 
-        let initial_scratch = Self::scratch_sector_for(total_sectors.saturating_sub(flush_depth + CACHE_FLUSH_BLOCK_SECTORS));
+        let initial_scratch = Self::scratch_sector_for(total_sectors - 1, flush_depth);
         if let Err(e) = self.overwhelm_cache(dev, &mut buf, initial_scratch, flush_depth) {
             let is_cancel = self.cancel_flag.load(Ordering::Acquire) || e.contains("用户中止");
             let phase = if is_cancel {
