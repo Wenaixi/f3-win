@@ -10,6 +10,43 @@ pub const BASE_PROBE_SECTOR: u64 = 2048; // 1MB 偏移处主基准探针，绝�
 pub const AUX_PROBE_SECTOR: u64 = 4096;  // 2MB 偏移处辅助基准探针，防止主控对单个 2048 扇区实施独立 SRAM 映射欺骗
 pub const MIN_SAFE_SECTORS: u64 = 8192;  // 至少需要 4MB 空间以保证基准与高位测试安全执行
 
+/// 跳跃探针的指数跳跃阶梯 (单位: 扇区, 阶梯起点恒为 0)
+/// 从 64KB 起步而非 512KB，是为了让低容量颗粒 (2MB / 3MB / 6MB) 也能被独立命中，
+/// 避免首个高位采样点就落进回绕区、导致真实容量被认定为双基准位置。
+const JUMP_LADDER: [u64; 21] = [
+    128,
+    256,
+    512,
+    1024,
+    2048,
+    4096,
+    8192,
+    16384,
+    32768,
+    65536,
+    131072,
+    262144,
+    524288,
+    1_048_576,
+    2_097_152,
+    4_194_304,
+    8_388_608,
+    16_777_216,
+    33_554_432,
+    67_108_864,
+    268_435_456,
+];
+
+/// 二分逼近的收敛精度 (扇区)，等于 1MB
+const BISECTION_TOLERANCE_SECTORS: u64 = 2048;
+
+/// 单次缓存排空写入的块长 (扇区)，等于 64KB
+const CACHE_FLUSH_BLOCK_SECTORS: u64 = 128;
+
+/// 默认缓存排空深度 (扇区)，等于 8MB；实际深度取标称容量的 1/32 并在此区间内夹取
+const CACHE_FLUSH_MIN_SECTORS: u64 = 2048;
+const CACHE_FLUSH_MAX_SECTORS: u64 = 16384;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProbeTrap {
     None,
@@ -118,7 +155,8 @@ impl F3Probe {
         true
     }
 
-    /// 深度缓存冲刷：使用高熵流排空主控 SRAM/DRAM 与 SLC 模拟缓存，并在循环中响应取消信号
+    /// 深度缓存冲刷：使用高熵流排空主控 SRAM/DRAM 与 SLC 模拟缓存，并在循环中响应取消信号。
+    /// 写入错误一律上报，绝不静默吞掉——真实硬件上排空失败等同于探测结论不可信。
     fn overwhelm_cache(
         &self,
         file: &mut impl BlockIo,
@@ -126,25 +164,79 @@ impl F3Probe {
         scratch_sec: u64,
         count: u64,
     ) -> Result<(), String> {
-        let block_sectors = 128u64; // 每次写入 64KB
-        let total_blocks = (count + block_sectors - 1) / block_sectors;
+        let total_blocks = (count + CACHE_FLUSH_BLOCK_SECTORS - 1) / CACHE_FLUSH_BLOCK_SECTORS;
 
         for b in 0..total_blocks {
             if self.cancel_flag.load(Ordering::Acquire) {
                 return Err("用户中止了探测任务".to_string());
             }
 
-            let start_sec = scratch_sec + b * block_sectors;
+            let start_sec = scratch_sec + b * CACHE_FLUSH_BLOCK_SECTORS;
             let mut prng = (start_sec ^ 0xDEAD_BEEF_CAFE_BABE).wrapping_mul(6364136223846793005).wrapping_add(1);
             for chunk in buf.as_mut_slice().chunks_exact_mut(8) {
                 prng = prng.wrapping_mul(4294967311).wrapping_add(17);
                 chunk.copy_from_slice(&prng.to_le_bytes());
             }
 
-            let _ = file.write_at(buf.as_slice(), start_sec * 512);
+            file.write_at(buf.as_slice(), start_sec * 512)
+                .map_err(|e| format!("缓存排空写入 LBA {} 失败: {}", start_sec, e))?;
         }
-        let _ = file.flush();
+        file.flush()
+            .map_err(|e| format!("缓存排空冲刷失败: {}", e))?;
         Ok(())
+    }
+
+    /// 把大扇区号按 64KB 块步长降到一个真实可写、且不与基准探针重叠的冲刷起点。
+    /// 采样点落在硬盘最尾端最容易暴露扩容盘的真实容量，因此选择「不越过采样点」的最大合法起点。
+    fn scratch_sector_for(sector: u64) -> u64 {
+        let high = sector.saturating_sub(sector % CACHE_FLUSH_BLOCK_SECTORS);
+        let low = high.min(AUX_PROBE_SECTOR + CACHE_FLUSH_BLOCK_SECTORS);
+        high.max(low)
+    }
+
+    /// 单点探针测试：写入专属探针 -> 深度排空缓存 -> 回读校验，同时复核基准探针。
+    /// 返回 Some(陷阱类型) 表示该扇区不可信，None 表示通过。
+    fn test_sector(
+        &self,
+        dev: &mut impl BlockIo,
+        buf: &mut AlignedBuffer,
+        sec: u64,
+        session_salt: u64,
+        pattern_salt: u64,
+        flush_depth: u64,
+    ) -> Result<Option<ProbeTrap>, String> {
+        Self::create_probe_block(buf.as_mut_slice(), sec, session_salt, pattern_salt);
+        if dev.write_at(&buf.as_slice()[..SECTOR_SIZE], sec * 512).is_err() {
+            return Ok(Some(ProbeTrap::BitBucket));
+        }
+        if dev.flush().is_err() {
+            return Ok(Some(ProbeTrap::BitBucket));
+        }
+
+        self.overwhelm_cache(dev, buf, Self::scratch_sector_for(sec), flush_depth)?;
+
+        // 回读本扇区专属探针，绝杀位黑洞假盘
+        buf.as_mut_slice().fill(0);
+        if dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], sec * 512).is_err()
+            || !Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], sec, session_salt, pattern_salt)
+        {
+            return Ok(Some(ProbeTrap::BitBucket));
+        }
+
+        // 回读双基准探针，绝杀物理地址回绕假盘
+        buf.as_mut_slice().fill(0);
+        let base_ok = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], BASE_PROBE_SECTOR * 512).is_ok()
+            && Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], BASE_PROBE_SECTOR, session_salt, 0x55);
+
+        buf.as_mut_slice().fill(0);
+        let aux_ok = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], AUX_PROBE_SECTOR * 512).is_ok()
+            && Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], AUX_PROBE_SECTOR, session_salt, 0x66);
+
+        if !base_ok || !aux_ok {
+            return Ok(Some(ProbeTrap::WrapAround));
+        }
+
+        Ok(None)
     }
 
     pub fn run(&self, dev: &mut impl BlockIo, tx: Sender<ProbeTelemetry>) -> Result<ProbeResult, String> {
@@ -193,14 +285,14 @@ impl F3Probe {
 
         // 2. 写入双基准探针 (LBA 2048 处主基准与 LBA 4096 处辅助基准，彻底避开分区表独立 SRAM 映射)
         Self::create_probe_block(buf.as_mut_slice(), BASE_PROBE_SECTOR, session_salt, 0x55);
-        if let Err(e) = dev.write_at(&buf.as_slice()[..512], BASE_PROBE_SECTOR * 512) {
+        if let Err(e) = dev.write_at(&buf.as_slice()[..SECTOR_SIZE], BASE_PROBE_SECTOR * 512) {
             let err_msg = format!("写入低位主基准探针失败: {}", e);
             send_abort(&tx, err_msg.clone(), err_msg.clone());
             return Err(err_msg);
         }
 
         Self::create_probe_block(buf.as_mut_slice(), AUX_PROBE_SECTOR, session_salt, 0x66);
-        if let Err(e) = dev.write_at(&buf.as_slice()[..512], AUX_PROBE_SECTOR * 512) {
+        if let Err(e) = dev.write_at(&buf.as_slice()[..SECTOR_SIZE], AUX_PROBE_SECTOR * 512) {
             let err_msg = format!("写入低位辅助基准探针失败: {}", e);
             send_abort(&tx, err_msg.clone(), err_msg.clone());
             return Err(err_msg);
@@ -212,10 +304,10 @@ impl F3Probe {
             return Err(err_msg);
         }
 
-        // 3. 初始大容量高熵缓存排空 (最多 32MB / 65536 扇区)
-        let flush_count = (total_sectors / 16).clamp(512, 65536);
-        let default_scratch_sec = total_sectors.saturating_sub(flush_count + 4096);
+        // 每个采样点前的缓存排空深度：小时取 1MB，大时封顶 8MB
+        let flush_depth = (total_sectors / 32).clamp(CACHE_FLUSH_MIN_SECTORS, CACHE_FLUSH_MAX_SECTORS);
 
+        // 3. 初始大容量高熵缓存排空，穿透主控物理缓存
         let _ = tx.send(ProbeTelemetry {
             progress_pct: 0.05,
             current_phase: "正在执行高位深度排空，穿透主控物理缓存...".to_string(),
@@ -227,7 +319,8 @@ impl F3Probe {
             error: None,
         });
 
-        if let Err(e) = self.overwhelm_cache(dev, &mut buf, default_scratch_sec, flush_count) {
+        let initial_scratch = Self::scratch_sector_for(total_sectors.saturating_sub(flush_depth + CACHE_FLUSH_BLOCK_SECTORS));
+        if let Err(e) = self.overwhelm_cache(dev, &mut buf, initial_scratch, flush_depth) {
             let is_cancel = self.cancel_flag.load(Ordering::Acquire) || e.contains("用户中止");
             let phase = if is_cancel {
                 "探测任务已由用户手动中止".to_string()
@@ -238,65 +331,63 @@ impl F3Probe {
             return Err(e);
         }
 
-        // 4. Phase 1: 指数跳跃粗测采样 (2MB, 4MB, 8MB, 16MB, ...)
-        let mut power = 4096u64; // 从 2MB 步长开始
+        // 4. Phase 1: 指数跳跃阶梯粗测采样
+        // 阶梯与标称容量完全解耦，低容量颗粒也会被逐级命中，杜绝「首个采样点即越界」导致的容量误判
         let mut is_counterfeit = false;
         let mut trap = ProbeTrap::None;
         let mut probes_executed = 0u64;
-
         let mut safe_left_sectors = AUX_PROBE_SECTOR;
         let mut suspected_right_sectors = total_sectors;
 
-        while power < total_sectors {
+        for (idx, step) in JUMP_LADDER.iter().enumerate() {
             if self.cancel_flag.load(Ordering::Acquire) {
                 send_abort(&tx, "探测任务已由用户手动中止".to_string(), "用户中止了探测任务".to_string());
                 return Err("用户中止了探测任务".to_string());
             }
 
-            let test_sec = match power.checked_add(BASE_PROBE_SECTOR) {
+            // 阶梯顶端作为上界：末级阶梯即标称容量尾部，必须被真实测试覆盖
+            let test_sec = match step.checked_add(BASE_PROBE_SECTOR) {
                 Some(s) => s,
                 None => break,
             };
+            let is_last = idx + 1 == JUMP_LADDER.len();
+            if test_sec >= total_sectors && !is_last {
+                break;
+            }
 
-            if test_sec < total_sectors {
-                probes_executed += 1;
-                let pct = (power as f32 / total_sectors as f32 * 0.7).clamp(0.05, 0.70);
+            let pct = (idx as f32 / JUMP_LADDER.len() as f32 * 0.7).clamp(0.05, 0.70);
+            let _ = tx.send(ProbeTelemetry {
+                progress_pct: pct,
+                current_phase: format!(
+                    "Phase 1 (指数探索): 测试扇区 LBA {} ({:.2} MB)...",
+                    test_sec,
+                    (test_sec * 512) as f64 / (1024.0 * 1024.0)
+                ),
+                is_finished: false,
+                is_fake: false,
+                announced_size_bytes: announced_size,
+                real_size_bytes: announced_size,
+                trap: ProbeTrap::None,
+                error: None,
+            });
 
-                let _ = tx.send(ProbeTelemetry {
-                    progress_pct: pct,
-                    current_phase: format!(
-                        "Phase 1 (指数探索): 测试扇区 LBA {} ({:.2} GB)...",
-                        test_sec,
-                        (test_sec * 512) as f64 / (1024.0 * 1024.0 * 1024.0)
-                    ),
-                    is_finished: false,
-                    is_fake: false,
-                    announced_size_bytes: announced_size,
-                    real_size_bytes: announced_size,
-                    trap: ProbeTrap::None,
-                    error: None,
-                });
-
-                // (1) 写入高位专属测试探针 (无特征高熵白噪声)
-                Self::create_probe_block(buf.as_mut_slice(), test_sec, session_salt, 0xAA);
-                if dev.write_at(&buf.as_slice()[..512], test_sec * 512).is_err() {
+            probes_executed += 1;
+            match self.test_sector(dev, &mut buf, test_sec, session_salt, 0xAA, flush_depth) {
+                Ok(None) => {
+                    // 记录已实测通过的最大安全扇区 (含该测试点自身)，作为二分区间左锚点
+                    safe_left_sectors = test_sec;
+                    if is_last {
+                        // 已实测到标称容量尾部且完全通过，判定为合规正品盘
+                        break;
+                    }
+                }
+                Ok(Some(found_trap)) => {
                     is_counterfeit = true;
-                    suspected_right_sectors = test_sec;
-                    trap = ProbeTrap::BitBucket;
+                    suspected_right_sectors = test_sec.min(total_sectors);
+                    trap = found_trap;
                     break;
                 }
-                let _ = dev.flush();
-
-                // (2) 动态安全避让高位排空
-                let safe_scratch_sec = if test_sec >= default_scratch_sec && test_sec < default_scratch_sec + 2048 {
-                    default_scratch_sec.saturating_sub(4096)
-                } else {
-                    default_scratch_sec
-                };
-
-                // 执行动态自适应冲刷
-                let single_flush_sectors = 2048u64; // 提升为 1MB 高熵冲刷，增强穿透力
-                if let Err(e) = self.overwhelm_cache(dev, &mut buf, safe_scratch_sec, single_flush_sectors) {
+                Err(e) => {
                     let is_cancel = self.cancel_flag.load(Ordering::Acquire) || e.contains("用户中止");
                     let phase = if is_cancel {
                         "探测任务已由用户手动中止".to_string()
@@ -306,67 +397,34 @@ impl F3Probe {
                     send_abort(&tx, phase, e.clone());
                     return Err(e);
                 }
-
-                // (3) 高位专属探针回读核验 (绝杀位黑洞假盘 Bit-bucket)
-                buf.as_mut_slice().fill(0);
-                if dev.read_at(&mut buf.as_mut_slice()[..512], test_sec * 512).is_err()
-                    || !Self::verify_probe(&buf.as_slice()[..512], test_sec, session_salt, 0xAA)
-                {
-                    is_counterfeit = true;
-                    suspected_right_sectors = test_sec;
-                    trap = ProbeTrap::BitBucket;
-                    break;
-                }
-
-                // (4) 双基准探针回读核验 (绝杀物理地址回绕假盘 Wrap-around)
-                buf.as_mut_slice().fill(0);
-                let base_ok = dev.read_at(&mut buf.as_mut_slice()[..512], BASE_PROBE_SECTOR * 512).is_ok()
-                    && Self::verify_probe(&buf.as_slice()[..512], BASE_PROBE_SECTOR, session_salt, 0x55);
-
-                buf.as_mut_slice().fill(0);
-                let aux_ok = dev.read_at(&mut buf.as_mut_slice()[..512], AUX_PROBE_SECTOR * 512).is_ok()
-                    && Self::verify_probe(&buf.as_slice()[..512], AUX_PROBE_SECTOR, session_salt, 0x66);
-
-                if !base_ok || !aux_ok {
-                    is_counterfeit = true;
-                    suspected_right_sectors = test_sec;
-                    trap = ProbeTrap::WrapAround;
-                    break;
-                }
-
-                safe_left_sectors = test_sec;
             }
-
-            power = match power.checked_shl(1) {
-                Some(p) => p,
-                None => break,
-            };
         }
 
         // 5. Phase 2: 二分逼近搜索 (Bisection Search)
-        // 精准收敛攻克 3GB/6GB/12GB/24GB/48GB 等任意非二次幂物理颗粒边界，误差控制在 1MB (2048 扇区) 以内
+        // 把真实物理边界收敛到 1MB 以内，攻克 3GB/6GB/12GB/24GB/48GB 等任意非二次幂颗粒
         let mut final_real_sectors = if is_counterfeit { safe_left_sectors } else { total_sectors };
 
-        if is_counterfeit && safe_left_sectors < suspected_right_sectors {
+        if is_counterfeit {
             let mut bisection_left = safe_left_sectors;
             let mut bisection_right = suspected_right_sectors;
 
-            while (bisection_right - bisection_left) > 2048 {
+            while bisection_right.saturating_sub(bisection_left) > BISECTION_TOLERANCE_SECTORS {
                 if self.cancel_flag.load(Ordering::Acquire) {
                     send_abort(&tx, "探测任务已由用户手动中止".to_string(), "用户中止了探测任务".to_string());
                     return Err("用户中止了探测任务".to_string());
                 }
 
                 let mid_sec = bisection_left + ((bisection_right - bisection_left) / 2);
-                let progress = 0.70 + (0.25 * (1.0 - (bisection_right - bisection_left) as f32 / total_sectors as f32));
+                let span = bisection_right.saturating_sub(bisection_left);
+                let progress = 0.70 + (0.25 * (1.0 - span as f32 / total_sectors as f32));
 
                 let _ = tx.send(ProbeTelemetry {
                     progress_pct: progress.clamp(0.70, 0.98),
                     current_phase: format!(
-                        "Phase 2 (二分逼近): 正在测定边界 [LBA: {} ~ {}] 当前中点 {:.2} GB...",
+                        "Phase 2 (二分逼近): 正在测定边界 [LBA: {} ~ {}] 当前中点 {:.2} MB...",
                         bisection_left,
                         bisection_right,
-                        (mid_sec * 512) as f64 / (1024.0 * 1024.0 * 1024.0)
+                        (mid_sec * 512) as f64 / (1024.0 * 1024.0)
                     ),
                     is_finished: false,
                     is_fake: true,
@@ -376,39 +434,23 @@ impl F3Probe {
                     error: None,
                 });
 
-                // 测试 mid_sec 扇区
-                Self::create_probe_block(buf.as_mut_slice(), mid_sec, session_salt, 0xBB);
-                let write_ok = dev.write_at(&buf.as_slice()[..512], mid_sec * 512).is_ok();
-                let _ = dev.flush();
-
-                if write_ok {
-                    let safe_scratch_sec = default_scratch_sec.saturating_sub(4096);
-                    let _ = self.overwhelm_cache(dev, &mut buf, safe_scratch_sec, 2048);
-
-                    buf.as_mut_slice().fill(0);
-                    let read_ok = dev.read_at(&mut buf.as_mut_slice()[..512], mid_sec * 512).is_ok();
-                    let content_ok = Self::verify_probe(&buf.as_slice()[..512], mid_sec, session_salt, 0xBB);
-
-                    // 检查低位双基准探针完整性
-                    buf.as_mut_slice().fill(0);
-                    let base_intact = dev.read_at(&mut buf.as_mut_slice()[..512], BASE_PROBE_SECTOR * 512).is_ok()
-                        && Self::verify_probe(&buf.as_slice()[..512], BASE_PROBE_SECTOR, session_salt, 0x55);
-
-                    buf.as_mut_slice().fill(0);
-                    let aux_intact = dev.read_at(&mut buf.as_mut_slice()[..512], AUX_PROBE_SECTOR * 512).is_ok()
-                        && Self::verify_probe(&buf.as_slice()[..512], AUX_PROBE_SECTOR, session_salt, 0x66);
-
-                    if read_ok && content_ok && base_intact && aux_intact {
-                        // mid_sec 处于真实有效物理空间内
-                        bisection_left = mid_sec;
-                    } else {
-                        // mid_sec 越界（位黑洞丢弃或发生物理回绕）
-                        bisection_right = mid_sec;
+                probes_executed += 1;
+                match self.test_sector(dev, &mut buf, mid_sec, session_salt, 0xBB, flush_depth) {
+                    Ok(None) => bisection_left = mid_sec,
+                    Ok(Some(_)) => bisection_right = mid_sec,
+                    Err(e) => {
+                        let is_cancel = self.cancel_flag.load(Ordering::Acquire) || e.contains("用户中止");
+                        let phase = if is_cancel {
+                            "探测任务已由用户手动中止".to_string()
+                        } else {
+                            format!("二分逼近排空失败: {}", e)
+                        };
+                        send_abort(&tx, phase, e.clone());
+                        return Err(e);
                     }
-                } else {
-                    bisection_right = mid_sec;
                 }
             }
+
             final_real_sectors = bisection_left;
         }
 
@@ -529,6 +571,24 @@ mod tests {
         assert_eq!(res.trap, ProbeTrap::WrapAround);
         // 实测容量应逼近 6MB 边界 (在 2048 扇区 / 1MB 容差范围内)
         let real_mb = res.real_size / (1024 * 1024);
-        assert!(real_mb >= 4 && real_mb <= 6, "实测物理容量应收敛于真实 6MB 颗粒边界附近，实测: {} MB", real_mb);
+        assert!(real_mb >= 5 && real_mb <= 7, "实测物理容量应收敛于真实 6MB 颗粒边界附近 (±1MB)，实测: {} MB", real_mb);
+    }
+
+    #[test]
+    fn test_probe_honest_device_is_not_flagged() {
+        // 标称容量与真实颗粒完全一致的合规正品盘，必须原样报告完整容量且不误判
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let config = F3ProbeConfig {
+            total_sectors: 64 * 1024 * 1024 / 512, // 64MB 标称
+        };
+        let probe = F3Probe::new(config, cancel_flag);
+        let mut dev = MemoryBlockDevice::new(64 * 1024 * 1024);
+
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let res = probe.run(&mut dev, tx).expect("探测应顺利执行完成");
+
+        assert!(!res.is_fake, "合规正品盘不得被误判为扩容盘");
+        assert_eq!(res.trap, ProbeTrap::None);
+        assert_eq!(res.real_size, res.announced_size, "正品盘实测容量必须等于标称容量");
     }
 }
