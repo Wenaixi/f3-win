@@ -240,6 +240,9 @@ impl F3Probe {
         let aux_ok = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], AUX_PROBE_SECTOR * 512).is_ok()
             && Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], AUX_PROBE_SECTOR, session_salt, 0x66);
 
+        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
+            eprintln!("[临时诊断] sec={} self_ok={} base_ok={} aux_ok={}", sec, self_ok, base_ok, aux_ok);
+        }
         // 基准探针被覆盖是回绕的确凿证据；仅本扇区探针失配而归属位黑洞丢弃
         if !base_ok || !aux_ok {
             return Ok(Some(ProbeTrap::WrapAround));
