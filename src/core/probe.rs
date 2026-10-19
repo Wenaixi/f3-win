@@ -110,6 +110,9 @@ impl F3Probe {
 
         // 只填充本扇区的 512 字节，缓冲尾部若被写入会作为高位噪声冲刷到下游扇区
         let buf = &mut buf[..SECTOR_SIZE];
+        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
+            eprintln!("[临时诊断] create sec={} len={}", sector_num, buf.len());
+        }
 
         buf[0..8].copy_from_slice(&sec_bytes);
         buf[8..16].copy_from_slice(&check_val.to_le_bytes());
@@ -132,6 +135,9 @@ impl F3Probe {
             Ok(b) => u64::from_le_bytes(b),
             Err(_) => return false,
         };
+        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
+            eprintln!("[临时诊断] verify expect={} found={} len={}", expected_sec, found_sec, buf.len());
+        }
         if found_sec != expected_sec {
             return false;
         }
