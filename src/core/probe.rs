@@ -201,11 +201,11 @@ impl F3Probe {
         Ok(())
     }
 
-    /// 选择本次缓存排空的起点，保证「起点 + flush_depth」整段严格落在采样点之前。
-    /// 排空必须覆盖采样点附近的高位数据才能把主控缓存冲干净，同时又不能越过采样点，
-    /// 否则会污染尚未验证的高位区域，把正品盘误判成回绕盘。
+    /// 选择本次缓存排空的起点，保证整段 [起点, 起点 + flush_depth) 严格落在采样点之前。
+    /// 低容量设备上 sector - flush_depth 会下溢到 0，导致冲刷从 LBA 0 一路写到采样点，
+    /// 把基准探针一起覆盖掉，因此起点必须夹在基准探针区之上。
     fn scratch_sector_for(sector: u64, flush_depth: u64) -> u64 {
-        sector.saturating_sub(flush_depth)
+        sector.saturating_sub(flush_depth).max(AUX_PROBE_SECTOR + CACHE_FLUSH_BLOCK_SECTORS)
     }
 
     /// 单点探针测试：写入专属探针 -> 深度排空缓存 -> 回读校验，同时复核基准探针。
