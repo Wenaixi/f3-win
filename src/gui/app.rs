@@ -411,13 +411,13 @@ impl F3App {
             ui.separator();
             ui.label("断点续验起始分卷:");
             let mut start_val = (self.state.start_file_num + 1) as i64;
-            if ui.add(egui::DragValue::new(&mut start_val).clamp_range(1..=99999).prefix("第 ").suffix(" 卷 (.h2w)")).changed() {
+            if ui.add(egui::DragValue::new(&mut start_val).range(1..=99999).prefix("第 ").suffix(" 卷 (.h2w)")).changed() {
                 self.state.start_file_num = (start_val.max(1) - 1) as u64;
             }
 
             ui.label("结束分卷 (0为不限):");
             let mut end_val = self.state.end_file_num.map(|n| (n + 1) as i64).unwrap_or(0);
-            if ui.add(egui::DragValue::new(&mut end_val).clamp_range(0..=99999).prefix("至 ").suffix(" 卷")).changed() {
+            if ui.add(egui::DragValue::new(&mut end_val).range(0..=99999).prefix("至 ").suffix(" 卷")).changed() {
                 self.state.end_file_num = if end_val > 0 { Some((end_val - 1) as u64) } else { None };
             }
         });

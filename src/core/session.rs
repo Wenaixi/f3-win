@@ -288,7 +288,7 @@ impl H2wSession {
             let file_path = self.config.target_dir.join(&file_name);
 
             let mut direct_file = match DirectIoFile::create_write(&file_path) {
-                Ok(f) => f,
+                Ok(f) => Some(f),
                 Err(e) => {
                     let _ = tx.send(self.make_telemetry_with_tracker(
                         H2wPhase::Failed,
@@ -323,7 +323,8 @@ impl H2wSession {
 
                 fill_sectors(&mut buf[..to_write_aligned], global_offset, self.config.salt);
 
-                match direct_file.write_at(&buf[..to_write_aligned], file_offset) {
+                let writer = direct_file.as_mut().unwrap();
+                match writer.write_at(&buf[..to_write_aligned], file_offset) {
                     Ok(written) => {
                         let actual = std::cmp::min(written, to_write);
                         total_written += actual as u64;
@@ -356,11 +357,11 @@ impl H2wSession {
                         if is_disk_full {
                             file_full = true;
                             if file_offset > 0 {
-                                let _ = direct_file.truncate_to(file_offset);
-                                let _ = direct_file.flush();
+                                let _ = writer.truncate_to(file_offset);
+                                let _ = writer.flush();
                             } else {
-                                // 刚创建分卷未写入任何有效扇区即告满，标记并准备清除 0 字节幽灵空文件
-                                drop(direct_file);
+                                // 刚创建分卷未写入任何有效扇区即告满，关闭句柄后清除 0 字节幽灵空文件
+                                drop(direct_file.take());
                                 let _ = std::fs::remove_file(&file_path);
                             }
                             break;
@@ -388,7 +389,9 @@ impl H2wSession {
 
             // 正常写满 1GB 分卷后下发硬件级缓存穿透冲刷
             if file_offset >= GIGABYTE {
-                let _ = direct_file.flush();
+                if let Some(f) = direct_file.as_mut() {
+                    let _ = f.flush();
+                }
             }
 
             if file_full || self.cancel_flag.load(Ordering::Relaxed) {
