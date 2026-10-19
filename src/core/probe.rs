@@ -348,15 +348,15 @@ impl F3Probe {
                 return Err("用户中止了探测任务".to_string());
             }
 
-            // 阶梯顶端作为上界：末级阶梯即标称容量尾部，必须被真实测试覆盖
             let test_sec = match step.checked_add(BASE_PROBE_SECTOR) {
                 Some(s) => s,
                 None => break,
             };
-            let is_last = idx + 1 == JUMP_LADDER.len();
-            if test_sec >= total_sectors && !is_last {
+            // 越过标称容量即停止粗测，尾部由专门的尾端核验负责
+            if test_sec >= total_sectors {
                 break;
             }
+            let is_last = idx + 1 == JUMP_LADDER.len();
 
             let pct = (idx as f32 / JUMP_LADDER.len() as f32 * 0.7).clamp(0.05, 0.70);
             let _ = tx.send(ProbeTelemetry {
@@ -380,8 +380,7 @@ impl F3Probe {
                     // 记录已实测通过的最大安全扇区 (含该测试点自身)，作为二分区间左锚点
                     safe_left_sectors = test_sec;
                     if is_last {
-                        // 已实测到标称容量尾部且完全通过，判定为合规正品盘
-                        tail_verified = true;
+                        // 阶梯已全部通过，尾部交由尾端核验判定
                         break;
                     }
                 }
@@ -407,7 +406,9 @@ impl F3Probe {
         // 阶梯耗尽仍未越界时，必须补测标称容量尾部的最后一个可写扇区。
         // 大容量盘的阶梯顶远小于标称容量，不补测就无法证明尾部真实存在，会把假盘误判为正品。
         if !is_counterfeit && !tail_verified {
-            let tail_sec = total_sectors - 1;
+            // 取末尾一个完整 64KB 块的首扇区：块对齐更贴近真实主控写入粒度，
+            // 同时避开容量末尾零头扇区可能存在的保留块
+            let tail_sec = total_sectors.saturating_sub(CACHE_FLUSH_BLOCK_SECTORS);
             probes_executed += 1;
             let _ = tx.send(ProbeTelemetry {
                 progress_pct: 0.70,
