@@ -205,7 +205,11 @@ impl F3Probe {
     /// 低容量设备上 sector - flush_depth 会下溢到 0，导致冲刷从 LBA 0 一路写到采样点，
     /// 把基准探针一起覆盖掉，因此起点必须夹在基准探针区之上。
     fn scratch_sector_for(sector: u64, flush_depth: u64) -> u64 {
-        sector.saturating_sub(flush_depth).max(AUX_PROBE_SECTOR + CACHE_FLUSH_BLOCK_SECTORS)
+        // 冲刷窗口必须以基准探针区为下界：低于它就会把 2048/4096 两个基准探针一起冲掉
+        let lower_bound = AUX_PROBE_SECTOR + CACHE_FLUSH_BLOCK_SECTORS;
+        let start = sector.saturating_sub(flush_depth).max(lower_bound);
+        // 同时整体必须严格位于采样点之前，否则会污染尚未验证的高位区域
+        start.min(sector.saturating_sub(CACHE_FLUSH_BLOCK_SECTORS)).max(lower_bound)
     }
 
     /// 单点探针测试：写入专属探针 -> 深度排空缓存 -> 回读校验，同时复核基准探针。
