@@ -234,7 +234,14 @@ impl F3Probe {
 
         // 回读本扇区专属探针，判定位黑洞假盘
         buf.as_mut_slice().fill(0);
-        let self_ok = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], sec * 512).is_ok()
+        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
+            eprintln!("[临时诊断] before_read={:02x?}", &buf.as_slice()[..16]);
+        }
+        let rr = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], sec * 512);
+        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
+            eprintln!("[临时诊断] after_read={:02x?} ret={:?}", &buf.as_slice()[..16], rr.as_ref().map(|v| *v));
+        }
+        let self_ok = rr.is_ok()
             && Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], sec, session_salt, pattern_salt);
 
         // 回读双基准探针，判定物理地址回绕假盘
