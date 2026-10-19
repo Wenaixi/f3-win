@@ -180,6 +180,9 @@ impl F3Probe {
 
             // 只写一个 64KB 块：整条缓冲写入会把冲刷区域放大 8 倍，越过采样点污染高位数据
             let block_bytes = buf.len().min((CACHE_FLUSH_BLOCK_SECTORS * SECTOR_SIZE as u64) as usize);
+            if std::env::var("F3_DEBUG_FLUSH").is_ok() {
+                eprintln!("[临时诊断] flush addr={} bytes={}", start_sec * 512, block_bytes);
+            }
             file.write_at(&buf.as_slice()[..block_bytes], start_sec * 512)
                 .map_err(|e| format!("缓存排空写入 LBA {} 失败: {}", start_sec, e))?;
         }
@@ -214,6 +217,9 @@ impl F3Probe {
             return Ok(Some(ProbeTrap::BitBucket));
         }
 
+        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
+            eprintln!("[临时诊断] test_sec={} flush_start={}", sec, Self::scratch_sector_for(sec, flush_depth));
+        }
         self.overwhelm_cache(dev, buf, Self::scratch_sector_for(sec, flush_depth), flush_depth)?;
 
         // 回读本扇区专属探针，判定位黑洞假盘
@@ -634,6 +640,7 @@ mod tests {
         let probe = F3Probe::new(config, cancel_flag);
         let mut dev = MemoryBlockDevice::new(64 * 1024 * 1024);
 
+        std::env::set_var("F3_DEBUG_FLUSH", "1");
         let (tx, _rx) = crossbeam_channel::unbounded();
         let res = probe.run(&mut dev, tx).expect("探测应顺利执行完成");
         eprintln!("[临时诊断] honest fake={} trap={:?} real={} announced={}", res.is_fake, res.trap, res.real_size, res.announced_size);
