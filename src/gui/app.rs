@@ -398,13 +398,29 @@ impl F3App {
 
         ui.add_space(10.0);
 
-        if snapshot.status != TaskStatus::Running {
-            if ui.button(RichText::new("开始校验").size(15.0)).clicked() {
-                self.start_read_task();
+        // 校验控制与断点续验分段配置
+        ui.horizontal(|ui| {
+            if snapshot.status != TaskStatus::Running {
+                if ui.button(RichText::new("开始校验").size(15.0)).clicked() {
+                    self.start_read_task();
+                }
+            } else if ui.button(RichText::new("停止校验").size(15.0)).clicked() {
+                self.state.controller.cancel();
             }
-        } else if ui.button(RichText::new("停止校验").size(15.0)).clicked() {
-            self.state.controller.cancel();
-        }
+
+            ui.separator();
+            ui.label("断点续验起始分卷:");
+            let mut start_val = (self.state.start_file_num + 1) as i64;
+            if ui.add(egui::DragValue::new(&mut start_val).clamp_range(1..=99999).prefix("第 ").suffix(" 卷 (.h2w)")).changed() {
+                self.state.start_file_num = (start_val.max(1) - 1) as u64;
+            }
+
+            ui.label("结束分卷 (0为不限):");
+            let mut end_val = self.state.end_file_num.map(|n| (n + 1) as i64).unwrap_or(0);
+            if ui.add(egui::DragValue::new(&mut end_val).clamp_range(0..=99999).prefix("至 ").suffix(" 卷")).changed() {
+                self.state.end_file_num = if end_val > 0 { Some((end_val - 1) as u64) } else { None };
+            }
+        });
 
         ui.add_space(10.0);
 

@@ -3,7 +3,7 @@ use std::path::Path;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, SetEndOfFile, SetFilePointerEx, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+    CreateFileW, FlushFileBuffers, SetEndOfFile, SetFilePointerEx, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
     FILE_BEGIN, FILE_FLAG_NO_BUFFERING, FILE_FLAG_WRITE_THROUGH,
     FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
@@ -21,11 +21,15 @@ pub trait BlockIo: Send + Sync {
     fn flush(&mut self) -> Result<(), String> {
         Ok(())
     }
+    fn sector_size(&self) -> usize {
+        512
+    }
 }
 
 pub struct DirectIoFile {
     handle: HANDLE,
     is_write: bool,
+    sector_size: usize,
 }
 
 unsafe impl Send for DirectIoFile {}
@@ -72,7 +76,7 @@ impl DirectIoFile {
         };
 
         match handle {
-            Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => Ok(Self { handle: h, is_write: true }),
+            Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => Ok(Self { handle: h, is_write: true, sector_size: 512 }),
             _ => Err(format!(
                 "无法以 Direct I/O 写入模式创建文件 {:?}: 错误 {}",
                 path,
@@ -98,7 +102,7 @@ impl DirectIoFile {
         };
 
         match handle {
-            Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => Ok(Self { handle: h, is_write: true }),
+            Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => Ok(Self { handle: h, is_write: true, sector_size: 512 }),
             _ => Err(format!(
                 "无法打开底层物理设备 {:?}: 错误 {}",
                 path,
@@ -123,7 +127,7 @@ impl DirectIoFile {
         };
 
         match handle {
-            Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => Ok(Self { handle: h, is_write: false }),
+            Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => Ok(Self { handle: h, is_write: false, sector_size: 512 }),
             _ => Err(format!(
                 "无法以 Direct I/O 只读模式打开文件 {:?}: 错误 {}",
                 path,
@@ -132,9 +136,40 @@ impl DirectIoFile {
         }
     }
 
+    // 设置物理扇区对齐大小 (支持 512 字节与 4096 字节原生 4Kn 介质)
+    pub fn set_sector_size(&mut self, size: usize) {
+        if size >= 512 && size.is_power_of_two() {
+            self.sector_size = size;
+        }
+    }
+
+    // 获取当前物理扇区对齐大小
+    pub fn sector_size(&self) -> usize {
+        self.sector_size
+    }
+
+    // 强制下发硬件级缓存穿透冲刷 (向主控下发 SCSI SYNCHRONIZE CACHE / NVMe Flush)
+    pub fn flush(&mut self) -> Result<(), String> {
+        if self.is_write {
+            let res = unsafe { FlushFileBuffers(self.handle) };
+            if res.is_err() {
+                return Err(format!(
+                    "FlushFileBuffers 硬件穿透冲刷失败: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+        }
+        Ok(())
+    }
+
     // 在指定绝对偏移量处写入扇区对齐数据
     pub fn write_at(&mut self, buf: &[u8], offset: u64) -> Result<usize, String> {
-        assert_eq!(buf.len() % 512, 0, "写入缓冲区大小必须是 512 字节的整倍数");
+        assert_eq!(
+            buf.len() % self.sector_size,
+            0,
+            "写入缓冲区大小必须是物理扇区大小 ({}) 的整倍数",
+            self.sector_size
+        );
         let mut overlapped = OVERLAPPED::default();
         overlapped.Anonymous.Anonymous.Offset = (offset & 0xFFFF_FFFF) as u32;
         overlapped.Anonymous.Anonymous.OffsetHigh = (offset >> 32) as u32;
@@ -161,7 +196,12 @@ impl DirectIoFile {
 
     // 在指定绝对偏移量处读取扇区对齐数据
     pub fn read_at(&mut self, buf: &mut [u8], offset: u64) -> Result<usize, String> {
-        assert_eq!(buf.len() % 512, 0, "读取缓冲区大小必须是 512 字节的整倍数");
+        assert_eq!(
+            buf.len() % self.sector_size,
+            0,
+            "读取缓冲区大小必须是物理扇区大小 ({}) 的整倍数",
+            self.sector_size
+        );
         let mut overlapped = OVERLAPPED::default();
         overlapped.Anonymous.Anonymous.Offset = (offset & 0xFFFF_FFFF) as u32;
         overlapped.Anonymous.Anonymous.OffsetHigh = (offset >> 32) as u32;
@@ -223,7 +263,11 @@ impl BlockIo for DirectIoFile {
     }
 
     fn flush(&mut self) -> Result<(), String> {
-        Ok(())
+        self.flush()
+    }
+
+    fn sector_size(&self) -> usize {
+        self.sector_size
     }
 }
 

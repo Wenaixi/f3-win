@@ -179,6 +179,7 @@ impl F3FixPlan {
             REM 原始标称容量: {} 字节 ({:.2} GB)\n\
             REM 真实物理容量: {} 字节 ({:.2} GB)\n\
             REM 安全截断分区: {} MB\n\
+            rescan\n\
             select disk {}\n\
             attributes disk clear readonly\n\
             clean\n\
@@ -208,8 +209,9 @@ impl F3FixPlan {
 
     // 纯逻辑级别自校验与脚本执行（可脱离真实硬件运行，测试覆盖核心）
     pub fn execute_with_runner<R: DiskpartRunner>(&self, runner: &R) -> Result<String, String> {
-        if self.disk_index == 0 {
-            return Err("安全拦截：禁止在 PhysicalDrive0 (系统主盘) 上执行分区重构".to_string());
+        let sys_disk_idx = crate::core::devices::get_system_drive_disk_number();
+        if self.disk_index == 0 || sys_disk_idx == Some(self.disk_index) {
+            return Err(format!("安全拦截：禁止在 PhysicalDrive{} (系统主盘或引导盘) 上执行分区重构", self.disk_index));
         }
         if self.real_bytes < 16 * 1024 * 1024 {
             return Err("实测物理容量过小，无法建立安全分区".to_string());
@@ -247,9 +249,10 @@ impl SafePartitionFixer {
 
     // 执行完整安全校验：拦截系统主盘、校验容量边界并现场复核总线属性
     pub fn verify_safety(&self) -> Result<PhysicalDeviceInfo, FixSafetyError> {
-        // 1. 绝对防御：严禁触碰 PhysicalDrive0
-        if self.plan.disk_index == 0 {
-            return Err(FixSafetyError::SystemDiskForbidden(0));
+        // 1. 绝对防御：严禁触碰 PhysicalDrive0 或系统引导盘
+        let sys_disk_idx = crate::core::devices::get_system_drive_disk_number();
+        if self.plan.disk_index == 0 || sys_disk_idx == Some(self.plan.disk_index) {
+            return Err(FixSafetyError::SystemDiskForbidden(self.plan.disk_index));
         }
 
         // 2. 容量参数有效性校验

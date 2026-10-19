@@ -227,10 +227,16 @@ impl PhysicalDeviceInfo {
         let product_id = extract_sz(&buffer, desc.ProductIdOffset as usize);
         let serial = extract_sz(&buffer, desc.SerialNumberOffset as usize);
 
-        // 安全判定：只有外部移动介质且非 0 号系统主盘才算安全测试目标
-        let is_safe = (bus_type.is_removable_bus() || is_removable) && index != 0;
+        // 安全判定：只有外部移动介质且非系统主盘/引导盘才算安全测试目标
+        let sys_disk_idx = get_system_drive_disk_number();
+        let is_sys_disk = index == 0 || sys_disk_idx == Some(index);
+        let is_safe = (bus_type.is_removable_bus() || is_removable) && !is_sys_disk;
         let warning = if !is_safe {
-            Some("系统内部固定磁盘已硬隔离锁定，严禁运行破坏性扇区探测".to_string())
+            if is_sys_disk {
+                Some("系统主盘/引导盘已被绝对硬隔离锁定，严禁运行破坏性扇区探测".to_string())
+            } else {
+                Some("系统内部固定磁盘已硬隔离锁定，严禁运行破坏性扇区探测".to_string())
+            }
         } else {
             None
         };
@@ -345,8 +351,11 @@ impl StorageTarget {
         let contains_system_drive = self.device.mounted_volumes.iter().any(|&c| c.to_ascii_uppercase() == sys_drive)
             || self.volumes.iter().any(|v| v.drive_letter.to_ascii_uppercase() == sys_drive);
 
-        // 绝对安全熔断：必须非系统主盘 0、通过总线白名单、且不包含系统引导卷 (C:)
-        self.device.is_safe_target && self.device.drive_index != 0 && !contains_system_drive
+        let sys_disk_idx = get_system_drive_disk_number();
+        let is_sys_disk = self.device.drive_index == 0 || sys_disk_idx == Some(self.device.drive_index);
+
+        // 绝对安全熔断：必须非系统主盘/引导盘、通过总线白名单、且不包含系统引导卷 (C:)
+        self.device.is_safe_target && !is_sys_disk && !contains_system_drive
     }
 
     // 执行物理探测前置准备：验证安全性，并独占锁定该磁盘上的全部挂载卷
@@ -355,9 +364,11 @@ impl StorageTarget {
         let live_dev = PhysicalDeviceInfo::query_by_index(self.device.drive_index)
             .ok_or_else(|| format!("目标物理磁盘 PhysicalDrive{} 已断开连接", self.device.drive_index))?;
 
-        if !live_dev.is_safe_target || live_dev.drive_index == 0 {
+        let sys_disk_idx = get_system_drive_disk_number();
+        let is_sys_disk = live_dev.drive_index == 0 || sys_disk_idx == Some(live_dev.drive_index);
+        if !live_dev.is_safe_target || is_sys_disk {
             return Err(format!(
-                "安全硬隔离拦截：PhysicalDrive{} 未通过现场硬件总线核验 (非移动设备或系统主盘)",
+                "安全硬隔离拦截：PhysicalDrive{} 未通过现场硬件总线核验 (系统主盘/引导盘或内部固定介质)",
                 live_dev.drive_index
             ));
         }
@@ -438,6 +449,16 @@ impl StorageDeviceManager {
         let disk_num = get_physical_drive_number_for_volume(letter)?;
         self.get_target_for_device(disk_num)
     }
+}
+
+// 动态反查系统引导盘 (%SystemDrive% 通常为 C:) 所依附的底层物理磁盘编号
+pub fn get_system_drive_disk_number() -> Option<u32> {
+    let sys_drive = std::env::var("SystemDrive")
+        .ok()
+        .and_then(|s| s.chars().next())
+        .unwrap_or('C')
+        .to_ascii_uppercase();
+    get_physical_drive_number_for_volume(sys_drive)
 }
 
 // 通过 IOCTL_STORAGE_GET_DEVICE_NUMBER 从盘符反查底层物理磁盘编号

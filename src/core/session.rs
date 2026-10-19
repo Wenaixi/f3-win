@@ -357,6 +357,11 @@ impl H2wSession {
                             file_full = true;
                             if file_offset > 0 {
                                 let _ = direct_file.truncate_to(file_offset);
+                                let _ = direct_file.flush();
+                            } else {
+                                // 刚创建分卷未写入任何有效扇区即告满，标记并准备清除 0 字节幽灵空文件
+                                drop(direct_file);
+                                let _ = std::fs::remove_file(&file_path);
                             }
                             break;
                         } else {
@@ -379,6 +384,11 @@ impl H2wSession {
                         }
                     }
                 }
+            }
+
+            // 正常写满 1GB 分卷后下发硬件级缓存穿透冲刷
+            if file_offset >= GIGABYTE {
+                let _ = direct_file.flush();
             }
 
             if file_full || self.cancel_flag.load(Ordering::Relaxed) {
@@ -409,7 +419,15 @@ impl H2wSession {
 
     // 内部校验执行体
     fn execute_verify(&self, buf: &mut AlignedBuffer, tx: &Sender<H2wTelemetry>) -> bool {
-        let files = Self::discover_h2w_files(&self.config.target_dir);
+        let all_files = Self::discover_h2w_files(&self.config.target_dir);
+        // 支持断点续验与分段范围校验 (严格对齐 start_file_num 与 end_file_num)
+        let files: Vec<(u64, std::path::PathBuf)> = all_files
+            .into_iter()
+            .filter(|(num, _)| {
+                *num >= self.config.start_file_num
+                    && self.config.end_file_num.map_or(true, |end| *num <= end)
+            })
+            .collect();
         let total_files = files.len() as u64;
 
         if total_files == 0 {
