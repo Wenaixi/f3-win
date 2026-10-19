@@ -204,12 +204,16 @@ impl F3Probe {
     /// 选择本次缓存排空的起点，保证整段 [起点, 起点 + flush_depth) 严格落在采样点之前。
     /// 低容量设备上 sector - flush_depth 会下溢到 0，导致冲刷从 LBA 0 一路写到采样点，
     /// 把基准探针一起覆盖掉，因此起点必须夹在基准探针区之上。
-    fn scratch_sector_for(sector: u64, flush_depth: u64) -> u64 {
-        // 冲刷窗口必须以基准探针区为下界：低于它就会把 2048/4096 两个基准探针一起冲掉
+    /// 返回 (起点, 实际可用深度)。窗口 [起点, 起点 + 深度) 恒定满足：
+    /// 下界高于两个基准探针，上界严格低于采样点，绝不污染尚未验证的高位数据。
+    fn scratch_window(sector: u64, flush_depth: u64) -> (u64, u64) {
         let lower_bound = AUX_PROBE_SECTOR + CACHE_FLUSH_BLOCK_SECTORS;
-        let start = sector.saturating_sub(flush_depth).max(lower_bound);
-        // 同时整体必须严格位于采样点之前，否则会污染尚未验证的高位区域
-        start.min(sector.saturating_sub(CACHE_FLUSH_BLOCK_SECTORS)).max(lower_bound)
+        let upper_bound = sector;
+        let available = upper_bound.saturating_sub(lower_bound);
+        // 空间放不下完整深度时收缩深度，而不是把窗口推出安全区
+        let depth = flush_depth.min(available);
+        let start = upper_bound.saturating_sub(depth).max(lower_bound);
+        (start, depth)
     }
 
     /// 单点探针测试：写入专属探针 -> 深度排空缓存 -> 回读校验，同时复核基准探针。
@@ -237,10 +241,10 @@ impl F3Probe {
             return Ok(Some(ProbeTrap::BitBucket));
         }
 
-        if std::env::var("F3_DEBUG_FLUSH").is_ok() {
-            eprintln!("[临时诊断] test_sec={} flush_start={}", sec, Self::scratch_sector_for(sec, flush_depth));
+        let (scratch_sec, scratch_depth) = Self::scratch_window(sec, flush_depth);
+        if scratch_depth > 0 {
+            self.overwhelm_cache(dev, buf, scratch_sec, scratch_depth)?;
         }
-        self.overwhelm_cache(dev, buf, Self::scratch_sector_for(sec, flush_depth), flush_depth)?;
 
         // 回读本扇区专属探针，判定位黑洞假盘
         buf.as_mut_slice().fill(0);
@@ -357,8 +361,13 @@ impl F3Probe {
             error: None,
         });
 
-        let initial_scratch = Self::scratch_sector_for(total_sectors - 1, flush_depth);
-        if let Err(e) = self.overwhelm_cache(dev, &mut buf, initial_scratch, flush_depth) {
+        let (initial_scratch, initial_depth) = Self::scratch_window(total_sectors, flush_depth);
+        let initial_result = if initial_depth > 0 {
+            self.overwhelm_cache(dev, &mut buf, initial_scratch, initial_depth)
+        } else {
+            Ok(())
+        };
+        if let Err(e) = initial_result {
             let is_cancel = self.cancel_flag.load(Ordering::Acquire) || e.contains("用户中止");
             let phase = if is_cancel {
                 "探测任务已由用户手动中止".to_string()
