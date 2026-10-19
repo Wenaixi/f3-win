@@ -190,8 +190,8 @@ impl F3Probe {
     /// 采样点落在硬盘最尾端最容易暴露扩容盘的真实容量，因此选择「不越过采样点」的最大合法起点。
     fn scratch_sector_for(sector: u64) -> u64 {
         let high = sector.saturating_sub(sector % CACHE_FLUSH_BLOCK_SECTORS);
-        let low = high.min(AUX_PROBE_SECTOR + CACHE_FLUSH_BLOCK_SECTORS);
-        high.max(low)
+        // 低容量设备的采样点会落进基准探针区，此时把冲刷起点抬到基准区之上，避免覆盖基准探针
+        high.max(AUX_PROBE_SECTOR + CACHE_FLUSH_BLOCK_SECTORS)
     }
 
     /// 单点探针测试：写入专属探针 -> 深度排空缓存 -> 回读校验，同时复核基准探针。
@@ -306,7 +306,7 @@ impl F3Probe {
         }
 
         // 每个采样点前的缓存排空深度：小时取 1MB，大时封顶 8MB
-        let flush_depth = (total_sectors / 32).clamp(CACHE_FLUSH_MIN_SECTORS, CACHE_FLUSH_MAX_SECTORS);
+        let flush_depth = (total_sectors / 16).clamp(CACHE_FLUSH_MIN_SECTORS, CACHE_FLUSH_MAX_SECTORS);
 
         // 3. 初始大容量高熵缓存排空，穿透主控物理缓存
         let _ = tx.send(ProbeTelemetry {
