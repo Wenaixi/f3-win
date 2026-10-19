@@ -361,7 +361,10 @@ impl F3Probe {
             error: None,
         });
 
-        let (initial_scratch, initial_depth) = Self::scratch_window(total_sectors, flush_depth);
+        // 初始排空只做一次小规模预热，避免在真实颗粒远小于标称的回绕盘上写穿整个盘面把基准探针覆盖掉；
+        // 采样点自身的深度排空由 test_sector 逐个执行，那里才需要真正穿透缓存的大剂量冲刷。
+        let initial_scratch = AUX_PROBE_SECTOR + CACHE_FLUSH_BLOCK_SECTORS;
+        let initial_depth = CACHE_FLUSH_MIN_SECTORS.min(total_sectors.saturating_sub(initial_scratch));
         let initial_result = if initial_depth > 0 {
             self.overwhelm_cache(dev, &mut buf, initial_scratch, initial_depth)
         } else {
