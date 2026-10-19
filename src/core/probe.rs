@@ -108,6 +108,9 @@ impl F3Probe {
         let k = (sector_num ^ session_salt ^ pattern_salt).wrapping_mul(0xD6E8_FEB8_6659_FD93);
         let check_val = (k ^ (k >> 31)).wrapping_add(0x9E37_79B9_7F4A_7C15);
 
+        // 只填充本扇区的 512 字节，缓冲尾部若被写入会作为高位噪声冲刷到下游扇区
+        let buf = &mut buf[..SECTOR_SIZE];
+
         buf[0..8].copy_from_slice(&sec_bytes);
         buf[8..16].copy_from_slice(&check_val.to_le_bytes());
 
@@ -173,6 +176,7 @@ impl F3Probe {
 
             let start_sec = scratch_sec + b * CACHE_FLUSH_BLOCK_SECTORS;
             let mut prng = (start_sec ^ 0xDEAD_BEEF_CAFE_BABE).wrapping_mul(6364136223846793005).wrapping_add(1);
+            buf.as_mut_slice().fill(0);
             for chunk in buf.as_mut_slice().chunks_exact_mut(8) {
                 prng = prng.wrapping_mul(4294967311).wrapping_add(17);
                 chunk.copy_from_slice(&prng.to_le_bytes());
