@@ -613,6 +613,7 @@ mod tests {
 
         let (tx, _rx) = crossbeam_channel::unbounded();
         let res = probe.run(&mut dev, tx).expect("探测应顺利执行完成并给出定性报告");
+        eprintln!("[临时诊断] wrap6MB fake={} trap={:?} real={} announced={}", res.is_fake, res.trap, res.real_size, res.announced_size);
 
         // 验证 Phase 2 二分逼近能够 100% 抓捕到 6MB 假盘，绝无漏报
         assert!(res.is_fake, "6MB 非二次幂回绕盘必须被 100% 检出为假盘");
@@ -634,6 +635,7 @@ mod tests {
 
         let (tx, _rx) = crossbeam_channel::unbounded();
         let res = probe.run(&mut dev, tx).expect("探测应顺利执行完成");
+        eprintln!("[临时诊断] honest fake={} trap={:?} real={} announced={}", res.is_fake, res.trap, res.real_size, res.announced_size);
 
         assert!(!res.is_fake, "合规正品盘不得被误判为扩容盘");
         assert_eq!(res.trap, ProbeTrap::None);
