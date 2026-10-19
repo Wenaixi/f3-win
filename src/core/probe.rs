@@ -215,15 +215,12 @@ impl F3Probe {
 
         self.overwhelm_cache(dev, buf, Self::scratch_sector_for(sec), flush_depth)?;
 
-        // 回读本扇区专属探针，绝杀位黑洞假盘
+        // 回读本扇区专属探针，判定位黑洞假盘
         buf.as_mut_slice().fill(0);
-        if dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], sec * 512).is_err()
-            || !Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], sec, session_salt, pattern_salt)
-        {
-            return Ok(Some(ProbeTrap::BitBucket));
-        }
+        let self_ok = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], sec * 512).is_ok()
+            && Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], sec, session_salt, pattern_salt);
 
-        // 回读双基准探针，绝杀物理地址回绕假盘
+        // 回读双基准探针，判定物理地址回绕假盘
         buf.as_mut_slice().fill(0);
         let base_ok = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], BASE_PROBE_SECTOR * 512).is_ok()
             && Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], BASE_PROBE_SECTOR, session_salt, 0x55);
@@ -232,8 +229,12 @@ impl F3Probe {
         let aux_ok = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], AUX_PROBE_SECTOR * 512).is_ok()
             && Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], AUX_PROBE_SECTOR, session_salt, 0x66);
 
+        // 基准探针被覆盖是回绕的确凿证据；仅本扇区探针失配而归属位黑洞丢弃
         if !base_ok || !aux_ok {
             return Ok(Some(ProbeTrap::WrapAround));
+        }
+        if !self_ok {
+            return Ok(Some(ProbeTrap::BitBucket));
         }
 
         Ok(None)
@@ -338,6 +339,8 @@ impl F3Probe {
         let mut probes_executed = 0u64;
         let mut safe_left_sectors = AUX_PROBE_SECTOR;
         let mut suspected_right_sectors = total_sectors;
+        // 标称容量尾部是否已被实测通过：未实测过就不允许直接判定为正品
+        let mut tail_verified = false;
 
         for (idx, step) in JUMP_LADDER.iter().enumerate() {
             if self.cancel_flag.load(Ordering::Acquire) {
@@ -378,6 +381,7 @@ impl F3Probe {
                     safe_left_sectors = test_sec;
                     if is_last {
                         // 已实测到标称容量尾部且完全通过，判定为合规正品盘
+                        tail_verified = true;
                         break;
                     }
                 }
@@ -393,6 +397,49 @@ impl F3Probe {
                         "探测任务已由用户手动中止".to_string()
                     } else {
                         format!("快速排空失败: {}", e)
+                    };
+                    send_abort(&tx, phase, e.clone());
+                    return Err(e);
+                }
+            }
+        }
+
+        // 阶梯耗尽仍未越界时，必须补测标称容量尾部的最后一个可写扇区。
+        // 大容量盘的阶梯顶远小于标称容量，不补测就无法证明尾部真实存在，会把假盘误判为正品。
+        if !is_counterfeit && !tail_verified {
+            let tail_sec = total_sectors - 1;
+            probes_executed += 1;
+            let _ = tx.send(ProbeTelemetry {
+                progress_pct: 0.70,
+                current_phase: format!(
+                    "Phase 1 (尾部核验): 测试标称末尾扇区 LBA {} ({:.2} GB)...",
+                    tail_sec,
+                    (tail_sec * 512) as f64 / (1024.0 * 1024.0 * 1024.0)
+                ),
+                is_finished: false,
+                is_fake: false,
+                announced_size_bytes: announced_size,
+                real_size_bytes: announced_size,
+                trap: ProbeTrap::None,
+                error: None,
+            });
+
+            match self.test_sector(dev, &mut buf, tail_sec, session_salt, 0xAA, flush_depth) {
+                Ok(None) => {
+                    safe_left_sectors = tail_sec;
+                    tail_verified = true;
+                }
+                Ok(Some(found_trap)) => {
+                    is_counterfeit = true;
+                    suspected_right_sectors = tail_sec;
+                    trap = found_trap;
+                }
+                Err(e) => {
+                    let is_cancel = self.cancel_flag.load(Ordering::Acquire) || e.contains("用户中止");
+                    let phase = if is_cancel {
+                        "探测任务已由用户手动中止".to_string()
+                    } else {
+                        format!("尾部核验排空失败: {}", e)
                     };
                     send_abort(&tx, phase, e.clone());
                     return Err(e);
