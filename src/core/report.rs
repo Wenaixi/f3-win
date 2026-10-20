@@ -402,10 +402,15 @@ impl DiagnosticReport {
         doc.push_str(&format!("| **硬件出厂序列号** | `{}` | USB 设备硬件级唯一标识 |\n", self.serial_number));
         doc.push_str(&format!("| **标称宣称总容量** | **{:.2} GB** ({} 字节) | 商家对外标称销售规格 |\n\n", gb(self.announced_bytes), self.announced_bytes));
 
-        doc.push_str("## 二、 密码学防伪凭证与单向加盐存证\n\n");
+        doc.push_str("## 三、 密码学防伪凭证与数据流规范\n\n");
         doc.push_str(&format!("- **会话防伪 Salt 凭证**：`{}`\n", self.salt_hex));
-        doc.push_str("- **随机数生成算法**：F3 线性同余发生器 (LCG) + 工业级非线性有损雪崩压缩置换 (one_way_seed)\n");
-        doc.push_str("- **防算力回放证明**：本测试所用随机数据序列经过单向有损散列混淆，Salt 凭证仅留存于宿主机系统盘，**绝对未向被测介质落盘**。恶意假盘主控微码在信息论上无法从扇区首部逆解 Salt，彻底封死了假盘利用固件算力现场计算伪造数据（Compute-on-Read）的欺诈路径，本测试数据具有绝对物理真实性。\n\n");
+        if self.salt == 0 {
+            doc.push_str("- **随机数生成算法**：标准 F3 线性同余发生器 (LCG: multiplier=4294967311, addend=17)\n");
+            doc.push_str("- **数据兼容性说明**：本测试采用原版 F3 / H2testw 经典算法数据流，与任何支持 F3/H2testw 格式的标准工具 100% 逐比特向后兼容。\n\n");
+        } else {
+            doc.push_str("- **随机数生成算法**：F3 线性同余发生器 (LCG) + 工业级非线性有损雪崩压缩置换 (one_way_seed)\n");
+            doc.push_str("- **防算力回放证明**：本测试所用随机数据序列经过单向有损散列混淆，Salt 凭证仅留存于宿主机系统盘，**绝对未向被测介质落盘**。恶意假盘主控微码在信息论上无法从扇区首部逆解 Salt，彻底封死了假盘利用固件算力现场计算伪造数据（Compute-on-Read）的欺诈路径，本测试数据具有绝对物理真实性。\n\n");
+        }
 
         if self.write_tested {
             doc.push_str("## 四、 写入测试性能全景与 SLC 掉速生理诊断\n\n");
@@ -588,6 +593,11 @@ impl DiagnosticReport {
 
         out.push_str("[三、密码学防伪凭证与单向加盐存证]\n");
         out.push_str(&format!("  * 会话凭证: {} (十进制: {})\n", self.salt_hex, self.salt));
+        if self.salt == 0 {
+            out.push_str("  * 数据规范: 标准 F3 / H2testw 兼容数据流 (Salt = 0)\n");
+        } else {
+            out.push_str("  * 防伪技术: 单向非线性雪崩加盐 (抗固件算力回放)\n");
+        }
         out.push_str("  * 随机算法: F3 LCG + 工业级非线性有损雪崩压缩置换 (one_way_seed)\n");
         out.push_str("  * 防伪声明: Salt 仅存留于宿主机系统盘，绝不向被测盘落盘，彻底击穿模逆元算力回放欺骗\n\n");
 

@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::ffi::c_void;
+use std::mem::size_of;
 use std::path::Path;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
@@ -7,7 +9,8 @@ use windows::Win32::Storage::FileSystem::{
     FILE_BEGIN, FILE_FLAG_NO_BUFFERING, FILE_FLAG_WRITE_THROUGH,
     FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
-use windows::Win32::System::IO::OVERLAPPED;
+use windows::Win32::System::IO::{DeviceIoControl, OVERLAPPED};
+use windows::Win32::System::Ioctl::{DISK_GEOMETRY_EX, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX};
 
 // 标准 Win32 读写访问掩码常量 (不包含与 FILE_FLAG_NO_BUFFERING 冲突的 FILE_APPEND_DATA)
 const GENERIC_READ_ACCESS: u32 = 0x8000_0000;
@@ -85,6 +88,32 @@ impl DirectIoFile {
         }
     }
 
+    // 探测底层物理设备的真实物理扇区大小 (自动识别 512 字节或 4096 字节原生 4Kn 介质)
+    fn query_raw_device_sector_size(handle: HANDLE) -> usize {
+        let mut geom = DISK_GEOMETRY_EX::default();
+        let mut bytes_returned = 0u32;
+        let ok = unsafe {
+            DeviceIoControl(
+                handle,
+                IOCTL_DISK_GET_DRIVE_GEOMETRY_EX,
+                None,
+                0,
+                Some(&mut geom as *mut _ as *mut c_void),
+                size_of::<DISK_GEOMETRY_EX>() as u32,
+                Some(&mut bytes_returned),
+                None,
+            )
+        };
+
+        if ok.is_ok() {
+            let bps = geom.Geometry.BytesPerSector as usize;
+            if bps >= 512 && bps.is_power_of_two() {
+                return bps;
+            }
+        }
+        512
+    }
+
     // 专门用于打开底层物理磁盘 (\\.\PhysicalDriveX) 或逻辑卷 (\\.\X:)
     // 必须使用 OPEN_EXISTING，且同时赋予 GENERIC_READ 与 GENERIC_WRITE 访问权限
     pub fn open_raw_device(path: &Path) -> Result<Self, String> {
@@ -102,7 +131,10 @@ impl DirectIoFile {
         };
 
         match handle {
-            Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => Ok(Self { handle: h, is_write: true, sector_size: 512 }),
+            Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => {
+                let sector_size = Self::query_raw_device_sector_size(h);
+                Ok(Self { handle: h, is_write: true, sector_size })
+            }
             _ => Err(format!(
                 "无法打开底层物理设备 {:?}: 错误 {}",
                 path,
@@ -185,7 +217,21 @@ impl DirectIoFile {
         };
 
         match res {
-            Ok(_) => Ok(bytes_written as usize),
+            Ok(_) => {
+                // 驱动可能短写甚至写出 0 字节，此处必须校验足量写入：
+                // 短写若被当成正常进度，会掩盖设备异常；0 字节会让 session 的
+                // 写入循环永无进展。统一在此处暴露为错误，由调用方决定是否重试或中止。
+                let written = bytes_written as usize;
+                if written != buf.len() {
+                    return Err(format!(
+                        "Direct I/O 写入不足: 期望 {} 字节, 实际 {} 字节 (偏移 {})",
+                        buf.len(),
+                        written,
+                        offset
+                    ));
+                }
+                Ok(written)
+            }
             Err(e) => Err(format!(
                 "Direct I/O 写入失败 (Win32 错误码 {}): {}",
                 e.code().0,

@@ -451,13 +451,28 @@ impl StorageDeviceManager {
     }
 }
 
-// 动态反查系统引导盘 (%SystemDrive% 通常为 C:) 所依附的底层物理磁盘编号
-pub fn get_system_drive_disk_number() -> Option<u32> {
-    let sys_drive = std::env::var("SystemDrive")
+// 动态反查系统引导盘盘符 (优先 SystemDrive，备选 SystemRoot / windir，兜底 'C')
+pub fn get_system_drive_letter() -> char {
+    std::env::var("SystemDrive")
         .ok()
         .and_then(|s| s.chars().next())
+        .or_else(|| {
+            std::env::var("SystemRoot")
+                .ok()
+                .and_then(|s| s.chars().next())
+        })
+        .or_else(|| {
+            std::env::var("windir")
+                .ok()
+                .and_then(|s| s.chars().next())
+        })
         .unwrap_or('C')
-        .to_ascii_uppercase();
+        .to_ascii_uppercase()
+}
+
+// 动态反查系统引导盘 (%SystemDrive% 通常为 C:) 所依附的底层物理磁盘编号
+pub fn get_system_drive_disk_number() -> Option<u32> {
+    let sys_drive = get_system_drive_letter();
     get_physical_drive_number_for_volume(sys_drive)
 }
 
@@ -513,11 +528,14 @@ pub struct VolumeInfo {
     pub is_removable: bool,
     pub free_bytes: u64,
     pub total_bytes: u64,
+    pub is_safe_target: bool,
 }
 
 impl VolumeInfo {
     pub fn display_name(&self) -> String {
-        let kind = if self.is_removable {
+        let kind = if !self.is_safe_target {
+            "系统或内部磁盘[锁定]"
+        } else if self.is_removable {
             "可移动 U 盘"
         } else {
             "本地硬盘"
@@ -528,7 +546,7 @@ impl VolumeInfo {
             String::new()
         };
         format!(
-            "[{}] {}:\\{} ({}) - {:.1} GB 可用 / {:.1} GB 总计",
+            "[{}] {}:\{} ({}) - {:.1} GB 可用 / {:.1} GB 总计",
             kind,
             self.drive_letter,
             label_part,
@@ -545,7 +563,7 @@ impl VolumeInfo {
         for i in 0..26 {
             if (mask & (1 << i)) != 0 {
                 let letter = (b'A' + i as u8) as char;
-                let root_str = format!("{}:\\\0", letter);
+                let root_str = format!("{}:\\0", letter);
                 let wide: Vec<u16> = root_str.encode_utf16().collect();
 
                 let drive_type = unsafe { GetDriveTypeW(PCWSTR(wide.as_ptr())) };
@@ -589,19 +607,38 @@ impl VolumeInfo {
                     )
                 };
 
+                let sys_letter = get_system_drive_letter();
+                let is_sys_letter = letter == sys_letter || letter == 'C';
+                let disk_num = get_physical_drive_number_for_volume(letter);
+                let sys_disk_idx = get_system_drive_disk_number();
+                let is_sys_disk = disk_num == Some(0) || (sys_disk_idx.is_some() && disk_num == sys_disk_idx);
+
+                let is_safe = if is_sys_letter || is_sys_disk {
+                    false
+                } else if let Some(d_idx) = disk_num {
+                    if let Some(dev_info) = PhysicalDeviceInfo::query_by_index(d_idx) {
+                        dev_info.is_safe_target
+                    } else {
+                        is_removable
+                    }
+                } else {
+                    is_removable
+                };
+
                 volumes.push(VolumeInfo {
                     drive_letter: letter,
-                    root_path: PathBuf::from(format!("{}:\\", letter)),
+                    root_path: PathBuf::from(format!("{}:\", letter)),
                     label,
                     file_system,
                     is_removable,
                     free_bytes: free_avail,
                     total_bytes,
+                    is_safe_target: is_safe,
                 });
             }
         }
 
-        volumes.sort_by_key(|v| !v.is_removable);
+        volumes.sort_by_key(|v| (!v.is_safe_target, !v.is_removable));
         volumes
     }
 }
@@ -665,9 +702,9 @@ impl StorageInventory {
         }
     }
 
-    // 自动联动：选择逻辑卷时，自动反查并选中其底层的物理磁盘
+    // 自动联动：选择逻辑卷时，自动反查并选中其底层的物理磁盘 (受安全白名单保护)
     pub fn select_volume(&mut self, index: usize) {
-        if index < self.volumes.len() {
+        if index < self.volumes.len() && self.volumes[index].is_safe_target {
             self.selected_volume_index = index;
             self.sync_device_with_selected_volume();
         }
@@ -729,9 +766,9 @@ impl StorageInventory {
         Some(StorageTarget::new(dev.clone(), target_vols))
     }
 
-    // 内部初次启动自动选优
+    // 内部初次启动自动选优 (优先选择合规安全的移动介质卷)
     fn auto_bind_initial_selection(&mut self) {
-        if let Some(pos) = self.volumes.iter().position(|v| v.is_removable) {
+        if let Some(pos) = self.volumes.iter().position(|v| v.is_safe_target) {
             self.selected_volume_index = pos;
         } else if !self.volumes.is_empty() {
             self.selected_volume_index = 0;

@@ -219,12 +219,10 @@ impl F3Probe {
         flush_depth: u64,
     ) -> Result<Option<ProbeTrap>, String> {
         Self::create_probe_block(buf.as_mut_slice(), sec, session_salt, pattern_salt);
-        if dev.write_at(&buf.as_slice()[..SECTOR_SIZE], sec * 512).is_err() {
-            return Ok(Some(ProbeTrap::BitBucket));
-        }
-        if dev.flush().is_err() {
-            return Ok(Some(ProbeTrap::BitBucket));
-        }
+        dev.write_at(&buf.as_slice()[..SECTOR_SIZE], sec * 512)
+            .map_err(|e| format!("写入探针扇区 {} 失败: {}", sec, e))?;
+        dev.flush()
+            .map_err(|e| format!("探针冲刷失败 (扇区 {}): {}", sec, e))?;
 
         let (scratch_sec, scratch_depth) = Self::scratch_window(sec, flush_depth);
         if scratch_depth > 0 {
@@ -233,17 +231,22 @@ impl F3Probe {
 
         // 回读本扇区专属探针，判定位黑洞假盘
         buf.as_mut_slice().fill(0);
-        let rr = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], sec * 512);
-        let self_ok = rr.is_ok()
+        let rr = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], sec * 512)
+            .map_err(|e| format!("回读探针扇区 {} 失败: {}", sec, e))?;
+        let self_ok = rr == SECTOR_SIZE
             && Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], sec, session_salt, pattern_salt);
 
         // 回读双基准探针，判定物理地址回绕假盘
         buf.as_mut_slice().fill(0);
-        let base_ok = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], BASE_PROBE_SECTOR * 512).is_ok()
+        let br = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], BASE_PROBE_SECTOR * 512)
+            .map_err(|e| format!("回读主基准探针扇区 {} 失败: {}", BASE_PROBE_SECTOR, e))?;
+        let base_ok = br == SECTOR_SIZE
             && Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], BASE_PROBE_SECTOR, session_salt, 0x55);
 
         buf.as_mut_slice().fill(0);
-        let aux_ok = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], AUX_PROBE_SECTOR * 512).is_ok()
+        let ar = dev.read_at(&mut buf.as_mut_slice()[..SECTOR_SIZE], AUX_PROBE_SECTOR * 512)
+            .map_err(|e| format!("回读辅基准探针扇区 {} 失败: {}", AUX_PROBE_SECTOR, e))?;
+        let aux_ok = ar == SECTOR_SIZE
             && Self::verify_probe(&buf.as_slice()[..SECTOR_SIZE], AUX_PROBE_SECTOR, session_salt, 0x66);
 
         // 基准探针被覆盖是回绕的确凿证据；仅本扇区探针失配而归属位黑洞丢弃
@@ -424,7 +427,7 @@ impl F3Probe {
                     let phase = if is_cancel {
                         "探测任务已由用户手动中止".to_string()
                     } else {
-                        format!("快速排空失败: {}", e)
+                        format!("阶梯探针失败: {}", e)
                     };
                     send_abort(&tx, phase, e.clone());
                     return Err(e);
@@ -469,7 +472,7 @@ impl F3Probe {
                     let phase = if is_cancel {
                         "探测任务已由用户手动中止".to_string()
                     } else {
-                        format!("尾部核验排空失败: {}", e)
+                        format!("尾部核验失败: {}", e)
                     };
                     send_abort(&tx, phase, e.clone());
                     return Err(e);
@@ -520,7 +523,7 @@ impl F3Probe {
                         let phase = if is_cancel {
                             "探测任务已由用户手动中止".to_string()
                         } else {
-                            format!("二分逼近排空失败: {}", e)
+                            format!("二分逼近失败: {}", e)
                         };
                         send_abort(&tx, phase, e.clone());
                         return Err(e);
@@ -667,5 +670,67 @@ mod tests {
         assert!(!res.is_fake, "合规正品盘不得被误判为扩容盘");
         assert_eq!(res.trap, ProbeTrap::None);
         assert_eq!(res.real_size, res.announced_size, "正品盘实测容量必须等于标称容量");
+    }
+
+    #[test]
+    fn test_probe_bit_bucket_detection() {
+        // 构造一个标称 64MB (131072 扇区)，但真实物理颗粒仅 8MB (16384 扇区) 的位黑洞假盘仿真设备
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let config = F3ProbeConfig {
+            total_sectors: 64 * 1024 * 1024 / 512,
+        };
+        let probe = F3Probe::new(config, cancel_flag);
+
+        let mut dev = MemoryBlockDevice::with_bit_bucket(
+            64 * 1024 * 1024,
+            8 * 1024 * 1024,
+        );
+
+        let (tx, _rx) = crossbeam_channel::unbounded();
+        let res = probe.run(&mut dev, tx).expect("探测应顺利执行完成并给出定性报告");
+
+        assert!(res.is_fake, "位黑洞假盘必须被检出为扩容假盘");
+        assert_eq!(res.trap, ProbeTrap::BitBucket, "陷阱类型必须准确识别为 BitBucket");
+        let real_mb = res.real_size / (1024 * 1024);
+        assert!(real_mb >= 7 && real_mb <= 9, "实测物理容量应收敛于 8MB 边界附近 (±1MB)，实测: {} MB", real_mb);
+    }
+
+    struct FailingIoDevice;
+    impl BlockIo for FailingIoDevice {
+        fn read_at(&mut self, _buf: &mut [u8], _offset: u64) -> Result<usize, String> {
+            Err("Win32 Error 1117: 硬件 I/O 故障".to_string())
+        }
+        fn write_at(&mut self, _buf: &[u8], _offset: u64) -> Result<usize, String> {
+            Err("Win32 Error 1117: 硬件 I/O 故障".to_string())
+        }
+        fn flush(&mut self) -> Result<(), String> {
+            Err("Win32 Error 1117: 硬件 I/O 故障".to_string())
+        }
+    }
+
+    #[test]
+    fn test_probe_hardware_io_error_propagation() {
+        // 验证底层真实硬件故障能够被完整抛出，绝不被误判为 BitBucket 假盘
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let config = F3ProbeConfig {
+            total_sectors: 64 * 1024 * 1024 / 512,
+        };
+        let probe = F3Probe::new(config, cancel_flag);
+        let mut dev = FailingIoDevice;
+
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let res = probe.run(&mut dev, tx);
+
+        assert!(res.is_err(), "底层硬件故障必须返回 Err");
+        let err_msg = res.unwrap_err();
+        assert!(err_msg.contains("1117"), "错误信息必须保留底层真实的错误码，实际: {}", err_msg);
+
+        // 检查终结消息未将硬件故障定性为假盘
+        while let Ok(msg) = rx.try_recv() {
+            if msg.is_finished {
+                assert!(!msg.is_fake, "硬件 I/O 故障绝不能被定性为假盘通过/完成");
+                assert_eq!(msg.trap, ProbeTrap::None, "硬件 I/O 故障陷阱类型必须为 None");
+            }
+        }
     }
 }

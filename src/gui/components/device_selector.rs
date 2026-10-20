@@ -88,11 +88,12 @@ pub fn render_storage_volume_selector(
             .show_ui(ui, |ui| {
                 let volumes = inventory.volumes().to_vec();
                 for (idx, vol) in volumes.iter().enumerate() {
+                    let is_safe = vol.is_safe_target;
                     let resp = ui.selectable_label(
                         selected_idx == idx,
                         vol.display_name(),
                     );
-                    if resp.clicked() {
+                    if resp.clicked() && is_safe {
                         inventory.select_volume(idx);
                     }
                 }

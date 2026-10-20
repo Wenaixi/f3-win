@@ -357,8 +357,27 @@ impl H2wSession {
                         if is_disk_full {
                             file_full = true;
                             if file_offset > 0 {
-                                let _ = writer.truncate_to(file_offset);
-                                let _ = writer.flush();
+                                // 截断掉对齐多写的尾部后必须真正落盘。失败不能静默：
+                                // 用户此前的数据可能仍停留在主控易失缓存里。
+                                let trunc = writer.truncate_to(file_offset);
+                                let flushed = writer.flush();
+                                if let Err(msg) = trunc.and(flushed) {
+                                    let _ = tx.send(self.make_telemetry_with_tracker(
+                                        H2wPhase::Failed,
+                                        file_index + 1,
+                                        None,
+                                        total_written,
+                                        target_free_bytes,
+                                        0.0,
+                                        0,
+                                        BlockStats::default(),
+                                        None,
+                                        true,
+                                        Some(format!("磁盘已满时落盘失败: {}", msg)),
+                                        &tracker,
+                                    ));
+                                    return false;
+                                }
                             } else {
                                 // 刚创建分卷未写入任何有效扇区即告满，关闭句柄后清除 0 字节幽灵空文件
                                 drop(direct_file.take());
@@ -387,14 +406,55 @@ impl H2wSession {
                 }
             }
 
-            // 正常写满 1GB 分卷后下发硬件级缓存穿透冲刷
+            // 正常写满 1GB 分卷后下发硬件级缓存穿透冲刷，校验落盘状态
             if file_offset >= GIGABYTE {
                 if let Some(f) = direct_file.as_mut() {
-                    let _ = f.flush();
+                    if let Err(e) = f.flush() {
+                        let _ = tx.send(self.make_telemetry_with_tracker(
+                            H2wPhase::Failed,
+                            file_index + 1,
+                            None,
+                            total_written,
+                            target_free_bytes,
+                            0.0,
+                            0,
+                            BlockStats::default(),
+                            None,
+                            true,
+                            Some(format!("分卷写入完毕后硬件缓存冲刷失败: {}", e)),
+                            &tracker,
+                        ));
+                        return false;
+                    }
                 }
             }
 
-            if file_full || self.cancel_flag.load(Ordering::Relaxed) {
+            // 用户中途主动取消写入：必须截断并冲刷已写分卷，发送 Aborted，严禁滑向 Completed
+            if self.cancel_flag.load(Ordering::Relaxed) {
+                if let Some(mut f) = direct_file.take() {
+                    if file_offset > 0 {
+                        let _ = f.truncate_to(file_offset);
+                        let _ = f.flush();
+                    }
+                }
+                let _ = tx.send(self.make_telemetry_with_tracker(
+                    H2wPhase::Aborted,
+                    file_index + 1,
+                    None,
+                    total_written,
+                    target_free_bytes,
+                    0.0,
+                    0,
+                    BlockStats::default(),
+                    None,
+                    true,
+                    Some("用户已中止写入".into()),
+                    &tracker,
+                ));
+                return false;
+            }
+
+            if file_full {
                 break;
             }
 
@@ -506,7 +566,26 @@ impl H2wSession {
 
             loop {
                 if self.cancel_flag.load(Ordering::Relaxed) {
-                    break;
+                    let mut t = self.make_telemetry_with_tracker(
+                        H2wPhase::Aborted,
+                        (file_idx + 1) as u64,
+                        Some(total_files),
+                        total_read,
+                        total_expected_bytes,
+                        0.0,
+                        0,
+                        stats,
+                        None,
+                        true,
+                        Some("用户已中止校验".into()),
+                        &tracker,
+                    );
+                    t.first_error_offset = first_error_offset;
+                    t.first_error_file = first_error_file;
+                    t.first_error_expected = first_error_expected;
+                    t.first_error_actual = first_error_actual;
+                    let _ = tx.send(t);
+                    return false;
                 }
 
                 match direct_file.read_at(buf, file_offset) {
@@ -606,6 +685,35 @@ impl H2wSession {
                     }
                 }
             }
+        }
+
+        // 若任务已被取消，严禁触发自动清理和假完成
+        if self.cancel_flag.load(Ordering::Relaxed) {
+            return false;
+        }
+
+        // 校验是否完整读取了全部预期的分卷数据，防止残缺或异常空卷被当作 100% 通过
+        if total_read < total_expected_bytes {
+            let mut t = self.make_telemetry_with_tracker(
+                H2wPhase::Failed,
+                total_files,
+                Some(total_files),
+                total_read,
+                total_expected_bytes,
+                0.0,
+                0,
+                stats,
+                None,
+                true,
+                Some(format!("校验未完整读取所有扇区: 预期 {} 字节, 实际读取 {} 字节", total_expected_bytes, total_read)),
+                &tracker,
+            );
+            t.first_error_offset = first_error_offset;
+            t.first_error_file = first_error_file;
+            t.first_error_expected = first_error_expected;
+            t.first_error_actual = first_error_actual;
+            let _ = tx.send(t);
+            return false;
         }
 
         // 校验完毕后由后台线程无缝执行自动清理 (避免阻塞 UI 主线程)

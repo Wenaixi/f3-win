@@ -89,17 +89,23 @@ impl SaltRegistry {
         }
 
         let content = lines.join("\n");
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&path)
-            .map_err(|e| format!("打开 Salt 注册表文件失败 ({:?}): {}", path, e))?;
+        let tmp_path = path.with_extension("tmp");
+        {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&tmp_path)
+                .map_err(|e| format!("打开 Salt 注册表临时文件失败 ({:?}): {}", tmp_path, e))?;
 
-        file.write_all(content.as_bytes())
-            .map_err(|e| format!("写入 Salt 注册表失败: {}", e))?;
-        file.flush()
-            .map_err(|e| format!("冲刷 Salt 注册表失败: {}", e))?;
+            file.write_all(content.as_bytes())
+                .map_err(|e| format!("写入 Salt 注册表临时文件失败: {}", e))?;
+            file.flush()
+                .map_err(|e| format!("冲刷 Salt 注册表临时文件失败: {}", e))?;
+        }
+
+        std::fs::rename(&tmp_path, &path)
+            .map_err(|e| format!("原子更新 Salt 注册表失败 ({:?} -> {:?}): {}", tmp_path, path, e))?;
 
         Ok(())
     }
@@ -136,7 +142,7 @@ impl SaltRegistry {
         let key = if let Some(s) = serial {
             format!("{:08X}", s)
         } else {
-            drive_path.chars().next().unwrap_or('U').to_ascii_uppercase().to_string()
+            drive_path.trim_end_matches(['\\', '/']).to_ascii_uppercase()
         };
 
         let now = std::time::SystemTime::now()
@@ -159,24 +165,20 @@ impl SaltRegistry {
     /// 查询指定驱动器已落盘的历史 Salt
     pub fn query_salt(drive_path: &str) -> Option<u64> {
         let reg = Self::load();
-        // 1. 优先通过卷序列号高精度匹配 (杜绝插拔盘符漂移)
+        // 1. 优先通过卷序列号高精度匹配 (杜绝插拔盘符漂移与跨盘串盐)
         if let Some(serial) = Self::get_volume_serial(drive_path) {
             let serial_key = format!("{:08X}", serial);
             if let Some(record) = reg.records.get(&serial_key) {
                 return Some(record.salt);
             }
+            // 如果设备存在卷序列号但在注册表中未登记，则该卷绝非以此凭证写入，严禁回退到盘符前缀模糊匹配！
+            return None;
         }
 
-        // 2. 备用通过盘符前缀匹配
-        let letter_char = drive_path.chars().find(|c| c.is_ascii_alphabetic())?.to_ascii_uppercase();
-        let letter_key = letter_char.to_string();
-        if let Some(record) = reg.records.get(&letter_key) {
-            return Some(record.salt);
-        }
-
-        // 3. 模糊匹配 drive_path
+        // 2. 备用：仅当无法提取卷序列号时，才尝试精确匹配标准化全路径
+        let norm_path = drive_path.trim_end_matches(['\\', '/']).to_ascii_uppercase();
         for r in reg.records.values() {
-            if r.drive_path.starts_with(&letter_key) {
+            if r.volume_serial.is_none() && r.drive_path.trim_end_matches(['\\', '/']).to_ascii_uppercase() == norm_path {
                 return Some(r.salt);
             }
         }
@@ -194,16 +196,16 @@ impl SaltRegistry {
             if reg.records.remove(&key).is_some() {
                 changed = true;
             }
-        }
-
-        let letter_key = if let Some(c) = drive_path.chars().next() {
-            c.to_ascii_uppercase().to_string()
         } else {
-            return;
-        };
-
-        if reg.records.remove(&letter_key).is_some() {
-            changed = true;
+            let norm_path = drive_path.trim_end_matches(['\\', '/']).to_ascii_uppercase();
+            reg.records.retain(|_, r| {
+                if r.volume_serial.is_none() && r.drive_path.trim_end_matches(['\\', '/']).to_ascii_uppercase() == norm_path {
+                    changed = true;
+                    false
+                } else {
+                    true
+                }
+            });
         }
 
         if changed {

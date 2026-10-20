@@ -46,12 +46,13 @@ impl DiskpartRunner for SystemDiskpartRunner {
     fn run_script(&self, script: &str) -> Result<String, String> {
         let temp_dir = std::env::temp_dir();
         let file_name = format!(
-            "f3_fix_{}_{}.diskpart",
+            "f3_fix_{}_{}_{}.diskpart",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+            std::process::id() ^ 0x5A5A
         );
         let script_path = temp_dir.join(file_name);
 
@@ -69,6 +70,9 @@ impl DiskpartRunner for SystemDiskpartRunner {
 
         let mut cmd = Command::new("diskpart.exe");
         cmd.arg("/s").arg(&script_path);
+        // 显式捕获标准输出与标准错误管道，防止回显吞没导致判定失准
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
 
         #[cfg(windows)]
         {
@@ -102,16 +106,24 @@ impl DiskpartRunner for SystemDiskpartRunner {
         let stdout_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let stderr_str = String::from_utf8_lossy(&output.stderr).trim().to_string();
 
-        let has_err = stdout_str.contains("DiskPart has encountered an error")
-            || stdout_str.contains("Virtual Disk Service error")
+        // 针对中文/英文 Windows 与 GBK 编码进行双轨防呆错误判定
+        let raw_has_gbk_err = output.stdout.windows(4).any(|w| w == [0xb4, 0xed, 0xce, 0xf3]) // GBK "错误"
+            || output.stderr.windows(4).any(|w| w == [0xb4, 0xed, 0xce, 0xf3]);
+
+        let has_err = !output.status.success()
+            || stdout_str.to_lowercase().contains("error")
+            || stderr_str.to_lowercase().contains("error")
             || stdout_str.contains("错误")
-            || !output.status.success();
+            || stderr_str.contains("错误")
+            || raw_has_gbk_err;
 
         if has_err {
             let detail = if !stderr_str.is_empty() {
                 stderr_str
-            } else {
+            } else if !stdout_str.is_empty() {
                 stdout_str
+            } else {
+                format!("diskpart 进程异常退出 (退出代码: {:?})", output.status.code())
             };
             Err(format!("diskpart 分区修复执行失败: {}", detail))
         } else {

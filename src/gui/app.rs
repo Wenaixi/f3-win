@@ -149,8 +149,8 @@ impl eframe::App for F3App {
                 _ => {}
             }
 
-            // 只要检测到容量虚标或坏道，在测试完成边界静默自动在 exe 同级目录生成 f3_evidence_<serial>_<timestamp>.md 档案！
-            if snapshot.stats.overwritten > 0 || snapshot.stats.bad > 0 {
+            // 只要检测到容量虚标、坏道或电荷翻转损坏，在测试完成边界静默自动在 exe 同级目录生成 f3_evidence_<serial>_<timestamp>.md 档案！
+            if snapshot.stats.overwritten > 0 || snapshot.stats.bad > 0 || snapshot.stats.changed > 0 {
                 let active_target = self.state.inventory.active_target();
                 let dev = active_target.as_ref().map(|t| &t.device);
                 let serial = SaltRegistry::get_volume_serial(&self.state.inventory.selected_path().to_string_lossy());
@@ -258,8 +258,9 @@ impl F3App {
 
         ui.add_space(10.0);
 
+        let is_safe = self.state.inventory.selected_volume().map_or(false, |v| v.is_safe_target);
         if snapshot.status != TaskStatus::Running {
-            if ui.button(RichText::new("开始写入").size(15.0)).clicked() {
+            if ui.add_enabled(is_safe, egui::Button::new(RichText::new("开始写入").size(15.0))).clicked() {
                 self.start_write_task();
             }
         } else if ui.button(RichText::new("停止写入").size(15.0)).clicked() {
@@ -399,9 +400,10 @@ impl F3App {
         ui.add_space(10.0);
 
         // 校验控制与断点续验分段配置
+        let is_safe = self.state.inventory.selected_volume().map_or(false, |v| v.is_safe_target);
         ui.horizontal(|ui| {
             if snapshot.status != TaskStatus::Running {
-                if ui.button(RichText::new("开始校验").size(15.0)).clicked() {
+                if ui.add_enabled(is_safe, egui::Button::new(RichText::new("开始校验").size(15.0))).clicked() {
                     self.start_read_task();
                 }
             } else if ui.button(RichText::new("停止校验").size(15.0)).clicked() {
@@ -1160,6 +1162,12 @@ impl F3App {
     }
 
     fn start_h2w_task(&mut self, mode: H2wMode) {
+        let is_safe = self.state.inventory.selected_volume().map_or(false, |v| v.is_safe_target);
+        if !is_safe {
+            self.state.controller.set_status_message("所选磁盘处于系统保护或非移动介质状态，已硬隔离锁定！".to_string());
+            return;
+        }
+
         let target_dir = self.state.inventory.selected_path();
         
         // 彻底根治 H 盘读取解密：读取校验模式无条件自动装载已落盘的 Salt 凭证，绝不被勾选框绑架
