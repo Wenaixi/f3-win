@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use crossbeam_channel::Sender;
 
+use crate::core::algo::one_way_seed;
 use crate::core::aligned_buf::AlignedBuffer;
 use crate::core::direct_io::BlockIo;
 
@@ -104,9 +105,9 @@ impl F3Probe {
     /// 前 8 字节为明文扇区号，随后 8 字节为有损单向校验字，剩余 496 字节为高熵白噪声
     fn create_probe_block(buf: &mut [u8], sector_num: u64, session_salt: u64, pattern_salt: u64) {
         let sec_bytes = sector_num.to_le_bytes();
-        // 单向不可逆校验计算
-        let k = (sector_num ^ session_salt ^ pattern_salt).wrapping_mul(0xD6E8_FEB8_6659_FD93);
-        let check_val = (k ^ (k >> 31)).wrapping_add(0x9E37_79B9_7F4A_7C15);
+        // 单向不可逆非线性雪崩散列计算 (彻底破坏模逆元可逆性，强制假盘必须真实落盘)
+        let combined_salt = (session_salt ^ pattern_salt).wrapping_mul(0xD6E8_FEB8_6659_FD93) ^ 0xA5A5_5A5A_CAFE_BABE;
+        let check_val = one_way_seed(sector_num, combined_salt);
 
         // 只填充本扇区的 512 字节，缓冲尾部若被写入会作为高位噪声冲刷到下游扇区
         let buf = &mut buf[..SECTOR_SIZE];
@@ -141,8 +142,8 @@ impl F3Probe {
             Err(_) => return false,
         };
 
-        let k = (expected_sec ^ session_salt ^ pattern_salt).wrapping_mul(0xD6E8_FEB8_6659_FD93);
-        let expected_check = (k ^ (k >> 31)).wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let combined_salt = (session_salt ^ pattern_salt).wrapping_mul(0xD6E8_FEB8_6659_FD93) ^ 0xA5A5_5A5A_CAFE_BABE;
+        let expected_check = one_way_seed(expected_sec, combined_salt);
         if found_check != expected_check {
             return false;
         }

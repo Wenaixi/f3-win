@@ -24,10 +24,10 @@ jobs:
           components: clippy
 
       - name: Clippy Lint
-        run: cargo clippy --all-targets
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: Run Core Unit Tests
-        run: cargo test --verbose
+        run: cargo test --verbose --all-targets
 
   build-release:
     name: Build Release Binaries

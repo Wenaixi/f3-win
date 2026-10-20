@@ -68,7 +68,7 @@ impl Default for AppState {
             inventory: StorageInventory::new(),
             controller: EngineController::new(),
             salt: 0,
-            use_random_salt: true, // 默认开启单向安全加盐，开箱即防算力回放作弊
+            use_random_salt: false, // 默认遵循原版 F3 / H2testw 格式 (Salt=0) 保证完全互通；用户可自主勾选防伪加盐
             salt_hex: String::new(),
             chunk_size_mb: 1,
             start_file_num: 0,

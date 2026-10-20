@@ -230,7 +230,11 @@ impl PhysicalDeviceInfo {
         // 安全判定：只有外部移动介质且非系统主盘/引导盘才算安全测试目标
         let sys_disk_idx = get_system_drive_disk_number();
         let is_sys_disk = index == 0 || sys_disk_idx == Some(index);
-        let is_safe = (bus_type.is_removable_bus() || is_removable) && !is_sys_disk;
+        let is_safe = match bus_type {
+            StorageBusType::Usb | StorageBusType::Sd | StorageBusType::Mmc => !is_sys_disk,
+            StorageBusType::Nvme => is_removable && !is_sys_disk, // 仅允许具备可移动介质标识的 USB4/雷电 4 移动固态
+            _ => false, // 严格锁定 SATA、ATAPI、RAID 等内部固定总线磁盘，杜绝热插拔 SATA 误穿透
+        };
         let warning = if !is_safe {
             if is_sys_disk {
                 Some("系统主盘/引导盘已被绝对硬隔离锁定，严禁运行破坏性扇区探测".to_string())
