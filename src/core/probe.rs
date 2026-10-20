@@ -662,7 +662,7 @@ mod tests {
         assert_eq!(res.trap, ProbeTrap::WrapAround);
         // 实测容量应逼近 6MB 边界 (在 2048 扇区 / 1MB 容差范围内)
         let real_mb = res.real_size / (1024 * 1024);
-        assert!(real_mb >= 5 && real_mb <= 7, "实测物理容量应收敛于真实 6MB 颗粒边界附近 (±1MB)，实测: {} MB", real_mb);
+        assert!((5..=7).contains(&real_mb), "实测物理容量应收敛于真实 6MB 颗粒边界附近 (±1MB)，实测: {} MB", real_mb);
     }
 
     #[test]
@@ -703,7 +703,7 @@ mod tests {
         assert!(res.is_fake, "位黑洞假盘必须被检出为扩容假盘");
         assert_eq!(res.trap, ProbeTrap::BitBucket, "陷阱类型必须准确识别为 BitBucket");
         let real_mb = res.real_size / (1024 * 1024);
-        assert!(real_mb >= 7 && real_mb <= 9, "实测物理容量应收敛于 8MB 边界附近 (±1MB)，实测: {} MB", real_mb);
+        assert!((7..=9).contains(&real_mb), "实测物理容量应收敛于 8MB 边界附近 (±1MB)，实测: {} MB", real_mb);
     }
 
     struct FailingIoDevice;
