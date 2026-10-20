@@ -141,8 +141,7 @@ impl H2wSession {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                    if file_name.ends_with(".h2w") {
-                        let prefix = &file_name[..file_name.len() - 4];
+                    if let Some(prefix) = file_name.strip_suffix(".h2w") {
                         if let Ok(num) = prefix.parse::<u64>() {
                             if num > 0 {
                                 files.push((num - 1, path));
@@ -488,7 +487,7 @@ impl H2wSession {
             .into_iter()
             .filter(|(num, _)| {
                 *num >= self.config.start_file_num
-                    && self.config.end_file_num.map_or(true, |end| *num <= end)
+                    && self.config.end_file_num.is_none_or(|end| *num <= end)
             })
             .collect();
         let total_files = files.len() as u64;
@@ -760,6 +759,7 @@ impl H2wSession {
     }
 
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     fn make_telemetry(
         &self,
         phase: H2wPhase,
@@ -797,6 +797,7 @@ impl H2wSession {
     }
 
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     fn make_telemetry_with_tracker(
         &self,
         phase: H2wPhase,

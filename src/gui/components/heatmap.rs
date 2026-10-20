@@ -16,7 +16,7 @@ pub fn render_heatmap(ui: &mut Ui, blocks: &[BlockState]) {
 
         let total_cells = blocks.len();
         let cols = 50;
-        let rows = (total_cells + cols - 1) / cols;
+        let rows = total_cells.div_ceil(cols);
 
         let desired_size = Vec2::new(ui.available_width(), (rows as f32) * 10.0 + 10.0);
         let (rect, _response): (Rect, Response) = ui.allocate_exact_size(desired_size, Sense::hover());

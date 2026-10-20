@@ -650,7 +650,7 @@ impl DiagnosticReport {
                 out.push_str(&format!("  - 预期 Hex: {}\n", exp_hex));
                 out.push_str(&format!("  - 实测 Hex: {}\n", act_hex));
             }
-            out.push_str("\n");
+            out.push('\n');
         }
 
         out.push_str("[六、物理颗粒与芯片硬件推断结论]\n");
@@ -669,7 +669,7 @@ impl DiagnosticReport {
         if self.is_fake {
             out.push_str("--------------------------------------------------------------------------------\n");
             out.push_str("关于购买伪劣扩容闪存介质构成欺诈的主张书\n");
-            out.push_str(&format!("依据《中华人民共和国消费者权益保护法》第五十五条：退一赔三，不足五百元为五百元。\n"));
+            out.push_str("依据《中华人民共和国消费者权益保护法》第五十五条：退一赔三，不足五百元为五百元。\n");
             out.push_str(&format!("涉案设备: {} (卷序列号: {})，标称 {:.2} GB，实测仅 {:.2} GB。\n", self.product_id, serial_hex, gb(self.announced_bytes), gb(self.real_usable_bytes)));
             out.push_str("--------------------------------------------------------------------------------\n");
         } else {

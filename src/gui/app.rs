@@ -275,7 +275,7 @@ impl F3App {
 
         ui.add_space(10.0);
 
-        let is_safe = self.state.inventory.selected_volume().map_or(false, |v| v.is_safe_target);
+        let is_safe = self.state.inventory.selected_volume().is_some_and(|v| v.is_safe_target);
         if snapshot.status != TaskStatus::Running {
             if ui.add_enabled(is_safe, egui::Button::new(RichText::new("开始写入").size(15.0))).clicked() {
                 self.start_write_task();
@@ -417,7 +417,7 @@ impl F3App {
         ui.add_space(10.0);
 
         // 校验控制与断点续验分段配置
-        let is_safe = self.state.inventory.selected_volume().map_or(false, |v| v.is_safe_target);
+        let is_safe = self.state.inventory.selected_volume().is_some_and(|v| v.is_safe_target);
         ui.horizontal(|ui| {
             if snapshot.status != TaskStatus::Running {
                 if ui.add_enabled(is_safe, egui::Button::new(RichText::new("开始校验").size(15.0))).clicked() {
@@ -949,11 +949,9 @@ impl F3App {
                     if ui.button("复制全文 Markdown").clicked() {
                         ui.output_mut(|o| o.copied_text = report.generate_markdown());
                     }
-                    if report.is_fake {
-                        if ui.button("保存 .md 证据档案到本地").clicked() {
-                            if let Ok(p) = report.auto_archive_evidence() {
-                                self.state.controller.set_status_message(format!("证据档案已安全落盘: {:?}", p));
-                            }
+                    if report.is_fake && ui.button("保存 .md 证据档案到本地").clicked() {
+                        if let Ok(p) = report.auto_archive_evidence() {
+                            self.state.controller.set_status_message(format!("证据档案已安全落盘: {:?}", p));
                         }
                     }
                 });
@@ -1171,7 +1169,7 @@ impl F3App {
     }
 
     fn start_h2w_task(&mut self, mode: H2wMode) {
-        let is_safe = self.state.inventory.selected_volume().map_or(false, |v| v.is_safe_target);
+        let is_safe = self.state.inventory.selected_volume().is_some_and(|v| v.is_safe_target);
         if !is_safe {
             self.state.controller.set_status_message("所选磁盘处于系统保护或非移动介质状态，已硬隔离锁定！".to_string());
             return;

@@ -197,9 +197,11 @@ impl PhysicalDeviceInfo {
         };
 
         // 2. 查询总线属性
-        let mut query = STORAGE_PROPERTY_QUERY::default();
-        query.PropertyId = StorageDeviceProperty;
-        query.QueryType = PropertyStandardQuery;
+        let query = STORAGE_PROPERTY_QUERY {
+            PropertyId: StorageDeviceProperty,
+            QueryType: PropertyStandardQuery,
+            ..Default::default()
+        };
 
         let mut buffer = [0u8; 1024];
         let ok_prop = unsafe {

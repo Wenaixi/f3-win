@@ -82,18 +82,18 @@ pub fn one_way_seed(offset: u64, salt: u64) -> u64 {
 // 填充单个 512 字节扇区 (安全且对齐无关，单指令吞吐)
 #[inline]
 pub fn fill_sector(buf: &mut [u8; SECTOR_SIZE], offset: u64, salt: u64) {
-    let mut chunks = buf.chunks_exact_mut(8);
+    let (chunks, _) = buf.as_chunks_mut::<8>();
 
     // 扇区第一个 64 位存放明文 offset (Salt 绝不落盘)
-    if let Some(first) = chunks.next() {
-        first.copy_from_slice(&offset.to_le_bytes());
+    if let Some(first) = chunks.first_mut() {
+        *first = offset.to_le_bytes();
     }
 
     // 后续 63 个 64 位依次填充伪随机数，初始种子经单向雪崩置换
     let mut random_number = one_way_seed(offset, salt);
-    for chunk in chunks {
+    for chunk in &mut chunks[1..] {
         random_number = next_random_number(random_number);
-        chunk.copy_from_slice(&random_number.to_le_bytes());
+        *chunk = random_number.to_le_bytes();
     }
 }
 
@@ -117,18 +117,18 @@ pub fn validate_sector(
     expected_offset: u64,
     salt: u64,
 ) -> (BlockState, u64) {
-    let mut chunks = buf.chunks_exact(8);
-    let found_offset = match chunks.next() {
-        Some(first) => u64::from_le_bytes(first.try_into().unwrap()),
+    let (chunks, _) = buf.as_chunks::<8>();
+    let found_offset = match chunks.first() {
+        Some(first) => u64::from_le_bytes(*first),
         None => return (BlockState::Bad, 0),
     };
 
     let mut random_number = one_way_seed(found_offset, salt);
     let mut bit_error_count = 0u32;
 
-    for chunk in chunks {
+    for chunk in &chunks[1..] {
         random_number = next_random_number(random_number);
-        let val = u64::from_le_bytes(chunk.try_into().unwrap());
+        let val = u64::from_le_bytes(*chunk);
         if val != random_number {
             bit_error_count += (val ^ random_number).count_ones();
             if bit_error_count > BIT_ERROR_TOLERANCE {

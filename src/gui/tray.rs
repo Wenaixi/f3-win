@@ -97,7 +97,7 @@ unsafe extern "system" fn tray_wnd_proc(
             return LRESULT(0);
         }
     } else if msg == WM_COMMAND {
-        let cmd_id = (wparam.0 & 0xFFFF) as usize;
+        let cmd_id = wparam.0 & 0xFFFF;
         if cmd_id == IDM_ABOUT {
             let version = env!("CARGO_PKG_VERSION");
             let title = w!("关于 F3-Win");
@@ -382,7 +382,7 @@ impl TrayManager {
 
                     let mut msg = MSG::default();
                     while GetMessageW(&mut msg, HWND::default(), 0, 0).as_bool() {
-                        TranslateMessage(&msg);
+                        let _ = TranslateMessage(&msg);
                         DispatchMessageW(&msg);
                     }
 

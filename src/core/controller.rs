@@ -332,7 +332,7 @@ impl EngineController {
 
                         if msg.is_finished {
                             let is_cancelled = self.cancel_flag.load(Ordering::Acquire)
-                                || msg.error.as_deref().map_or(false, |e| e.contains("用户中止") || e.contains("手动中止"));
+                                || msg.error.as_deref().is_some_and(|e| e.contains("用户中止") || e.contains("手动中止"));
                             self.snapshot.status = if is_cancelled {
                                 TaskStatus::Finished
                             } else if msg.error.is_some() {

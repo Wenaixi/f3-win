@@ -124,9 +124,10 @@ impl F3Probe {
 
         // 剩余 496 字节填充高熵伪随机流，物理总线上表现为均匀白噪声，击穿微码特征嗅探
         let mut seed = check_val.rotate_left(17) ^ 0x517CC1B727220A95;
-        for chunk in buf[16..SECTOR_SIZE].chunks_exact_mut(8) {
+        let (chunks, _) = buf[16..SECTOR_SIZE].as_chunks_mut::<8>();
+        for chunk in chunks {
             seed = (seed ^ (seed >> 12)).wrapping_mul(0x2545F4914F6CDD1D).wrapping_add(17);
-            chunk.copy_from_slice(&seed.to_le_bytes());
+            *chunk = seed.to_le_bytes();
         }
     }
 
@@ -157,9 +158,10 @@ impl F3Probe {
 
         // 进一步核验白噪声随机流（抽查关键比特段）
         let mut seed = expected_check.rotate_left(17) ^ 0x517CC1B727220A95;
-        for chunk in buf[16..SECTOR_SIZE].chunks_exact(8) {
+        let (chunks, _) = buf[16..SECTOR_SIZE].as_chunks::<8>();
+        for chunk in chunks {
             seed = (seed ^ (seed >> 12)).wrapping_mul(0x2545F4914F6CDD1D).wrapping_add(17);
-            if chunk != seed.to_le_bytes() {
+            if *chunk != seed.to_le_bytes() {
                 return false;
             }
         }
@@ -175,7 +177,7 @@ impl F3Probe {
         scratch_sec: u64,
         count: u64,
     ) -> Result<(), String> {
-        let total_blocks = (count + CACHE_FLUSH_BLOCK_SECTORS - 1) / CACHE_FLUSH_BLOCK_SECTORS;
+        let total_blocks = count.div_ceil(CACHE_FLUSH_BLOCK_SECTORS);
 
         for b in 0..total_blocks {
             if self.cancel_flag.load(Ordering::Acquire) {
@@ -185,9 +187,10 @@ impl F3Probe {
             let start_sec = scratch_sec + b * CACHE_FLUSH_BLOCK_SECTORS;
             let mut prng = (start_sec ^ 0xDEAD_BEEF_CAFE_BABE).wrapping_mul(6364136223846793005).wrapping_add(1);
             buf.as_mut_slice().fill(0);
-            for chunk in buf.as_mut_slice().chunks_exact_mut(8) {
+            let (chunks, _) = buf.as_mut_slice().as_chunks_mut::<8>();
+            for chunk in chunks {
                 prng = prng.wrapping_mul(4294967311).wrapping_add(17);
-                chunk.copy_from_slice(&prng.to_le_bytes());
+                *chunk = prng.to_le_bytes();
             }
 
             // 只写一个 64KB 块：整条缓冲写入会把冲刷区域放大 8 倍，越过采样点污染高位数据
@@ -375,8 +378,6 @@ impl F3Probe {
         let mut probes_executed = 0u64;
         let mut safe_left_sectors = AUX_PROBE_SECTOR;
         let mut suspected_right_sectors = total_sectors;
-        // 标称容量尾部是否已被实测通过：未实测过就不允许直接判定为正品
-        let mut tail_verified = false;
 
         for (idx, step) in JUMP_LADDER.iter().enumerate() {
             if self.cancel_flag.load(Ordering::Acquire) {
@@ -445,7 +446,7 @@ impl F3Probe {
 
         // 阶梯耗尽仍未越界时，必须补测标称容量尾部的最后一个可写扇区。
         // 大容量盘的阶梯顶远小于标称容量，不补测就无法证明尾部真实存在，会把假盘误判为正品。
-        if !is_counterfeit && !tail_verified {
+        if !is_counterfeit {
             // 取末尾一个完整 64KB 块的首扇区：块对齐更贴近真实主控写入粒度，
             // 同时避开容量末尾零头扇区可能存在的保留块
             let tail_sec = total_sectors.saturating_sub(CACHE_FLUSH_BLOCK_SECTORS);
@@ -468,7 +469,6 @@ impl F3Probe {
             match self.test_sector(dev, &mut buf, tail_sec, session_salt, 0xAA, flush_depth) {
                 Ok(None) => {
                     safe_left_sectors = tail_sec;
-                    tail_verified = true;
                 }
                 Ok(Some(found_trap)) => {
                     is_counterfeit = true;
@@ -692,7 +692,7 @@ mod tests {
         };
         let probe = F3Probe::new(config, cancel_flag);
 
-        let mut dev = MemoryBlockDevice::with_bit_bucket(
+        let mut dev = MemoryBlockDevice::with_fake_bit_bucket(
             64 * 1024 * 1024,
             8 * 1024 * 1024,
         );
