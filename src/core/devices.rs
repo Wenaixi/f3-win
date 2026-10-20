@@ -550,7 +550,7 @@ impl VolumeInfo {
             String::new()
         };
         format!(
-            "[{}] {}:\{} ({}) - {:.1} GB 可用 / {:.1} GB 总计",
+            "[{}] {}:\\{} ({}) - {:.1} GB 可用 / {:.1} GB 总计",
             kind,
             self.drive_letter,
             label_part,
@@ -631,7 +631,7 @@ impl VolumeInfo {
 
                 volumes.push(VolumeInfo {
                     drive_letter: letter,
-                    root_path: PathBuf::from(format!("{}:\", letter)),
+                    root_path: PathBuf::from(format!("{}:\\", letter)),
                     label,
                     file_system,
                     is_removable,
