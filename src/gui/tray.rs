@@ -15,11 +15,13 @@ use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
     NOTIFYICONDATAW,
 };
+use eframe::egui;
+
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
     DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW, MessageBoxW, PostMessageW, PostQuitMessage,
     RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, TrackPopupMenu, TranslateMessage,
-    CW_USEDEFAULT, HCURSOR, HICON, HMENU, HWND_MESSAGE, IDI_APPLICATION, MB_ICONINFORMATION, MB_OK,
+    CW_USEDEFAULT, HCURSOR, HICON, HMENU, IDI_APPLICATION, MB_ICONINFORMATION, MB_OK,
     MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE,
     WM_COMMAND, WM_DESTROY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_USER,
     WNDCLASSW, WNDCLASS_STYLES,
@@ -70,6 +72,7 @@ struct TrayWorkerState {
     cmd_rx: Receiver<TrayControlCmd>,
     taskbar_created_msg: u32,
     current_tip: String,
+    ctx: egui::Context,
 }
 
 static TRAY_STATE: Mutex<Option<TrayWorkerState>> = Mutex::new(None);
@@ -86,6 +89,7 @@ unsafe extern "system" fn tray_wnd_proc(
         if mouse_msg == WM_LBUTTONUP || mouse_msg == WM_LBUTTONDBLCLK {
             if let Some(ref state) = *TRAY_STATE.lock() {
                 let _ = state.event_tx.send(TrayEvent::ShowWindow);
+                state.ctx.request_repaint();
             }
             return LRESULT(0);
         } else if mouse_msg == WM_RBUTTONUP {
@@ -110,6 +114,7 @@ unsafe extern "system" fn tray_wnd_proc(
             );
             if let Some(ref state) = *TRAY_STATE.lock() {
                 let _ = state.event_tx.send(TrayEvent::ShowAboutModal);
+                state.ctx.request_repaint();
             }
             return LRESULT(0);
         }
@@ -126,6 +131,7 @@ unsafe extern "system" fn tray_wnd_proc(
         if let Some(ev) = event {
             if let Some(ref state) = *TRAY_STATE.lock() {
                 let _ = state.event_tx.send(ev);
+                state.ctx.request_repaint();
             }
         }
         return LRESULT(0);
@@ -151,6 +157,7 @@ unsafe extern "system" fn tray_wnd_proc(
         if should_destroy {
             remove_tray_icon(hwnd);
             let _ = DestroyWindow(hwnd);
+            PostQuitMessage(0);
         }
         return LRESULT(0);
     } else if msg == WM_DESTROY {
@@ -284,6 +291,9 @@ unsafe fn modify_tray_tooltip(hwnd: HWND, tooltip: &str) -> bool {
 }
 
 unsafe fn remove_tray_icon(hwnd: HWND) -> bool {
+    if hwnd.0.is_null() {
+        return false;
+    }
     let mut nid = std::mem::zeroed::<NOTIFYICONDATAW>();
     nid.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
     nid.hWnd = hwnd;
@@ -301,7 +311,7 @@ pub struct TrayManager {
 
 impl TrayManager {
     /// 启动 Win32 原生托盘后台服务
-    pub fn new(initial_tooltip: &str) -> Self {
+    pub fn new(initial_tooltip: &str, ctx: egui::Context) -> Self {
         let (event_tx, event_rx) = crossbeam_channel::unbounded::<TrayEvent>();
         let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<TrayControlCmd>();
         let (ready_tx, ready_rx) = crossbeam_channel::bounded::<(isize, Result<(), String>)>(1);
@@ -329,6 +339,7 @@ impl TrayManager {
                         RegisterClassW(&wc);
                     }
 
+                    // 创建顶级不可见窗口作为宿主 (hWndParent 为 NULL)，满足 Shell 广播与前景窗口规范
                     let hwnd_res = CreateWindowExW(
                         WINDOW_EX_STYLE(0),
                         class_name,
@@ -338,7 +349,7 @@ impl TrayManager {
                         CW_USEDEFAULT,
                         CW_USEDEFAULT,
                         CW_USEDEFAULT,
-                        HWND_MESSAGE,
+                        HWND::default(),
                         HMENU::default(),
                         HINSTANCE(std::ptr::null_mut()),
                         None,
@@ -363,6 +374,7 @@ impl TrayManager {
                             cmd_rx,
                             taskbar_created_msg: taskbar_msg,
                             current_tip: tooltip_owned,
+                            ctx,
                         });
                     }
 
@@ -416,10 +428,13 @@ impl TrayManager {
     /// 销毁系统托盘并安全退出托盘线程
     pub fn destroy(&mut self) {
         if self.hwnd != 0 {
-            let _ = self.cmd_tx.send(TrayControlCmd::Destroy);
+            let hwnd = HWND(self.hwnd as *mut core::ffi::c_void);
             unsafe {
+                // 双重防御：在调用端主线程立即移除托盘图标，彻底根除幽灵残留
+                remove_tray_icon(hwnd);
+                let _ = self.cmd_tx.send(TrayControlCmd::Destroy);
                 let _ = PostMessageW(
-                    HWND(self.hwnd as *mut core::ffi::c_void),
+                    hwnd,
                     WM_TRAY_CMD,
                     WPARAM(0),
                     LPARAM(0),
@@ -456,5 +471,39 @@ mod tests {
     fn test_tray_control_cmd_debug() {
         let cmd = TrayControlCmd::UpdateTooltip("测试提示".to_string());
         assert!(format!("{:?}", cmd).contains("测试提示"));
+    }
+
+    #[test]
+    fn test_tray_event_channel_communication() {
+        let (tx, rx) = crossbeam_channel::unbounded::<TrayEvent>();
+        tx.send(TrayEvent::RequestExit).unwrap();
+        tx.send(TrayEvent::ShowWindow).unwrap();
+        tx.send(TrayEvent::ShowPathInfoModal).unwrap();
+        tx.send(TrayEvent::OpenExeDir).unwrap();
+        tx.send(TrayEvent::OpenSelectedVolume).unwrap();
+        tx.send(TrayEvent::OpenEvidenceDir).unwrap();
+
+        assert_eq!(rx.recv().unwrap(), TrayEvent::RequestExit);
+        assert_eq!(rx.recv().unwrap(), TrayEvent::ShowWindow);
+        assert_eq!(rx.recv().unwrap(), TrayEvent::ShowPathInfoModal);
+        assert_eq!(rx.recv().unwrap(), TrayEvent::OpenExeDir);
+        assert_eq!(rx.recv().unwrap(), TrayEvent::OpenSelectedVolume);
+        assert_eq!(rx.recv().unwrap(), TrayEvent::OpenEvidenceDir);
+    }
+
+    #[test]
+    fn test_tray_control_cmd_channel() {
+        let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded::<TrayControlCmd>();
+        cmd_tx.send(TrayControlCmd::UpdateTooltip("测试提示".to_string())).unwrap();
+        cmd_tx.send(TrayControlCmd::Destroy).unwrap();
+
+        match cmd_rx.recv().unwrap() {
+            TrayControlCmd::UpdateTooltip(t) => assert_eq!(t, "测试提示"),
+            _ => panic!("预期 UpdateTooltip 指令"),
+        }
+        match cmd_rx.recv().unwrap() {
+            TrayControlCmd::Destroy => {}
+            _ => panic!("预期 Destroy 指令"),
+        }
     }
 }

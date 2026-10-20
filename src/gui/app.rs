@@ -19,17 +19,33 @@ pub struct F3App {
     state: AppState,
     prev_status: TaskStatus,
     tray: Option<TrayManager>,
+    is_exiting: bool,
 }
 
 impl F3App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         Self::setup_chinese_fonts(&cc.egui_ctx);
-        let tray = Some(TrayManager::new("F3 (管理员) - 闪存完整性测试就绪"));
+        let tray = Some(TrayManager::new(
+            "F3 (管理员) - 闪存完整性测试就绪",
+            cc.egui_ctx.clone(),
+        ));
         Self {
             state: AppState::default(),
             prev_status: TaskStatus::Idle,
             tray,
+            is_exiting: false,
         }
+    }
+
+    /// 执行终极安全退出流程，确保释放设备锁、销毁托盘并关闭应用视口
+    fn perform_exit(&mut self, ctx: &egui::Context) {
+        self.is_exiting = true;
+        self.state.controller.cancel();
+        if let Some(ref mut t) = self.tray {
+            t.destroy();
+        }
+        self.state.show_exit_confirm_modal = false;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
 }
 
@@ -85,27 +101,28 @@ impl eframe::App for F3App {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                         self.state.show_exit_confirm_modal = true;
                     } else {
-                        if let Some(ref mut t) = self.tray {
-                            t.destroy();
-                        }
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        self.perform_exit(ctx);
                     }
                 }
             }
         }
 
-        // 拦截主窗口右上角关闭按钮 (×) 请求：
+        // 拦截主窗口关闭请求：
+        // 若已进入退出流程 (is_exiting == true)，严禁拦截，放行让 eframe 正常退出；
         // 若开启了“最小化到托盘”，则仅隐藏主窗口保持后台任务无损运行；
-        // 若未开启且测试正在运行，弹出安全退出防呆拦截对话框。
+        // 若未开启且测试正在运行，弹出安全退出防呆拦截对话框；
+        // 否则执行终极退出流程。
         if ctx.input(|i| i.viewport().close_requested()) {
-            if self.state.minimize_to_tray_on_close {
+            if self.is_exiting {
+                // 已标记退出，放行 Close 指令，不再发送 CancelClose
+            } else if self.state.minimize_to_tray_on_close {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             } else if snapshot.status == TaskStatus::Running {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 self.state.show_exit_confirm_modal = true;
-            } else if let Some(ref mut t) = self.tray {
-                t.destroy();
+            } else {
+                self.perform_exit(ctx);
             }
         }
 
@@ -1054,10 +1071,7 @@ impl F3App {
                     if is_running {
                         self.state.show_exit_confirm_modal = true;
                     } else {
-                        if let Some(ref mut t) = self.tray {
-                            t.destroy();
-                        }
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        self.perform_exit(ui.ctx());
                     }
                 }
             });
@@ -1149,12 +1163,7 @@ impl F3App {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(RichText::new("强制中止并退出").color(Color32::from_rgb(231, 76, 60))).clicked() {
-                            self.state.controller.cancel();
-                            if let Some(ref mut t) = self.tray {
-                                t.destroy();
-                            }
-                            self.state.show_exit_confirm_modal = false;
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            self.perform_exit(ctx);
                         }
                     });
                 });
