@@ -276,26 +276,54 @@ impl F3App {
         ui.add_space(10.0);
 
         let is_safe = self.state.inventory.selected_volume().is_some_and(|v| v.is_safe_target);
-        if snapshot.status != TaskStatus::Running {
-            if ui.add_enabled(is_safe, egui::Button::new(RichText::new("开始写入").size(15.0))).clicked() {
+        let is_write_running = snapshot.status == TaskStatus::Running
+            && matches!(snapshot.kind, crate::core::controller::TaskKind::Write | crate::core::controller::TaskKind::WriteAndVerify);
+        let is_other_running = snapshot.status == TaskStatus::Running && !is_write_running;
+
+        if is_write_running {
+            if ui.button(RichText::new("停止写入").size(15.0)).clicked() {
+                self.state.controller.cancel();
+            }
+        } else {
+            let can_start = is_safe && !is_other_running;
+            let btn_text = if is_other_running {
+                "其他任务正在运行中..."
+            } else {
+                "开始写入"
+            };
+            if ui.add_enabled(can_start, egui::Button::new(RichText::new(btn_text).size(15.0))).clicked() {
                 self.start_write_task();
             }
-        } else if ui.button(RichText::new("停止写入").size(15.0)).clicked() {
-            self.state.controller.cancel();
         }
 
         ui.add_space(10.0);
 
-        // 现代 Bento-Grid 四卡片核心指标仪表盘
+        // 现代 Bento-Grid 四卡片核心指标仪表盘 (严格隔离任务状态，杜绝跨任务数据污染)
         ui.horizontal(|ui| {
             let card_width = (ui.available_width() - 30.0) / 4.0;
+
+            let display_speed = if is_write_running {
+                snapshot.current_speed_mb
+            } else if self.state.audit_record.write_tested {
+                self.state.audit_record.write_avg_mb
+            } else {
+                0.0
+            };
+
+            let display_bytes = if is_write_running {
+                snapshot.total_bytes_processed
+            } else if self.state.audit_record.write_tested {
+                self.state.audit_record.write_bytes
+            } else {
+                0
+            };
 
             // 卡片 1: 瞬时速率
             ui.group(|ui| {
                 ui.set_width(card_width);
                 ui.label(RichText::new("当前写入速度").weak().size(12.0));
                 ui.label(
-                    RichText::new(format!("{:.2} MB/s", snapshot.current_speed_mb))
+                    RichText::new(format!("{:.2} MB/s", display_speed))
                         .strong()
                         .size(20.0)
                         .color(Color32::from_rgb(0, 200, 255)),
@@ -309,7 +337,7 @@ impl F3App {
                 ui.label(
                     RichText::new(format!(
                         "{:.2} GB",
-                        snapshot.total_bytes_processed as f64 / (1024.0 * 1024.0 * 1024.0)
+                        display_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
                     ))
                     .strong()
                     .size(20.0),
@@ -320,7 +348,7 @@ impl F3App {
             ui.group(|ui| {
                 ui.set_width(card_width);
                 ui.label(RichText::new("预计剩余时间").weak().size(12.0));
-                let eta_str = if snapshot.status == TaskStatus::Running {
+                let eta_str = if is_write_running {
                     format_eta(snapshot.eta_seconds)
                 } else {
                     "空闲就绪".to_string()
@@ -362,33 +390,58 @@ impl F3App {
         });
 
         ui.add_space(10.0);
-        render_speed_plot(ui, &snapshot.speed_history, "写入", "write_speed_plot");
+        let empty_history = Vec::new();
+        let write_history = if is_write_running || (snapshot.status != TaskStatus::Running && matches!(snapshot.kind, crate::core::controller::TaskKind::Write | crate::core::controller::TaskKind::WriteAndVerify)) {
+            &snapshot.speed_history
+        } else {
+            &empty_history
+        };
+        render_speed_plot(ui, write_history, "写入", "write_speed_plot");
 
         // 写入测试完成时，在底部直接渲染专业电子版技术检验报告公文卡片 (同时展示写入和读取速度，可直接截屏)
-        if (snapshot.status == TaskStatus::Finished && snapshot.total_bytes_processed > 0) || self.state.audit_record.write_tested {
+        let is_write_finished = snapshot.status == TaskStatus::Finished
+            && matches!(snapshot.kind, crate::core::controller::TaskKind::Write | crate::core::controller::TaskKind::WriteAndVerify)
+            && snapshot.total_bytes_processed > 0;
+        if is_write_finished || self.state.audit_record.write_tested {
             let active_target = self.state.inventory.active_target();
             let dev = active_target.as_ref().map(|t| &t.device);
             let serial = SaltRegistry::get_volume_serial(&self.state.inventory.selected_path().to_string_lossy());
-            let duration_seconds = if snapshot.duration_seconds > 0.0 {
+            let current_is_write = matches!(snapshot.kind, crate::core::controller::TaskKind::Write | crate::core::controller::TaskKind::WriteAndVerify);
+            let duration_seconds = if current_is_write && snapshot.duration_seconds > 0.0 {
                 snapshot.duration_seconds
             } else {
                 self.state.audit_record.write_duration_secs
+            };
+            let bytes_processed = if current_is_write && snapshot.total_bytes_processed > 0 {
+                snapshot.total_bytes_processed
+            } else {
+                self.state.audit_record.write_bytes
+            };
+            let speed_bps = if current_is_write && snapshot.current_speed_mb > 0.0 {
+                snapshot.current_speed_mb * 1024.0 * 1024.0
+            } else {
+                self.state.audit_record.write_avg_mb * 1024.0 * 1024.0
+            };
+            let physiology = if current_is_write {
+                snapshot.physiology
+            } else {
+                None
             };
             let dummy_telemetry = H2wTelemetry {
                 mode: H2wMode::Write,
                 phase: crate::core::session::H2wPhase::Completed,
                 current_file: 1,
                 total_files: None,
-                bytes_processed: if snapshot.total_bytes_processed > 0 { snapshot.total_bytes_processed } else { self.state.audit_record.write_bytes },
-                total_bytes_expected: if snapshot.total_bytes_processed > 0 { snapshot.total_bytes_processed } else { self.state.audit_record.write_bytes },
-                speed_bps: if snapshot.current_speed_mb > 0.0 { snapshot.current_speed_mb * 1024.0 * 1024.0 } else { self.state.audit_record.write_avg_mb * 1024.0 * 1024.0 },
+                bytes_processed,
+                total_bytes_expected: bytes_processed,
+                speed_bps,
                 duration_seconds,
                 eta_seconds: 0,
-                stats: snapshot.stats,
+                stats: if current_is_write { snapshot.stats } else { BlockStats::default() },
                 heatmap_sample: None,
                 is_finished: true,
                 error: None,
-                physiology: snapshot.physiology,
+                physiology,
                 first_error_offset: None,
                 first_error_file: None,
                 first_error_expected: None,
@@ -418,13 +471,25 @@ impl F3App {
 
         // 校验控制与断点续验分段配置
         let is_safe = self.state.inventory.selected_volume().is_some_and(|v| v.is_safe_target);
+        let is_read_running = snapshot.status == TaskStatus::Running
+            && matches!(snapshot.kind, crate::core::controller::TaskKind::Verify | crate::core::controller::TaskKind::WriteAndVerify);
+        let is_other_running = snapshot.status == TaskStatus::Running && !is_read_running;
+
         ui.horizontal(|ui| {
-            if snapshot.status != TaskStatus::Running {
-                if ui.add_enabled(is_safe, egui::Button::new(RichText::new("开始校验").size(15.0))).clicked() {
+            if is_read_running {
+                if ui.button(RichText::new("停止校验").size(15.0)).clicked() {
+                    self.state.controller.cancel();
+                }
+            } else {
+                let can_start = is_safe && !is_other_running;
+                let btn_text = if is_other_running {
+                    "其他任务正在运行中..."
+                } else {
+                    "开始校验"
+                };
+                if ui.add_enabled(can_start, egui::Button::new(RichText::new(btn_text).size(15.0))).clicked() {
                     self.start_read_task();
                 }
-            } else if ui.button(RichText::new("停止校验").size(15.0)).clicked() {
-                self.state.controller.cancel();
             }
 
             ui.separator();
@@ -443,15 +508,22 @@ impl F3App {
 
         ui.add_space(10.0);
 
-        // 校验统计计数
+        // 校验统计计数 (仅在当前为读取任务运行或保留读取结果时展示，杜绝写入任务状态串扰)
+        let empty_stats = crate::core::algo::BlockStats::default();
+        let current_is_verify = matches!(snapshot.kind, crate::core::controller::TaskKind::Verify | crate::core::controller::TaskKind::WriteAndVerify);
+        let stats = if is_read_running || (snapshot.status != TaskStatus::Running && current_is_verify) {
+            &snapshot.stats
+        } else {
+            &empty_stats
+        };
         ui.horizontal(|ui| {
-            ui.colored_label(Color32::from_rgb(46, 204, 113), format!("正常: {}", snapshot.stats.good));
+            ui.colored_label(Color32::from_rgb(46, 204, 113), format!("正常: {}", stats.good));
             ui.separator();
-            ui.colored_label(Color32::from_rgb(231, 76, 60), format!("损坏: {}", snapshot.stats.bad));
+            ui.colored_label(Color32::from_rgb(231, 76, 60), format!("损坏: {}", stats.bad));
             ui.separator();
-            ui.colored_label(Color32::from_rgb(241, 196, 15), format!("异常: {}", snapshot.stats.changed));
+            ui.colored_label(Color32::from_rgb(241, 196, 15), format!("异常: {}", stats.changed));
             ui.separator();
-            ui.colored_label(Color32::from_rgb(155, 89, 182), format!("覆盖: {}", snapshot.stats.overwritten));
+            ui.colored_label(Color32::from_rgb(155, 89, 182), format!("覆盖: {}", stats.overwritten));
         });
 
         // 便捷按钮与自动清理控制
@@ -484,40 +556,76 @@ impl F3App {
         });
 
         ui.add_space(10.0);
-        render_speed_plot(ui, &snapshot.speed_history, "读取", "read_speed_plot");
+        let empty_history = Vec::new();
+        let read_history = if is_read_running || (snapshot.status != TaskStatus::Running && current_is_verify) {
+            &snapshot.speed_history
+        } else {
+            &empty_history
+        };
+        render_speed_plot(ui, read_history, "读取", "read_speed_plot");
         ui.add_space(10.0);
-        render_heatmap(ui, &snapshot.heatmap_blocks);
 
-        // 校验完成时，在底部直接渲染可截屏的专业电子版技术检验报告公文卡片 (同时展示写入和读取速度)
-        if (snapshot.status == TaskStatus::Finished && snapshot.total_bytes_processed > 0) || self.state.audit_record.read_tested {
+        let empty_heatmap = vec![crate::core::algo::BlockState::Untested; 1000];
+        let heatmap = if is_read_running || (snapshot.status != TaskStatus::Running && current_is_verify) {
+            &snapshot.heatmap_blocks
+        } else {
+            &empty_heatmap
+        };
+        render_heatmap(ui, heatmap);
+
+        // 校验完成时，在底部直接渲染可截屏的专业电子版技术检验报告公文卡片 (严格隔离任务类型，杜绝写入完成时幽灵误报)
+        let is_read_finished = snapshot.status == TaskStatus::Finished
+            && matches!(snapshot.kind, crate::core::controller::TaskKind::Verify | crate::core::controller::TaskKind::WriteAndVerify)
+            && snapshot.total_bytes_processed > 0;
+        if is_read_finished || self.state.audit_record.read_tested {
             let active_target = self.state.inventory.active_target();
             let dev = active_target.as_ref().map(|t| &t.device);
             let serial = SaltRegistry::get_volume_serial(&self.state.inventory.selected_path().to_string_lossy());
             
-            let duration_seconds = if snapshot.duration_seconds > 0.0 {
+            let duration_seconds = if current_is_verify && snapshot.duration_seconds > 0.0 {
                 snapshot.duration_seconds
             } else {
                 self.state.audit_record.read_duration_secs
+            };
+            let bytes_processed = if current_is_verify && snapshot.total_bytes_processed > 0 {
+                snapshot.total_bytes_processed
+            } else {
+                self.state.audit_record.read_bytes
+            };
+            let speed_bps = if current_is_verify && snapshot.current_speed_mb > 0.0 {
+                snapshot.current_speed_mb * 1024.0 * 1024.0
+            } else {
+                self.state.audit_record.read_avg_mb * 1024.0 * 1024.0
+            };
+            let stats = if current_is_verify {
+                snapshot.stats
+            } else {
+                crate::core::algo::BlockStats::default()
+            };
+            let physiology = if current_is_verify {
+                snapshot.physiology
+            } else {
+                None
             };
             let dummy_telemetry = H2wTelemetry {
                 mode: H2wMode::Verify,
                 phase: crate::core::session::H2wPhase::Completed,
                 current_file: 1,
                 total_files: None,
-                bytes_processed: if snapshot.total_bytes_processed > 0 { snapshot.total_bytes_processed } else { self.state.audit_record.read_bytes },
-                total_bytes_expected: if snapshot.total_bytes_processed > 0 { snapshot.total_bytes_processed } else { self.state.audit_record.read_bytes },
-                speed_bps: if snapshot.current_speed_mb > 0.0 { snapshot.current_speed_mb * 1024.0 * 1024.0 } else { self.state.audit_record.read_avg_mb * 1024.0 * 1024.0 },
+                bytes_processed,
+                total_bytes_expected: bytes_processed,
+                speed_bps,
                 duration_seconds,
                 eta_seconds: 0,
-                stats: snapshot.stats,
+                stats,
                 heatmap_sample: None,
                 is_finished: true,
                 error: None,
-                physiology: snapshot.physiology,
-                first_error_offset: snapshot.first_error_offset,
-                first_error_file: snapshot.first_error_file,
-                first_error_expected: snapshot.first_error_expected,
-                first_error_actual: snapshot.first_error_actual,
+                physiology,
+                first_error_offset: if current_is_verify { snapshot.first_error_offset } else { None },
+                first_error_file: if current_is_verify { snapshot.first_error_file } else { None },
+                first_error_expected: if current_is_verify { snapshot.first_error_expected } else { None },
+                first_error_actual: if current_is_verify { snapshot.first_error_actual } else { None },
             };
             
             let report = DiagnosticReport::build_verify_audit(
@@ -542,52 +650,70 @@ impl F3App {
 
         ui.add_space(15.0);
 
-        if snapshot.status != TaskStatus::Running {
-            if ui.button(RichText::new("开始探测").size(15.0)).clicked() {
+        let is_probe_running = snapshot.status == TaskStatus::Running && snapshot.kind == crate::core::controller::TaskKind::Probe;
+        let is_other_running = snapshot.status == TaskStatus::Running && !is_probe_running;
+
+        if is_probe_running {
+            if ui.button(RichText::new("停止探测").size(15.0)).clicked() {
+                self.state.controller.cancel();
+            }
+        } else {
+            let can_start = !is_other_running;
+            let btn_text = if is_other_running {
+                "其他任务正在运行中..."
+            } else {
+                "开始探测"
+            };
+            if ui.add_enabled(can_start, egui::Button::new(RichText::new(btn_text).size(15.0))).clicked() {
                 self.start_probe_task();
             }
-        } else if ui.button(RichText::new("停止探测").size(15.0)).clicked() {
-            self.state.controller.cancel();
         }
 
         ui.add_space(15.0);
-        ui.add(ProgressBar::new(snapshot.progress_pct).show_percentage());
+        let progress = if is_probe_running || (snapshot.status != TaskStatus::Running && snapshot.kind == crate::core::controller::TaskKind::Probe) {
+            snapshot.progress_pct
+        } else {
+            0.0
+        };
+        ui.add(ProgressBar::new(progress).show_percentage());
 
-        if let Some(ref res) = snapshot.probe_result {
-            if let Some(ref err) = res.error {
-                ui.group(|ui| {
-                    if err.contains("用户中止") || err.contains("手动中止") {
-                        ui.colored_label(
-                            Color32::from_rgb(241, 196, 15),
-                            RichText::new("探测任务已由用户手动中止。").strong().size(15.0),
-                        );
-                        ui.label("设备已安全解锁恢复挂载，可随时重新启动探测。");
-                    } else {
-                        ui.colored_label(
-                            Color32::RED,
-                            RichText::new(format!("无法执行探测: {}", err)).strong().size(15.0),
-                        );
-                        ui.label("提示: 请确认已允许管理员权限，且设备未被其他程序占用。");
-                    }
-                });
-            } else {
-                ui.group(|ui| {
-                    ui.heading("探测结果:");
-                    ui.label(format!(
-                        "设备标称容量: {:.2} GB",
-                        res.announced_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-                    ));
-                    ui.label(format!(
-                        "物理真实容量: {:.2} GB",
-                        res.real_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-                    ));
+        if is_probe_running || snapshot.kind == crate::core::controller::TaskKind::Probe {
+            if let Some(ref res) = snapshot.probe_result {
+                if let Some(ref err) = res.error {
+                    ui.group(|ui| {
+                        if err.contains("用户中止") || err.contains("手动中止") {
+                            ui.colored_label(
+                                Color32::from_rgb(241, 196, 15),
+                                RichText::new("探测任务已由用户手动中止。").strong().size(15.0),
+                            );
+                            ui.label("设备已安全解锁恢复挂载，可随时重新启动探测。");
+                        } else {
+                            ui.colored_label(
+                                Color32::RED,
+                                RichText::new(format!("无法执行探测: {}", err)).strong().size(15.0),
+                            );
+                            ui.label("提示: 请确认已允许管理员权限，且设备未被其他程序占用。");
+                        }
+                    });
+                } else {
+                    ui.group(|ui| {
+                        ui.heading("探测结果:");
+                        ui.label(format!(
+                            "设备标称容量: {:.2} GB",
+                            res.announced_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+                        ));
+                        ui.label(format!(
+                            "物理真实容量: {:.2} GB",
+                            res.real_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+                        ));
 
-                    if res.is_fake {
-                        ui.colored_label(Color32::RED, "检测到容量虚标。建议前往「分区修复」调整可用分区大小。");
-                    } else {
-                        ui.colored_label(Color32::GREEN, "容量正常，未发现地址回绕。");
-                    }
-                });
+                        if res.is_fake {
+                            ui.colored_label(Color32::RED, "检测到容量虚标。建议前往「分区修复」调整可用分区大小。");
+                        } else {
+                            ui.colored_label(Color32::GREEN, "容量正常，未发现地址回绕。");
+                        }
+                    });
+                }
             }
         }
     }
