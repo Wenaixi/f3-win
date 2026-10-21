@@ -1,22 +1,43 @@
 use egui::{Color32, RichText, Ui};
 use egui_plot::{Line, Plot, PlotPoints};
+use crate::gui::theme;
 
 pub fn render_speed_plot(ui: &mut Ui, history: &[[f64; 2]], title: &str, plot_id: &str) {
-    ui.group(|ui| {
+    let frame = egui::Frame::none()
+        .fill(theme::SURFACE_BG)
+        .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+        .rounding(egui::Rounding::same(8.0))
+        .inner_margin(egui::Margin::symmetric(14.0, 10.0));
+
+    frame.show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("传输速率曲线 ({})", title)).strong());
+            ui.label(
+                RichText::new(format!("传输速率波动曲线 · {}", title))
+                    .size(13.0)
+                    .strong()
+                    .color(theme::TEXT_PRIMARY),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some(last) = history.last() {
-                    ui.label(RichText::new(format!("当前速率: {:.2} MB/s | 时间: {:.1} 秒", last[1], last[0])).color(Color32::from_rgb(0, 180, 220)));
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(format!("({:.1}s)", last[0])).size(11.0).color(theme::TEXT_MUTED));
+                        ui.label(
+                            RichText::new(format!("{:.2} MB/s", last[1]))
+                                .size(13.0)
+                                .strong()
+                                .color(theme::ACCENT_CYAN),
+                        );
+                        ui.label(RichText::new("瞬时:").size(11.0).color(theme::TEXT_MUTED));
+                    });
                 } else {
-                    ui.label(RichText::new("等待测试开始").weak());
+                    ui.label(RichText::new("等待测试启动采样").size(11.0).color(theme::TEXT_MUTED));
                 }
             });
         });
 
-        ui.add_space(4.0);
+        ui.add_space(6.0);
 
-        // 计算视野范围
+        // 自适应计算视野极值，保证 SLC 掉速与物理带宽断崖 100% 居中跟焦
         let mut max_speed = 30.0f64;
         let mut max_time = 10.0f64;
         for &[t, s] in history {
@@ -24,11 +45,20 @@ pub fn render_speed_plot(ui: &mut Ui, history: &[[f64; 2]], title: &str, plot_id
             if t > max_time { max_time = t; }
         }
 
+        let is_write = title.contains("写入");
+        let line_color = if is_write {
+            theme::ACCENT_CYAN
+        } else {
+            theme::ACCENT_GREEN
+        };
+
         let points: PlotPoints = history.iter().map(|&[t, s]| [t, s]).collect();
         let line = Line::new(points)
-            .color(Color32::from_rgb(0, 160, 230))
+            .color(line_color)
             .width(2.0_f32)
-            .name("速率 (MB/s)");
+            .fill(0.0)
+            .fill_alpha(0.08)
+            .name("物理带宽 (MB/s)");
 
         Plot::new(plot_id)
             .height(180.0)

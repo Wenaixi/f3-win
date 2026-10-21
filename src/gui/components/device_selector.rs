@@ -1,5 +1,6 @@
-use egui::Ui;
+use egui::{RichText, Ui};
 use crate::core::devices::StorageInventory;
+use crate::gui::theme;
 
 // 渲染存储设备选择器 (直接绑定 StorageInventory 深层模块)
 pub fn render_storage_device_selector(
@@ -7,7 +8,7 @@ pub fn render_storage_device_selector(
     inventory: &mut StorageInventory,
 ) {
     ui.horizontal(|ui| {
-        ui.label("目标物理磁盘:");
+        ui.label(RichText::new("目标物理磁盘:").size(12.5).color(theme::TEXT_SECONDARY));
 
         let current_text = match inventory.selected_device() {
             Some(dev) => {
@@ -26,7 +27,7 @@ pub fn render_storage_device_selector(
         let selected_idx = inventory.selected_device_index();
 
         egui::ComboBox::from_id_salt("storage_device_combo")
-            .selected_text(current_text)
+            .selected_text(RichText::new(current_text).size(12.5).color(theme::TEXT_PRIMARY))
             .width(460.0)
             .show_ui(ui, |ui| {
                 let devices = inventory.devices().to_vec();
@@ -60,7 +61,8 @@ pub fn render_storage_device_selector(
                 }
             });
 
-        if ui.button("刷新").clicked() {
+        ui.add_space(4.0);
+        if theme::ghost_button(ui, "刷新设备", [72.0, 26.0]).clicked() {
             inventory.refresh();
         }
     });
@@ -73,7 +75,7 @@ pub fn render_storage_volume_selector(
     inventory: &mut StorageInventory,
 ) {
     ui.horizontal(|ui| {
-        ui.label("选择磁盘:");
+        ui.label(RichText::new("目标分区卷:").size(12.5).color(theme::TEXT_SECONDARY));
         let current_label = if let Some(vol) = inventory.selected_volume() {
             vol.display_name()
         } else {
@@ -83,7 +85,7 @@ pub fn render_storage_volume_selector(
         let selected_idx = inventory.selected_volume_index();
 
         egui::ComboBox::from_id_salt(id_salt)
-            .selected_text(current_label)
+            .selected_text(RichText::new(current_label).size(12.5).color(theme::TEXT_PRIMARY))
             .width(360.0)
             .show_ui(ui, |ui| {
                 let volumes = inventory.volumes().to_vec();
@@ -99,7 +101,8 @@ pub fn render_storage_volume_selector(
                 }
             });
 
-        if ui.button("刷新列表").clicked() {
+        ui.add_space(4.0);
+        if theme::ghost_button(ui, "刷新卷", [62.0, 26.0]).clicked() {
             inventory.refresh();
         }
     });

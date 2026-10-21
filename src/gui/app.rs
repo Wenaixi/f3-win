@@ -14,6 +14,7 @@ use crate::gui::components::heatmap::render_heatmap;
 use crate::gui::components::plot::render_speed_plot;
 use crate::gui::state::{AppState, AppTab};
 use crate::gui::tray::{TrayEvent, TrayManager};
+use crate::gui::theme;
 
 pub struct F3App {
     state: AppState,
@@ -24,6 +25,7 @@ pub struct F3App {
 
 impl F3App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        theme::install_modern_theme(&cc.egui_ctx);
         Self::setup_chinese_fonts(&cc.egui_ctx);
         let tray = Some(TrayManager::new(
             "F3 (管理员) - 闪存完整性测试就绪",
@@ -214,50 +216,131 @@ impl eframe::App for F3App {
             ctx.request_repaint();
         }
 
-        egui::TopBottomPanel::top("top_nav").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading(RichText::new("F3 闪存完整性测试").strong());
-                ui.separator();
+        let top_frame = egui::Frame::none()
+            .fill(theme::PANEL_BG)
+            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .inner_margin(egui::Margin::symmetric(14.0, 9.0));
 
-                ui.selectable_value(&mut self.state.current_tab, AppTab::WriteTest, "写入测试 (f3write)");
-                ui.selectable_value(&mut self.state.current_tab, AppTab::ReadVerify, "读取校验 (f3read)");
-                ui.selectable_value(&mut self.state.current_tab, AppTab::RapidProbe, "闪电探测 (f3probe)");
-                ui.selectable_value(&mut self.state.current_tab, AppTab::PartitionFix, "分区修复 (f3fix)");
-                ui.selectable_value(&mut self.state.current_tab, AppTab::Settings, "设置");
+        egui::TopBottomPanel::top("top_nav")
+            .frame(top_frame)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("F3").strong().size(15.0).color(theme::TEXT_PRIMARY));
+                    theme::pill_badge(ui, "DIRECT I/O", theme::SURFACE_BG, theme::TEXT_MUTED);
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(RichText::new("路径信息中心").color(Color32::from_rgb(0, 180, 255))).clicked() {
-                        self.state.show_path_info_modal = true;
-                    }
+                    // 现代一体化黑白选项卡项
+                    let mut render_tab = |ui: &mut egui::Ui, tab: AppTab, label: &str| {
+                        let is_active = self.state.current_tab == tab;
+                        let text_color = if is_active {
+                            theme::TEXT_PRIMARY
+                        } else {
+                            theme::TEXT_SECONDARY
+                        };
+                        let bg_color = if is_active {
+                            theme::SURFACE_ACTIVE
+                        } else {
+                            Color32::TRANSPARENT
+                        };
+                        let stroke = if is_active {
+                            egui::Stroke::new(1.0, theme::BORDER_STRONG)
+                        } else {
+                            egui::Stroke::NONE
+                        };
+
+                        let btn = egui::Button::new(
+                            RichText::new(label)
+                                .size(13.0)
+                                .color(text_color)
+                                .strong(),
+                        )
+                        .fill(bg_color)
+                        .stroke(stroke)
+                        .rounding(egui::Rounding::same(5.0));
+
+                        if ui.add(btn).clicked() {
+                            self.state.current_tab = tab;
+                        }
+                    };
+
+                    render_tab(ui, AppTab::WriteTest, "写入测试");
+                    render_tab(ui, AppTab::ReadVerify, "读取校验");
+                    render_tab(ui, AppTab::RapidProbe, "闪电探测");
+                    render_tab(ui, AppTab::PartitionFix, "分区修复");
+                    render_tab(ui, AppTab::Settings, "设置");
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add(theme::ghost_button(
+                                RichText::new("路径信息中心").size(12.0).color(theme::TEXT_SECONDARY),
+                            ))
+                            .clicked()
+                        {
+                            self.state.show_path_info_modal = true;
+                        }
+                    });
                 });
             });
-        });
 
-        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                let status_color = match snapshot.status {
-                    TaskStatus::Idle => Color32::GRAY,
-                    TaskStatus::Running => Color32::from_rgb(0, 180, 255),
-                    TaskStatus::Finished => Color32::from_rgb(46, 204, 113),
-                    TaskStatus::Error => Color32::from_rgb(231, 76, 60),
-                };
-                ui.colored_label(status_color, format!("状态: {}", snapshot.status_message));
-            });
-        });
+        let bottom_frame = egui::Frame::none()
+            .fill(theme::PANEL_BG)
+            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .inner_margin(egui::Margin::symmetric(14.0, 7.0));
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    match self.state.current_tab {
-                        AppTab::WriteTest => self.render_write_tab(ui, &snapshot),
-                        AppTab::ReadVerify => self.render_read_tab(ui, &snapshot),
-                        AppTab::RapidProbe => self.render_probe_tab(ui, &snapshot),
-                        AppTab::PartitionFix => self.render_fix_tab(ui, &snapshot),
-                        AppTab::Settings => self.render_settings_tab(ui),
-                    }
+        egui::TopBottomPanel::bottom("status_bar")
+            .frame(bottom_frame)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    let dot_color = match snapshot.status {
+                        TaskStatus::Idle => theme::TEXT_MUTED,
+                        TaskStatus::Running => theme::STATUS_CYAN,
+                        TaskStatus::Finished => theme::STATUS_GOOD,
+                        TaskStatus::Error => theme::STATUS_BAD,
+                    };
+                    theme::status_dot(ui, dot_color);
+                    ui.label(
+                        RichText::new(&snapshot.status_message)
+                            .size(12.0)
+                            .color(theme::TEXT_SECONDARY),
+                    );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some(target) = self.state.inventory.active_target() {
+                            ui.label(
+                                RichText::new(format!(
+                                    "当前目标: {} | PhysicalDrive{}",
+                                    self.state.inventory.selected_path().display(),
+                                    target.device.drive_index
+                                ))
+                                .size(11.0)
+                                .color(theme::TEXT_MUTED),
+                            );
+                        }
+                    });
                 });
-        });
+            });
+
+        let central_frame = egui::Frame::none()
+            .fill(theme::CANVAS_BG)
+            .inner_margin(egui::Margin::symmetric(18.0, 14.0));
+
+        egui::CentralPanel::default()
+            .frame(central_frame)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        match self.state.current_tab {
+                            AppTab::WriteTest => self.render_write_tab(ui, &snapshot),
+                            AppTab::ReadVerify => self.render_read_tab(ui, &snapshot),
+                            AppTab::RapidProbe => self.render_probe_tab(ui, &snapshot),
+                            AppTab::PartitionFix => self.render_fix_tab(ui, &snapshot),
+                            AppTab::Settings => self.render_settings_tab(ui),
+                        }
+                    });
+            });
 
         // 渲染路径全景信息模态卡片与安全退出防呆拦截弹窗
         self.render_path_info_modal(ctx);
@@ -267,40 +350,65 @@ impl eframe::App for F3App {
 
 impl F3App {
     fn render_write_tab(&mut self, ui: &mut egui::Ui, snapshot: &TaskSnapshot) {
-        ui.heading("写入测试 (f3write)");
-        ui.label("以 Direct I/O 无系统缓存模式向目标磁盘填充 .h2w 数据文件，测试真实写入速率。");
-        ui.separator();
+        // 现代黑白极简页面标题与说明
+        ui.label(RichText::new("写入测试 (f3write)").size(18.0).strong().color(theme::TEXT_PRIMARY));
+        ui.label(RichText::new("以 Direct I/O 无系统缓存模式向目标磁盘填充 .h2w 数据文件，测试真实硬件物理写入速率。").size(12.0).color(theme::TEXT_MUTED));
+        ui.add_space(6.0);
 
         render_storage_volume_selector(ui, "write_vol_combo", &mut self.state.inventory);
 
-        ui.add_space(10.0);
+        ui.add_space(8.0);
 
         let is_safe = self.state.inventory.selected_volume().is_some_and(|v| v.is_safe_target);
         let is_write_running = snapshot.status == TaskStatus::Running
             && matches!(snapshot.kind, crate::core::controller::TaskKind::Write | crate::core::controller::TaskKind::WriteAndVerify);
         let is_other_running = snapshot.status == TaskStatus::Running && !is_write_running;
 
-        if is_write_running {
-            if ui.button(RichText::new("停止写入").size(15.0)).clicked() {
-                self.state.controller.cancel();
-            }
-        } else {
-            let can_start = is_safe && !is_other_running;
-            let btn_text = if is_other_running {
-                "其他任务正在运行中..."
+        // 主操作与状态按钮
+        ui.horizontal(|ui| {
+            if is_write_running {
+                if theme::danger_button(ui, "停止写入", [130.0, 36.0]).clicked() {
+                    self.state.controller.cancel();
+                }
             } else {
-                "开始写入"
-            };
-            if ui.add_enabled(can_start, egui::Button::new(RichText::new(btn_text).size(15.0))).clicked() {
-                self.start_write_task();
+                let can_start = is_safe && !is_other_running;
+                let btn_text = if is_other_running {
+                    "其他任务运行中..."
+                } else {
+                    "开始写入"
+                };
+                if can_start {
+                    if theme::primary_button(ui, btn_text, [130.0, 36.0]).clicked() {
+                        self.start_write_task();
+                    }
+                } else {
+                    let _ = ui.add_enabled(false, egui::Button::new(RichText::new(btn_text).size(14.0)));
+                }
             }
-        }
 
-        ui.add_space(10.0);
+            ui.add_space(10.0);
+
+            // 便捷操作幽灵胶囊按钮
+            if theme::ghost_button(ui, "打开所在目录", [110.0, 36.0]).clicked() {
+                let _ = std::process::Command::new("explorer")
+                    .arg(self.state.inventory.selected_path())
+                    .spawn();
+            }
+
+            let is_busy = snapshot.status == TaskStatus::Running;
+            if is_busy {
+                let _ = ui.add_enabled(false, egui::Button::new(RichText::new("清理测试文件").size(12.0)));
+            } else if theme::ghost_button(ui, "清理测试文件", [110.0, 36.0]).clicked() {
+                let path = self.state.inventory.selected_path();
+                self.state.controller.start_cleanup(path);
+            }
+        });
+
+        ui.add_space(12.0);
 
         // 现代 Bento-Grid 四卡片核心指标仪表盘 (严格隔离任务状态，杜绝跨任务数据污染)
         ui.horizontal(|ui| {
-            let card_width = (ui.available_width() - 30.0) / 4.0;
+            let card_width = (ui.available_width() - 36.0) / 4.0;
 
             let display_speed = if is_write_running {
                 snapshot.current_speed_mb
@@ -319,74 +427,66 @@ impl F3App {
             };
 
             // 卡片 1: 瞬时速率
-            ui.group(|ui| {
-                ui.set_width(card_width);
-                ui.label(RichText::new("当前写入速度").weak().size(12.0));
-                ui.label(
-                    RichText::new(format!("{:.2} MB/s", display_speed))
-                        .strong()
-                        .size(20.0)
-                        .color(Color32::from_rgb(0, 200, 255)),
-                );
+            theme::bento_card(ui, card_width, |ui| {
+                ui.label(RichText::new("实时写入速度").size(11.0).color(theme::TEXT_MUTED));
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!("{:.2}", display_speed))
+                            .size(24.0)
+                            .strong()
+                            .color(theme::ACCENT_CYAN),
+                    );
+                    ui.label(RichText::new("MB/s").size(11.0).color(theme::TEXT_MUTED));
+                });
             });
+
+            ui.add_space(12.0);
 
             // 卡片 2: 已写入数据
-            ui.group(|ui| {
-                ui.set_width(card_width);
-                ui.label(RichText::new("已写入数据").weak().size(12.0));
-                ui.label(
-                    RichText::new(format!(
-                        "{:.2} GB",
-                        display_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-                    ))
-                    .strong()
-                    .size(20.0),
-                );
+            theme::bento_card(ui, card_width, |ui| {
+                ui.label(RichText::new("已写入容量").size(11.0).color(theme::TEXT_MUTED));
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!(
+                            "{:.2}",
+                            display_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+                        ))
+                        .size(24.0)
+                        .strong()
+                        .color(theme::TEXT_PRIMARY),
+                    );
+                    ui.label(RichText::new("GB").size(11.0).color(theme::TEXT_MUTED));
+                });
             });
 
+            ui.add_space(12.0);
+
             // 卡片 3: 动态 ETA 倒计时
-            ui.group(|ui| {
-                ui.set_width(card_width);
-                ui.label(RichText::new("预计剩余时间").weak().size(12.0));
+            theme::bento_card(ui, card_width, |ui| {
+                ui.label(RichText::new("预计剩余时间").size(11.0).color(theme::TEXT_MUTED));
                 let eta_str = if is_write_running {
                     format_eta(snapshot.eta_seconds)
                 } else {
-                    "空闲就绪".to_string()
+                    "空闲待命".to_string()
                 };
                 ui.label(
                     RichText::new(eta_str)
-                        .strong()
                         .size(20.0)
-                        .color(Color32::from_rgb(255, 180, 0)),
+                        .strong()
+                        .color(if is_write_running { theme::ACCENT_AMBER } else { theme::TEXT_SECONDARY }),
                 );
             });
 
-            // 卡片 4: I/O 驱动模式
-            ui.group(|ui| {
-                ui.set_width(card_width);
-                ui.label(RichText::new("I/O 模式").weak().size(12.0));
-                ui.label(RichText::new("Direct I/O (无缓存)").strong().size(18.0));
-            });
-        });
+            ui.add_space(12.0);
 
-        // 便捷按钮区
-        ui.horizontal(|ui| {
-            if ui.button("在资源管理器中打开").clicked() {
-                let _ = std::process::Command::new("explorer")
-                    .arg(self.state.inventory.selected_path())
-                    .spawn();
-            }
-            let is_busy = snapshot.status == TaskStatus::Running;
-            if ui
-                .add_enabled(
-                    !is_busy,
-                    egui::Button::new(RichText::new("清理测试文件 (.h2w)")),
-                )
-                .clicked()
-            {
-                let path = self.state.inventory.selected_path();
-                self.state.controller.start_cleanup(path);
-            }
+            // 卡片 4: I/O 驱动模式
+            theme::bento_card(ui, card_width, |ui| {
+                ui.label(RichText::new("I/O 底层驱动").size(11.0).color(theme::TEXT_MUTED));
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Direct I/O").size(18.0).strong().color(theme::TEXT_PRIMARY));
+                    theme::pill_badge(ui, "无缓冲", theme::ACCENT_GREEN, Color32::from_rgb(16, 40, 28));
+                });
+            });
         });
 
         ui.add_space(10.0);
@@ -461,13 +561,14 @@ impl F3App {
     }
 
     fn render_read_tab(&mut self, ui: &mut egui::Ui, snapshot: &TaskSnapshot) {
-        ui.heading("读取校验 (f3read)");
-        ui.label("读取磁盘上的 .h2w 文件比对数据，检查损坏扇区与虚标覆盖。");
-        ui.separator();
+        // 现代黑白极简页面标题与说明
+        ui.label(RichText::new("读取校验 (f3read)").size(18.0).strong().color(theme::TEXT_PRIMARY));
+        ui.label(RichText::new("读取磁盘上的 .h2w 数据文件逐比特哈希比对，排查损坏坏块与回绕覆盖虚标。").size(12.0).color(theme::TEXT_MUTED));
+        ui.add_space(6.0);
 
         render_storage_volume_selector(ui, "read_vol_combo", &mut self.state.inventory);
 
-        ui.add_space(10.0);
+        ui.add_space(8.0);
 
         // 校验控制与断点续验分段配置
         let is_safe = self.state.inventory.selected_volume().is_some_and(|v| v.is_safe_target);
@@ -477,29 +578,37 @@ impl F3App {
 
         ui.horizontal(|ui| {
             if is_read_running {
-                if ui.button(RichText::new("停止校验").size(15.0)).clicked() {
+                if theme::danger_button(ui, "停止校验", [130.0, 36.0]).clicked() {
                     self.state.controller.cancel();
                 }
             } else {
                 let can_start = is_safe && !is_other_running;
                 let btn_text = if is_other_running {
-                    "其他任务正在运行中..."
+                    "其他任务运行中..."
                 } else {
                     "开始校验"
                 };
-                if ui.add_enabled(can_start, egui::Button::new(RichText::new(btn_text).size(15.0))).clicked() {
-                    self.start_read_task();
+                if can_start {
+                    if theme::primary_button(ui, btn_text, [130.0, 36.0]).clicked() {
+                        self.start_read_task();
+                    }
+                } else {
+                    let _ = ui.add_enabled(false, egui::Button::new(RichText::new(btn_text).size(14.0)));
                 }
             }
 
-            ui.separator();
-            ui.label("断点续验起始分卷:");
+            ui.add_space(10.0);
+
+            // 断点续验分段配置
+            ui.label(RichText::new("起始分卷:").size(12.0).color(theme::TEXT_MUTED));
             let mut start_val = (self.state.start_file_num + 1) as i64;
             if ui.add(egui::DragValue::new(&mut start_val).range(1..=99999).prefix("第 ").suffix(" 卷 (.h2w)")).changed() {
                 self.state.start_file_num = (start_val.max(1) - 1) as u64;
             }
 
-            ui.label("结束分卷 (0为不限):");
+            ui.add_space(6.0);
+
+            ui.label(RichText::new("结束分卷:").size(12.0).color(theme::TEXT_MUTED));
             let mut end_val = self.state.end_file_num.map(|n| (n + 1) as i64).unwrap_or(0);
             if ui.add(egui::DragValue::new(&mut end_val).range(0..=99999).prefix("至 ").suffix(" 卷")).changed() {
                 self.state.end_file_num = if end_val > 0 { Some((end_val - 1) as u64) } else { None };
@@ -508,51 +617,142 @@ impl F3App {
 
         ui.add_space(10.0);
 
-        // 校验统计计数 (仅在当前为读取任务运行或保留读取结果时展示，杜绝写入任务状态串扰)
-        let empty_stats = crate::core::algo::BlockStats::default();
+        // 便捷按钮与自动清理控制
+        ui.horizontal(|ui| {
+            if theme::ghost_button(ui, "打开所在目录", [110.0, 30.0]).clicked() {
+                let _ = std::process::Command::new("explorer")
+                    .arg(self.state.inventory.selected_path())
+                    .spawn();
+            }
+            if theme::ghost_button(ui, "转到写入页", [90.0, 30.0]).clicked() {
+                self.state.current_tab = AppTab::WriteTest;
+            }
+            let is_busy = snapshot.status == TaskStatus::Running;
+            if is_busy {
+                let _ = ui.add_enabled(false, egui::Button::new(RichText::new("清理测试文件").size(12.0)));
+            } else if theme::ghost_button(ui, "清理测试文件", [110.0, 30.0]).clicked() {
+                let path = self.state.inventory.selected_path();
+                self.state.controller.start_cleanup(path);
+            }
+
+            ui.add_space(10.0);
+            ui.checkbox(&mut self.state.auto_cleanup_after_read, RichText::new("校验通过后自动清理文件").size(12.0).color(theme::TEXT_SECONDARY));
+        });
+
+        ui.add_space(12.0);
+
         let current_is_verify = matches!(snapshot.kind, crate::core::controller::TaskKind::Verify | crate::core::controller::TaskKind::WriteAndVerify);
+        let empty_stats = crate::core::algo::BlockStats::default();
         let stats = if is_read_running || (snapshot.status != TaskStatus::Running && current_is_verify) {
             &snapshot.stats
         } else {
             &empty_stats
         };
+
+        // 现代 Bento-Grid 四卡片核心指标仪表盘 (读取校验专属)
         ui.horizontal(|ui| {
-            ui.colored_label(Color32::from_rgb(46, 204, 113), format!("正常: {}", stats.good));
-            ui.separator();
-            ui.colored_label(Color32::from_rgb(231, 76, 60), format!("损坏: {}", stats.bad));
-            ui.separator();
-            ui.colored_label(Color32::from_rgb(241, 196, 15), format!("异常: {}", stats.changed));
-            ui.separator();
-            ui.colored_label(Color32::from_rgb(155, 89, 182), format!("覆盖: {}", stats.overwritten));
+            let card_width = (ui.available_width() - 36.0) / 4.0;
+
+            let display_speed = if is_read_running {
+                snapshot.current_speed_mb
+            } else if self.state.audit_record.read_tested {
+                self.state.audit_record.read_avg_mb
+            } else {
+                0.0
+            };
+
+            let display_bytes = if is_read_running {
+                snapshot.total_bytes_processed
+            } else if self.state.audit_record.read_tested {
+                self.state.audit_record.read_bytes
+            } else {
+                0
+            };
+
+            // 卡片 1: 实时读取速度
+            theme::bento_card(ui, card_width, |ui| {
+                ui.label(RichText::new("实时读取速度").size(11.0).color(theme::TEXT_MUTED));
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!("{:.2}", display_speed))
+                            .size(24.0)
+                            .strong()
+                            .color(theme::ACCENT_CYAN),
+                    );
+                    ui.label(RichText::new("MB/s").size(11.0).color(theme::TEXT_MUTED));
+                });
+            });
+
+            ui.add_space(12.0);
+
+            // 卡片 2: 已校验数据量
+            theme::bento_card(ui, card_width, |ui| {
+                ui.label(RichText::new("已校验容量").size(11.0).color(theme::TEXT_MUTED));
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!(
+                            "{:.2}",
+                            display_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+                        ))
+                        .size(24.0)
+                        .strong()
+                        .color(theme::TEXT_PRIMARY),
+                    );
+                    ui.label(RichText::new("GB").size(11.0).color(theme::TEXT_MUTED));
+                });
+            });
+
+            ui.add_space(12.0);
+
+            // 卡片 3: 预计剩余时间
+            theme::bento_card(ui, card_width, |ui| {
+                ui.label(RichText::new("预计剩余时间").size(11.0).color(theme::TEXT_MUTED));
+                let eta_str = if is_read_running {
+                    format_eta(snapshot.eta_seconds)
+                } else {
+                    "空闲待命".to_string()
+                };
+                ui.label(
+                    RichText::new(eta_str)
+                        .size(20.0)
+                        .strong()
+                        .color(if is_read_running { theme::ACCENT_AMBER } else { theme::TEXT_SECONDARY }),
+                );
+            });
+
+            ui.add_space(12.0);
+
+            // 卡片 4: 介质健康结论
+            theme::bento_card(ui, card_width, |ui| {
+                ui.label(RichText::new("扇区健康状态").size(11.0).color(theme::TEXT_MUTED));
+                let has_errors = stats.bad > 0 || stats.overwritten > 0 || stats.changed > 0;
+                if is_read_running || self.state.audit_record.read_tested {
+                    if has_errors {
+                        theme::pill_badge(ui, "发现异常坏块", theme::ACCENT_RED, Color32::from_rgb(45, 16, 16));
+                    } else if stats.good > 0 {
+                        theme::pill_badge(ui, "数据完整健康", theme::ACCENT_GREEN, Color32::from_rgb(16, 40, 28));
+                    } else {
+                        theme::pill_badge(ui, "正在校验", theme::ACCENT_CYAN, Color32::from_rgb(16, 32, 45));
+                    }
+                } else {
+                    theme::pill_badge(ui, "未校验", theme::TEXT_MUTED, theme::SURFACE_BG);
+                }
+            });
         });
 
-        // 便捷按钮与自动清理控制
+        ui.add_space(8.0);
+
+        // 校验四态扇区微型徽章统计栏
         ui.horizontal(|ui| {
-            if ui.button("在文件资源管理器中打开此路径").clicked() {
-                let _ = std::process::Command::new("explorer")
-                    .arg(self.state.inventory.selected_path())
-                    .spawn();
-            }
-            if ui.button("转到写入页面").clicked() {
-                self.state.current_tab = AppTab::WriteTest;
-            }
-            let is_busy = snapshot.status == TaskStatus::Running;
-            if ui
-                .add_enabled(
-                    !is_busy,
-                    egui::Button::new(
-                        RichText::new("一键清理所有 .h2w 测试文件 (释放空间)")
-                            .color(Color32::from_rgb(255, 140, 0)),
-                    ),
-                )
-                .clicked()
-            {
-                let path = self.state.inventory.selected_path();
-                self.state.controller.start_cleanup(path);
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.state.auto_cleanup_after_read, "校验完成后自动删除测试文件");
+            ui.label(RichText::new("实时扇区采样统计:").size(11.0).color(theme::TEXT_MUTED));
+            ui.add_space(4.0);
+            theme::pill_badge(ui, &format!("正常: {}", stats.good), theme::ACCENT_GREEN, Color32::from_rgb(16, 40, 28));
+            ui.add_space(4.0);
+            theme::pill_badge(ui, &format!("损坏: {}", stats.bad), theme::ACCENT_RED, Color32::from_rgb(45, 16, 16));
+            ui.add_space(4.0);
+            theme::pill_badge(ui, &format!("异常: {}", stats.changed), theme::ACCENT_AMBER, Color32::from_rgb(45, 35, 16));
+            ui.add_space(4.0);
+            theme::pill_badge(ui, &format!("覆盖: {}", stats.overwritten), Color32::from_rgb(168, 85, 247), Color32::from_rgb(38, 18, 55));
         });
 
         ui.add_space(10.0);
@@ -642,34 +842,40 @@ impl F3App {
     }
 
     fn render_probe_tab(&mut self, ui: &mut egui::Ui, snapshot: &TaskSnapshot) {
-        ui.heading("容量探测 (f3probe)");
-        ui.label("直接向物理磁盘写入探针测试实际容量。测试前会自动卸载卷，请备份重要数据。");
-        ui.separator();
+        ui.label(RichText::new("闪电探测 (f3probe)").size(18.0).strong().color(theme::TEXT_PRIMARY));
+        ui.label(RichText::new("直接向物理磁盘写入探针快速探测真实物理容量。探测前将自动独占卸载卷，请备份重要数据。").size(12.0).color(theme::TEXT_MUTED));
+        ui.add_space(6.0);
 
         render_storage_device_selector(ui, &mut self.state.inventory);
 
-        ui.add_space(15.0);
+        ui.add_space(10.0);
 
         let is_probe_running = snapshot.status == TaskStatus::Running && snapshot.kind == crate::core::controller::TaskKind::Probe;
         let is_other_running = snapshot.status == TaskStatus::Running && !is_probe_running;
 
-        if is_probe_running {
-            if ui.button(RichText::new("停止探测").size(15.0)).clicked() {
-                self.state.controller.cancel();
-            }
-        } else {
-            let can_start = !is_other_running;
-            let btn_text = if is_other_running {
-                "其他任务正在运行中..."
+        ui.horizontal(|ui| {
+            if is_probe_running {
+                if theme::danger_button(ui, "停止探测", [130.0, 36.0]).clicked() {
+                    self.state.controller.cancel();
+                }
             } else {
-                "开始探测"
-            };
-            if ui.add_enabled(can_start, egui::Button::new(RichText::new(btn_text).size(15.0))).clicked() {
-                self.start_probe_task();
+                let can_start = !is_other_running;
+                let btn_text = if is_other_running {
+                    "其他任务运行中..."
+                } else {
+                    "开始探测"
+                };
+                if can_start {
+                    if theme::primary_button(ui, btn_text, [130.0, 36.0]).clicked() {
+                        self.start_probe_task();
+                    }
+                } else {
+                    let _ = ui.add_enabled(false, egui::Button::new(RichText::new(btn_text).size(14.0)));
+                }
             }
-        }
+        });
 
-        ui.add_space(15.0);
+        ui.add_space(14.0);
         let progress = if is_probe_running || (snapshot.status != TaskStatus::Running && snapshot.kind == crate::core::controller::TaskKind::Probe) {
             snapshot.progress_pct
         } else {
@@ -678,99 +884,152 @@ impl F3App {
         ui.add(ProgressBar::new(progress).show_percentage());
 
         if is_probe_running || snapshot.kind == crate::core::controller::TaskKind::Probe {
+            ui.add_space(14.0);
             if let Some(ref res) = snapshot.probe_result {
                 if let Some(ref err) = res.error {
-                    ui.group(|ui| {
-                        if err.contains("用户中止") || err.contains("手动中止") {
-                            ui.colored_label(
-                                Color32::from_rgb(241, 196, 15),
-                                RichText::new("探测任务已由用户手动中止。").strong().size(15.0),
-                            );
-                            ui.label("设备已安全解锁恢复挂载，可随时重新启动探测。");
-                        } else {
-                            ui.colored_label(
-                                Color32::RED,
-                                RichText::new(format!("无法执行探测: {}", err)).strong().size(15.0),
-                            );
-                            ui.label("提示: 请确认已允许管理员权限，且设备未被其他程序占用。");
-                        }
-                    });
+                    egui::Frame::none()
+                        .fill(theme::SURFACE_BG)
+                        .stroke(egui::Stroke::new(1.0, theme::ACCENT_AMBER))
+                        .rounding(egui::Rounding::same(8.0))
+                        .inner_margin(egui::Margin::same(14.0))
+                        .show(ui, |ui| {
+                            if err.contains("用户中止") || err.contains("手动中止") {
+                                theme::pill_badge(ui, "任务中止", theme::ACCENT_AMBER, Color32::from_rgb(45, 35, 16));
+                                ui.add_space(6.0);
+                                ui.label(RichText::new("探测任务已由用户手动中止").size(14.0).strong().color(theme::TEXT_PRIMARY));
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("设备已安全解锁恢复挂载，可随时重新启动探测。").size(12.0).color(theme::TEXT_MUTED));
+                            } else {
+                                theme::pill_badge(ui, "执行受阻", theme::ACCENT_RED, Color32::from_rgb(45, 16, 16));
+                                ui.add_space(6.0);
+                                ui.label(RichText::new(format!("无法执行探测: {}", err)).size(14.0).strong().color(theme::ACCENT_RED));
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("提示: 请确认已具有管理员权限，且目标物理磁盘未被其他进程独占占用。").size(12.0).color(theme::TEXT_MUTED));
+                            }
+                        });
                 } else {
-                    ui.group(|ui| {
-                        ui.heading("探测结果:");
-                        ui.label(format!(
-                            "设备标称容量: {:.2} GB",
-                            res.announced_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-                        ));
-                        ui.label(format!(
-                            "物理真实容量: {:.2} GB",
-                            res.real_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-                        ));
+                    let border_color = if res.is_fake { theme::ACCENT_RED } else { theme::ACCENT_GREEN };
+                    egui::Frame::none()
+                        .fill(theme::SURFACE_BG)
+                        .stroke(egui::Stroke::new(1.0, border_color))
+                        .rounding(egui::Rounding::same(8.0))
+                        .inner_margin(egui::Margin::same(16.0))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                if res.is_fake {
+                                    theme::pill_badge(ui, "发现虚标", theme::ACCENT_RED, Color32::from_rgb(45, 16, 16));
+                                } else {
+                                    theme::pill_badge(ui, "容量合规", theme::ACCENT_GREEN, Color32::from_rgb(16, 40, 28));
+                                }
+                                ui.add_space(6.0);
+                                ui.label(RichText::new("闪电探测结果快报").size(15.0).strong().color(theme::TEXT_PRIMARY));
+                            });
 
-                        if res.is_fake {
-                            ui.colored_label(Color32::RED, "检测到容量虚标。建议前往「分区修复」调整可用分区大小。");
-                        } else {
-                            ui.colored_label(Color32::GREEN, "容量正常，未发现地址回绕。");
-                        }
-                    });
+                            ui.add_space(10.0);
+                            ui.separator();
+                            ui.add_space(8.0);
+
+                            ui.label(RichText::new(format!(
+                                "设备标称容量: {:.2} GB   |   物理真实容量: {:.2} GB",
+                                res.announced_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
+                                res.real_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+                            )).size(13.0).strong().color(theme::TEXT_PRIMARY));
+
+                            ui.add_space(6.0);
+                            if res.is_fake {
+                                ui.label(RichText::new("检测到容量虚标！该设备存在硬件地址回绕或位黑洞。建议前往「分区修复」标签页将分区截断为真实安全容量。").size(12.0).color(theme::ACCENT_RED));
+                            } else {
+                                ui.label(RichText::new("容量完全合规，未见物理回绕或位黑洞。该设备物理容量真实可靠。").size(12.0).color(theme::ACCENT_GREEN));
+                            }
+                        });
                 }
             }
         }
     }
 
     fn render_fix_tab(&mut self, ui: &mut egui::Ui, snapshot: &TaskSnapshot) {
-        ui.heading("分区修复 (f3fix)");
-        ui.label("根据探测出的实际物理容量调整分区大小，避免使用超出物理范围的扇区。");
-        ui.separator();
+        ui.label(RichText::new("分区自愈 (f3fix)").size(18.0).strong().color(theme::TEXT_PRIMARY));
+        ui.label(RichText::new("根据探测出的实际物理容量重新划分安全分区，永久锁定并隔离超出真实物理边界的虚假扇区。").size(12.0).color(theme::TEXT_MUTED));
+        ui.add_space(8.0);
 
         if let Some(ref plan) = snapshot.fix_plan {
             let fixer = SafePartitionFixer::new(plan.clone());
-            ui.group(|ui| {
-                ui.label(format!("目标物理磁盘: PhysicalDrive{}", plan.disk_index));
-                ui.label(format!(
-                    "真实可用容量: {:.2} GB",
-                    plan.real_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
-                ));
-                ui.label(format!("建议截断分区大小: {} MB", plan.safe_partition_mb));
-                ui.label(format!("推荐文件系统: {}", plan.file_system));
+            egui::Frame::none()
+                .fill(theme::SURFACE_BG)
+                .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                .rounding(egui::Rounding::same(8.0))
+                .inner_margin(egui::Margin::same(16.0))
+                .show(ui, |ui| {
+                    ui.label(RichText::new("待执行安全分区方案").size(15.0).strong().color(theme::TEXT_PRIMARY));
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
 
-                ui.add_space(5.0);
-                match fixer.dry_run() {
-                    Ok(report) => {
-                        ui.colored_label(
-                            Color32::GREEN,
-                            format!("已通过移动介质总线现场复核: {} ({})", report.bus_name, report.vendor_id),
-                        );
-                        ui.add_space(10.0);
-                        let is_busy = snapshot.status == TaskStatus::Running;
-                        if ui
-                            .add_enabled(
-                                !is_busy,
-                                egui::Button::new(RichText::new("应用安全分区 (运行 diskpart)").size(15.0)),
-                            )
-                            .clicked()
-                        {
-                            if let Err(e) = self.state.controller.start_fix(plan.clone()) {
-                                self.state.controller.set_status_message(format!("启动修复失败: {}", e));
-                            }
+                    egui::Frame::none()
+                        .fill(theme::CANVAS_BG)
+                        .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                        .rounding(egui::Rounding::same(6.0))
+                        .inner_margin(egui::Margin::same(10.0))
+                        .show(ui, |ui| {
+                            ui.label(RichText::new(format!("目标物理磁盘: PhysicalDrive{}", plan.disk_index)).size(12.0).color(theme::TEXT_SECONDARY));
+                            ui.add_space(3.0);
+                            ui.label(RichText::new(format!(
+                                "真实可用容量: {:.2} GB   |   建议截断分区大小: {} MB",
+                                plan.real_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
+                                plan.safe_partition_mb
+                            )).size(12.5).strong().color(theme::TEXT_PRIMARY));
+                            ui.add_space(3.0);
+                            ui.label(RichText::new(format!("推荐格式化文件系统: {}", plan.file_system)).size(12.0).color(theme::TEXT_SECONDARY));
+                        });
+
+                    ui.add_space(10.0);
+                    match fixer.dry_run() {
+                        Ok(report) => {
+                            ui.label(
+                                RichText::new(format!("已通过移动总线现场安全复核: {} ({})", report.bus_name, report.vendor_id))
+                                    .size(12.0)
+                                    .color(theme::ACCENT_GREEN),
+                            );
+                            ui.add_space(10.0);
+                            let is_busy = snapshot.status == TaskStatus::Running;
+                            ui.horizontal(|ui| {
+                                if !is_busy {
+                                    if theme::primary_button(ui, "应用安全分区 (运行 diskpart)", [220.0, 36.0]).clicked() {
+                                        if let Err(e) = self.state.controller.start_fix(plan.clone()) {
+                                            self.state.controller.set_status_message(format!("启动修复失败: {}", e));
+                                        }
+                                    }
+                                } else {
+                                    let _ = ui.add_enabled(false, egui::Button::new(RichText::new("正在执行安全分区...").size(14.0)));
+                                }
+
+                                ui.add_space(10.0);
+                                if theme::ghost_button(ui, "导出 diskpart 脚本", [150.0, 36.0]).clicked() {
+                                    let desk = PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default())
+                                        .join(r"Desktop\f3_fix.diskpart");
+                                    let _ = plan.export_script_to_file(&desk);
+                                    self.state.controller.set_status_message(format!("脚本已导出至 {:?}", desk));
+                                }
+                            });
+                        }
+                        Err(err) => {
+                            ui.label(RichText::new(format!("物理安全拦截: {}", err)).size(12.0).color(theme::ACCENT_RED));
+                            ui.add_space(10.0);
+                            let _ = ui.add_enabled(false, egui::Button::new(RichText::new("无法应用安全分区").size(14.0)));
                         }
                     }
-                    Err(err) => {
-                        ui.colored_label(Color32::RED, format!("安全拦截: {}", err));
-                        ui.add_space(10.0);
-                        ui.add_enabled(false, egui::Button::new(RichText::new("无法应用安全分区").size(15.0)));
-                    }
-                }
-
-                if ui.button("导出 diskpart 脚本").clicked() {
-                    let desk = PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default())
-                        .join(r"Desktop\f3_fix.diskpart");
-                    let _ = plan.export_script_to_file(&desk);
-                    self.state.controller.set_status_message(format!("脚本已导出至 {:?}", desk));
-                }
-            });
+                });
         } else {
-            ui.label("暂无待修复方案，请先在「闪电探测」标签页完成假盘探测。");
+            egui::Frame::none()
+                .fill(theme::SURFACE_BG)
+                .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                .rounding(egui::Rounding::same(8.0))
+                .inner_margin(egui::Margin::same(18.0))
+                .show(ui, |ui| {
+                    ui.label(RichText::new("暂无待修复方案").size(14.0).strong().color(theme::TEXT_PRIMARY));
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("请先前往「闪电探测」标签页针对假盘执行快速物理探测，系统将根据真实物理边界自动生成量身定制的无损自愈分区方案。").size(12.0).color(theme::TEXT_MUTED));
+                });
         }
     }
 
@@ -816,91 +1075,164 @@ impl F3App {
             self.state.audit_record.write_bytes
         };
 
-        ui.add_space(15.0);
+        ui.add_space(16.0);
         egui::Frame::none()
-            .fill(Color32::from_rgb(22, 24, 29))
-            .stroke(egui::Stroke::new(1.5_f32, Color32::from_rgb(52, 152, 219)))
+            .fill(theme::SURFACE_BG)
+            .stroke(egui::Stroke::new(1.0, theme::ACCENT_CYAN))
             .rounding(egui::Rounding::same(8.0))
-            .inner_margin(egui::Margin::same(16.0))
+            .inner_margin(egui::Margin::same(18.0))
             .show(ui, |ui| {
                 // 1. 报告红头与公文标识
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("[司法存证检验]").background_color(Color32::from_rgb(41, 128, 185)).color(Color32::WHITE).strong());
-                    ui.heading(RichText::new("存储介质物理写入性能与颗粒体质检验书").strong().size(16.0));
+                    theme::pill_badge(ui, "物理性能存证 · 无缓冲直通", theme::ACCENT_CYAN, Color32::from_rgb(16, 32, 45));
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new("存储介质物理写入性能与颗粒体质检验书")
+                            .strong()
+                            .size(15.0)
+                            .color(theme::TEXT_PRIMARY),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new(&report.generated_at_local).color(Color32::GRAY));
+                        ui.label(RichText::new(&report.generated_at_local).size(11.0).color(theme::TEXT_MUTED));
                     });
                 });
-
-                ui.separator();
-                ui.add_space(4.0);
-
-                // 2. 写入阶段状态卡片
-                egui::Frame::none()
-                    .fill(Color32::from_rgb(20, 35, 45))
-                    .rounding(egui::Rounding::same(6.0))
-                    .inner_margin(egui::Margin::same(10.0))
-                    .show(ui, |ui| {
-                        ui.colored_label(Color32::from_rgb(100, 200, 255), RichText::new("【写入阶段完成】：物理数据流已全盘无缓冲直通落盘！").strong().size(15.0));
-                        ui.label(RichText::new(format!(
-                            "写入数据总量: {:.2} GB | 连续写入耗时: {:.1} 秒 ({:.2} 分钟) | 平均写入速度: {:.2} MB/s",
-                            gb(write_bytes), report.write_duration_secs, report.write_duration_secs / 60.0, write_avg
-                        )).color(Color32::from_rgb(220, 240, 255)).strong());
-                        ui.add_space(3.0);
-                        ui.label(RichText::new("【说明】：本阶段已将高熵伪随机数据真实写入存储物理芯片。已排除操作系统文件缓存，可直接作为物理写入吞吐能力的法定证据。").color(Color32::from_rgb(200, 220, 240)));
-                    });
-
-                ui.add_space(8.0);
-
-                // 3. 硬件指纹拓扑
-                ui.label(RichText::new("一、 被测硬件物理拓扑与唯一指纹信息").strong().color(Color32::LIGHT_BLUE));
-                ui.monospace(format!("- 被测逻辑盘符: {} | 物理磁盘对象: {}", report.target_drive, report.physical_drive_path));
-                ui.monospace(format!("- 物理卷序列号: {} (卷格式化 32 位唯一指纹，彻底封死商家调包借口)", serial_hex));
-                ui.monospace(format!("- 硬件标识信息: VID: {} | PID: {} | 序列号: {}", report.vendor_id, report.product_id, report.serial_number));
-                ui.monospace(format!("- 防伪加盐凭证: {} (单向有损散列，主机物理隔离防算力回放作弊)", report.salt_hex));
-
-                ui.add_space(8.0);
-
-                // 4. 写入速度生理全景指标
-                ui.label(RichText::new("二、 物理写入速率全景与生理体质诊断").strong().color(Color32::LIGHT_BLUE));
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.monospace(format!("平均写入速率: {:.2} MB/s", write_avg));
-                        ui.separator();
-                        ui.monospace(format!("最高峰值写速: {:.2} MB/s", write_peak));
-                        ui.separator();
-                        ui.monospace(format!("最低谷底写速: {:.2} MB/s", write_valley));
-                        ui.separator();
-                        ui.monospace(format!("稳态中位写速: {:.2} MB/s", write_median));
-                    });
-                    if let Some(cliff_b) = report.slc_cliff_bytes {
-                        ui.colored_label(Color32::from_rgb(255, 165, 0), format!(
-                            "[断崖预警] SLC 模拟缓存耗尽拐点: 在写入至 {:.2} GB 处，速度由 {:.1} MB/s 暴跌至 {:.1} MB/s (跌幅 {:.1}%)！",
-                            gb(cliff_b), report.slc_cliff_speed_before_mb, report.slc_cliff_speed_after_mb, report.slc_cliff_drop_pct
-                        ));
-                    }
-                });
-
-                ui.add_space(4.0);
-                ui.monospace(format!("- 硬件物理接口推断: {}", report.inference.inferred_bus));
-                ui.monospace(format!("- 闪存颗粒品质推断: {}", report.inference.flash_grade));
-                ui.label(RichText::new(format!("- 掉速病理解读: {}", report.inference.pathology_analysis)).color(Color32::from_rgb(200, 200, 200)));
-
-                ui.add_space(8.0);
-
-                // 5. 下一步操作指引
-                ui.label(RichText::new("三、 下一步真实容量验证指引").strong().color(Color32::LIGHT_GREEN));
-                ui.label("【重要提示】：物理写入完成仅证明数据已向设备发送。扩容假盘常采用地址回绕覆写或位黑洞丢弃。请前往「读取校验」页面开始全盘校验，即可验证实际物理可用容量与是否存在扩容欺诈！");
 
                 ui.add_space(10.0);
                 ui.separator();
+                ui.add_space(10.0);
+
+                // 2. 写入阶段状态卡片
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(14, 26, 36))
+                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(24, 48, 64)))
+                    .rounding(egui::Rounding::same(6.0))
+                    .inner_margin(egui::Margin::same(12.0))
+                    .show(ui, |ui| {
+                        ui.label(
+                            RichText::new("写入阶段完成：物理数据流已全盘无缓冲直通落盘")
+                                .strong()
+                                .size(14.0)
+                                .color(theme::ACCENT_CYAN),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(format!(
+                                "写入数据总量: {:.2} GB  |  连续写入耗时: {:.1} 秒 ({:.2} 分钟)  |  平均写入速度: {:.2} MB/s",
+                                gb(write_bytes), report.write_duration_secs, report.write_duration_secs / 60.0, write_avg
+                            ))
+                            .size(12.5)
+                            .strong()
+                            .color(theme::TEXT_PRIMARY),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new("说明：本阶段已将高熵伪随机数据真实写入存储物理芯片。已排除操作系统文件缓存，可直接作为物理写入吞吐能力的法定证据。")
+                                .size(11.5)
+                                .color(theme::TEXT_MUTED),
+                        );
+                    });
+
+                ui.add_space(12.0);
+
+                // 3. 硬件指纹拓扑
+                ui.label(
+                    RichText::new("一、 被测硬件物理拓扑与唯一指纹信息")
+                        .strong()
+                        .size(13.0)
+                        .color(theme::TEXT_PRIMARY),
+                );
+                ui.add_space(6.0);
+                egui::Frame::none()
+                    .fill(theme::CANVAS_BG)
+                    .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                    .rounding(egui::Rounding::same(6.0))
+                    .inner_margin(egui::Margin::same(10.0))
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(format!("被测逻辑盘符: {}   |   物理磁盘对象: {}", report.target_drive, report.physical_drive_path)).size(12.0).color(theme::TEXT_SECONDARY));
+                        ui.add_space(3.0);
+                        ui.label(RichText::new(format!("物理卷序列号: {} (卷格式化 32 位唯一指纹，彻底封死商家调包借口)", serial_hex)).size(12.0).color(theme::TEXT_SECONDARY));
+                        ui.add_space(3.0);
+                        ui.label(RichText::new(format!("硬件标识信息: VID: {}   |   PID: {}   |   序列号: {}", report.vendor_id, report.product_id, report.serial_number)).size(12.0).color(theme::TEXT_SECONDARY));
+                        ui.add_space(3.0);
+                        ui.label(RichText::new(format!("防伪加盐凭证: {} (单向有损散列，主机物理隔离防算力回放作弊)", report.salt_hex)).size(12.0).color(theme::TEXT_SECONDARY));
+                    });
+
+                ui.add_space(12.0);
+
+                // 4. 写入速度生理全景指标
+                ui.label(
+                    RichText::new("二、 物理写入速率全景与生理体质诊断")
+                        .strong()
+                        .size(13.0)
+                        .color(theme::TEXT_PRIMARY),
+                );
+                ui.add_space(6.0);
+                egui::Frame::none()
+                    .fill(theme::CANVAS_BG)
+                    .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                    .rounding(egui::Rounding::same(6.0))
+                    .inner_margin(egui::Margin::same(10.0))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(format!("平均写入速率: {:.2} MB/s", write_avg)).size(12.0).color(theme::TEXT_PRIMARY));
+                            ui.separator();
+                            ui.label(RichText::new(format!("最高峰值写速: {:.2} MB/s", write_peak)).size(12.0).color(theme::TEXT_PRIMARY));
+                            ui.separator();
+                            ui.label(RichText::new(format!("最低谷底写速: {:.2} MB/s", write_valley)).size(12.0).color(theme::TEXT_PRIMARY));
+                            ui.separator();
+                            ui.label(RichText::new(format!("稳态中位写速: {:.2} MB/s", write_median)).size(12.0).color(theme::TEXT_PRIMARY));
+                        });
+                        if let Some(cliff_b) = report.slc_cliff_bytes {
+                            ui.add_space(6.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "[断崖预警] SLC 模拟缓存耗尽拐点: 在写入至 {:.2} GB 处，速度由 {:.1} MB/s 暴跌至 {:.1} MB/s (跌幅 {:.1}%)",
+                                    gb(cliff_b), report.slc_cliff_speed_before_mb, report.slc_cliff_speed_after_mb, report.slc_cliff_drop_pct
+                                ))
+                                .size(11.5)
+                                .color(theme::ACCENT_AMBER),
+                            );
+                        }
+                    });
+
+                ui.add_space(8.0);
+                ui.label(RichText::new(format!("硬件物理接口推断: {}", report.inference.inferred_bus)).size(12.0).color(theme::TEXT_SECONDARY));
+                ui.label(RichText::new(format!("闪存颗粒品质推断: {}", report.inference.flash_grade)).size(12.0).color(theme::TEXT_SECONDARY));
+                ui.label(RichText::new(format!("掉速病理解读: {}", report.inference.pathology_analysis)).size(12.0).color(theme::TEXT_MUTED));
+
+                ui.add_space(12.0);
+
+                // 5. 下一步操作指引
+                ui.label(
+                    RichText::new("三、 下一步真实容量验证指引")
+                        .strong()
+                        .size(13.0)
+                        .color(theme::ACCENT_GREEN),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new("重要提示：物理写入完成仅证明数据已向设备发送。扩容假盘常采用地址回绕覆写或位黑洞丢弃。请前往「读取校验」页面开始全盘校验，即可验证实际物理可用容量与是否存在扩容欺诈。")
+                        .size(12.0)
+                        .color(theme::TEXT_MUTED),
+                );
+
+                ui.add_space(14.0);
+                ui.separator();
+                ui.add_space(10.0);
 
                 // 底部辅助按钮与截屏提示
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("[截图提示] 请直接按系统快捷键 Win + Shift + S 截取上方公文卡片作为写入性能证据！").color(Color32::LIGHT_GREEN).strong());
-                    if ui.button("复制写入报告 Markdown").clicked() {
-                        ui.output_mut(|o| o.copied_text = report.generate_markdown());
-                    }
+                    ui.label(
+                        RichText::new("截图提示: 请直接按快捷键 Win + Shift + S 截取上方公文卡片作为写入性能证据")
+                            .size(11.5)
+                            .color(theme::ACCENT_GREEN)
+                            .strong(),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if theme::ghost_button(ui, "复制报告 Markdown").clicked() {
+                            ui.output_mut(|o| o.copied_text = report.generate_markdown());
+                        }
+                    });
                 });
             });
     }
@@ -949,248 +1281,433 @@ impl F3App {
             0
         };
 
+        ui.add_space(16.0);
+        let frame_stroke = if report.is_fake {
+            egui::Stroke::new(1.0, theme::ACCENT_RED)
+        } else {
+            egui::Stroke::new(1.0, theme::ACCENT_GREEN)
+        };
 
-
-        ui.add_space(15.0);
         egui::Frame::none()
-            .fill(Color32::from_rgb(22, 24, 29))
-            .stroke(egui::Stroke::new(1.5_f32, if report.is_fake { Color32::from_rgb(231, 76, 60) } else { Color32::from_rgb(46, 204, 113) }))
+            .fill(theme::SURFACE_BG)
+            .stroke(frame_stroke)
             .rounding(egui::Rounding::same(8.0))
-            .inner_margin(egui::Margin::same(16.0))
+            .inner_margin(egui::Margin::same(18.0))
             .show(ui, |ui| {
                 // 1. 报告红头与公文标识
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("[司法鉴定级存证]").background_color(if report.is_fake { Color32::from_rgb(192, 57, 43) } else { Color32::from_rgb(39, 174, 96) }).color(Color32::WHITE).strong());
-                    ui.heading(RichText::new("存储介质容量真实性与读写生理鉴定结论书").strong().size(16.0));
+                    if report.is_fake {
+                        theme::pill_badge(ui, "司法鉴定级存证 · 欺诈确证", theme::ACCENT_RED, Color32::from_rgb(45, 16, 16));
+                    } else {
+                        theme::pill_badge(ui, "司法鉴定级存证 · 物理合规", theme::ACCENT_GREEN, Color32::from_rgb(16, 40, 28));
+                    }
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new("存储介质容量真实性与读写生理鉴定结论书")
+                            .strong()
+                            .size(15.0)
+                            .color(theme::TEXT_PRIMARY),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new(&report.generated_at_local).color(Color32::GRAY));
+                        ui.label(RichText::new(&report.generated_at_local).size(11.0).color(theme::TEXT_MUTED));
                     });
                 });
 
+                ui.add_space(10.0);
                 ui.separator();
-                ui.add_space(4.0);
+                ui.add_space(10.0);
 
                 // 2. 人性化大白话通俗诊断结论 (醒目大卡片)
                 if report.is_fake {
                     egui::Frame::none()
-                        .fill(Color32::from_rgb(45, 20, 20))
+                        .fill(Color32::from_rgb(34, 18, 22))
+                        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(80, 24, 28)))
                         .rounding(egui::Rounding::same(6.0))
-                        .inner_margin(egui::Margin::same(10.0))
+                        .inner_margin(egui::Margin::same(12.0))
                         .show(ui, |ui| {
-                            ui.colored_label(Color32::from_rgb(255, 100, 100), RichText::new("【一句话通俗诊断】：这是一只严重虚标的非法扩容假盘！").strong().size(15.0));
-                            ui.label(RichText::new(format!(
-                                "标称规格: {:.2} GB | 真实可用: {:.2} GB | 虚假欺诈容量: {:.2} GB (虚标比例: {:.1}%)",
-                                gb(report.announced_bytes), gb(report.real_usable_bytes), gb(report.fake_bytes), report.fake_ratio_pct
-                            )).color(Color32::from_rgb(255, 220, 220)).strong());
-                            ui.add_space(3.0);
-                            ui.label(RichText::new("【通俗比喻】：打个比方，这就像一个外壳标着 64 升的大水桶，内部实际只有 8 升！倒进多出来的水会全部漏掉或覆盖旧水。存入该盘的重要照片或文档将在超过真实容量后永久丢失！").color(Color32::from_rgb(220, 220, 220)));
+                            ui.label(
+                                RichText::new("一句话通俗诊断：这是一只严重虚标的非法扩容假盘")
+                                    .strong()
+                                    .size(14.0)
+                                    .color(theme::ACCENT_RED),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "标称规格: {:.2} GB  |  真实可用: {:.2} GB  |  虚假欺诈容量: {:.2} GB (虚标比例: {:.1}%)",
+                                    gb(report.announced_bytes), gb(report.real_usable_bytes), gb(report.fake_bytes), report.fake_ratio_pct
+                                ))
+                                .size(12.5)
+                                .strong()
+                                .color(theme::TEXT_PRIMARY),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new("通俗比喻：打个比方，这就像一个外壳标着 64 升的大水桶，内部实际只有 8 升！倒进多出来的水会全部漏掉或覆盖旧水。存入该盘的重要照片或文档将在超过真实容量后永久丢失！")
+                                    .size(11.5)
+                                    .color(theme::TEXT_MUTED),
+                            );
                         });
                 } else {
                     egui::Frame::none()
-                        .fill(Color32::from_rgb(20, 40, 25))
+                        .fill(Color32::from_rgb(14, 30, 22))
+                        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(20, 60, 40)))
                         .rounding(egui::Rounding::same(6.0))
-                        .inner_margin(egui::Margin::same(10.0))
+                        .inner_margin(egui::Margin::same(12.0))
                         .show(ui, |ui| {
-                            ui.colored_label(Color32::from_rgb(100, 255, 120), RichText::new("【一句话通俗诊断】：全盘底层 Direct I/O 检验 100% 吻合，物理闪存真实合规！").strong().size(15.0));
-                            ui.label(RichText::new(format!(
-                                "实测真实可用容量为 {:.2} GB，未见任何地址回绕、位黑洞或异常坏道，综合质量评级：[AAA级健康介质]，可安心存储重要数据！",
-                                gb(report.announced_bytes)
-                            )).color(Color32::from_rgb(220, 255, 220)));
+                            ui.label(
+                                RichText::new("一句话通俗诊断：全盘底层 Direct I/O 检验 100% 吻合，物理闪存真实合规")
+                                    .strong()
+                                    .size(14.0)
+                                    .color(theme::ACCENT_GREEN),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "实测真实可用容量为 {:.2} GB，未见任何地址回绕、位黑洞或异常坏道，综合质量评级：[AAA级健康介质]，可安心存储重要数据。",
+                                    gb(report.announced_bytes)
+                                ))
+                                .size(12.5)
+                                .strong()
+                                .color(theme::TEXT_PRIMARY),
+                            );
                         });
                 }
 
-                ui.add_space(8.0);
+                ui.add_space(12.0);
 
                 // 3. 硬件指纹拓扑 (彻底封死调包狡辩)
-                ui.label(RichText::new("一、 被测硬件物理拓扑与唯一指纹信息").strong().color(Color32::LIGHT_BLUE));
-                ui.monospace(format!("- 被测逻辑盘符: {} | 物理磁盘对象: {}", report.target_drive, report.physical_drive_path));
-                ui.monospace(format!("- 物理卷序列号: {} (卷格式化 32 位唯一指纹，彻底封死商家调包借口)", serial_hex));
-                ui.monospace(format!("- 硬件标识信息: VID: {} | PID: {} | 序列号: {}", report.vendor_id, report.product_id, report.serial_number));
-                ui.monospace(format!("- 防伪加盐凭证: {} (单向有损散列，主机物理隔离防算力回放作弊)", report.salt_hex));
+                ui.label(
+                    RichText::new("一、 被测硬件物理拓扑与唯一指纹信息")
+                        .strong()
+                        .size(13.0)
+                        .color(theme::TEXT_PRIMARY),
+                );
+                ui.add_space(6.0);
+                egui::Frame::none()
+                    .fill(theme::CANVAS_BG)
+                    .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                    .rounding(egui::Rounding::same(6.0))
+                    .inner_margin(egui::Margin::same(10.0))
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(format!("被测逻辑盘符: {}   |   物理磁盘对象: {}", report.target_drive, report.physical_drive_path)).size(12.0).color(theme::TEXT_SECONDARY));
+                        ui.add_space(3.0);
+                        ui.label(RichText::new(format!("物理卷序列号: {} (卷格式化 32 位唯一指纹，彻底封死商家调包借口)", serial_hex)).size(12.0).color(theme::TEXT_SECONDARY));
+                        ui.add_space(3.0);
+                        ui.label(RichText::new(format!("硬件标识信息: VID: {}   |   PID: {}   |   序列号: {}", report.vendor_id, report.product_id, report.serial_number)).size(12.0).color(theme::TEXT_SECONDARY));
+                        ui.add_space(3.0);
+                        ui.label(RichText::new(format!("防伪加盐凭证: {} (单向有损散列，主机物理隔离防算力回放作弊)", report.salt_hex)).size(12.0).color(theme::TEXT_SECONDARY));
+                    });
+
+                ui.add_space(12.0);
+
+                // 4. 读取校验物理性能与生理特征指标
+                ui.label(
+                    RichText::new("二、 物理读取速率全景与扇区健康审计")
+                        .strong()
+                        .size(13.0)
+                        .color(theme::TEXT_PRIMARY),
+                );
+                ui.add_space(6.0);
+                egui::Frame::none()
+                    .fill(theme::CANVAS_BG)
+                    .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                    .rounding(egui::Rounding::same(6.0))
+                    .inner_margin(egui::Margin::same(10.0))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(format!("平均读取速率: {:.2} MB/s", read_avg)).size(12.0).color(theme::TEXT_PRIMARY));
+                            ui.separator();
+                            ui.label(RichText::new(format!("最高峰值读速: {:.2} MB/s", read_peak)).size(12.0).color(theme::TEXT_PRIMARY));
+                            ui.separator();
+                            ui.label(RichText::new(format!("最低谷底读速: {:.2} MB/s", read_valley)).size(12.0).color(theme::TEXT_PRIMARY));
+                            ui.separator();
+                            ui.label(RichText::new(format!("稳态中位读速: {:.2} MB/s", read_median)).size(12.0).color(theme::TEXT_PRIMARY));
+                        });
+                        ui.add_space(4.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(format!("校验数据总量: {:.2} GB", gb(read_bytes))).size(12.0).color(theme::TEXT_SECONDARY));
+                            ui.separator();
+                            ui.label(RichText::new(format!("读取校验耗时: {:.1} 秒 ({:.2} 分钟)", report.verify_duration_secs, report.verify_duration_secs / 60.0)).size(12.0).color(theme::TEXT_SECONDARY));
+                        });
+                        ui.add_space(4.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            theme::pill_badge(ui, &format!("正常: {} ({:.2} GB)", report.stats.good, gb(report.stats.good * 512)), theme::ACCENT_GREEN, Color32::from_rgb(16, 40, 28));
+                            ui.add_space(4.0);
+                            theme::pill_badge(ui, &format!("损坏: {} ({:.2} GB)", report.stats.bad, gb(report.stats.bad * 512)), theme::ACCENT_RED, Color32::from_rgb(45, 16, 16));
+                            ui.add_space(4.0);
+                            theme::pill_badge(ui, &format!("覆写: {} ({:.2} GB)", report.stats.overwritten, gb(report.stats.overwritten * 512)), Color32::from_rgb(168, 85, 247), Color32::from_rgb(38, 18, 55));
+                        });
+                    });
 
                 ui.add_space(8.0);
-
-                // 4. 读取校验物理性能与生理特征指标 (像写入报告一样丰满硬核！)
-                ui.label(RichText::new("二、 物理读取速率全景与扇区健康审计").strong().color(Color32::LIGHT_BLUE));
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.monospace(format!("平均读取速率: {:.2} MB/s", read_avg));
-                        ui.separator();
-                        ui.monospace(format!("最高峰值读速: {:.2} MB/s", read_peak));
-                        ui.separator();
-                        ui.monospace(format!("最低谷底读速: {:.2} MB/s", read_valley));
-                        ui.separator();
-                        ui.monospace(format!("稳态中位读速: {:.2} MB/s", read_median));
-                    });
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        ui.monospace(format!("校验数据总量: {:.2} GB", gb(read_bytes)));
-                        ui.separator();
-                        ui.monospace(format!("读取校验耗时: {:.1} 秒 ({:.2} 分钟)", report.verify_duration_secs, report.verify_duration_secs / 60.0));
-                    });
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        ui.colored_label(Color32::from_rgb(46, 204, 113), format!("正常扇区 (Good): {} ({:.2} GB)", report.stats.good, gb(report.stats.good * 512)));
-                        ui.separator();
-                        ui.colored_label(Color32::from_rgb(231, 76, 60), format!("损毁黑洞 (Bad): {} ({:.2} GB)", report.stats.bad, gb(report.stats.bad * 512)));
-                        ui.separator();
-                        ui.colored_label(Color32::from_rgb(155, 89, 182), format!("回绕覆写 (Overwritten): {} ({:.2} GB)", report.stats.overwritten, gb(report.stats.overwritten * 512)));
-                    });
-                });
-
-                ui.add_space(4.0);
-                ui.monospace(format!("- 硬件物理总线通道推断: {}", report.inference.inferred_bus));
-                ui.monospace(format!("- 闪存颗粒综合品质等级: {}", report.inference.flash_grade));
-                ui.label(RichText::new(format!("- 物理生理特征深度解读: {}", report.inference.pathology_analysis)).color(Color32::from_rgb(200, 200, 200)));
+                ui.label(RichText::new(format!("硬件物理总线通道推断: {}", report.inference.inferred_bus)).size(12.0).color(theme::TEXT_SECONDARY));
+                ui.label(RichText::new(format!("闪存颗粒综合品质等级: {}", report.inference.flash_grade)).size(12.0).color(theme::TEXT_SECONDARY));
+                ui.label(RichText::new(format!("物理生理特征深度解读: {}", report.inference.pathology_analysis)).size(12.0).color(theme::TEXT_MUTED));
 
                 // 5. 比特级微观失配现场证据 (Hexdump)
                 if report.stats.bad + report.stats.overwritten + report.stats.changed > 0 {
-                    ui.add_space(8.0);
-                    ui.label(RichText::new("三、 比特级微观失配现场证据 (Hexdump 对照)").strong().color(Color32::LIGHT_BLUE));
+                    ui.add_space(12.0);
+                    ui.label(
+                        RichText::new("三、 比特级微观失配现场证据 (Hexdump 对照)")
+                            .strong()
+                            .size(13.0)
+                            .color(theme::ACCENT_AMBER),
+                    );
+                    ui.add_space(6.0);
                     if let Some(err_off) = report.first_error_offset {
-                        ui.monospace(format!("- 首次故障出现位置: {}.h2w (全局物理偏移: 0x{:016X}，即 {:.2} GB 处)", report.first_error_file.unwrap_or(1), err_off, gb(err_off)));
-                        let exp_hex = report.first_error_expected.map(|b| b.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ")).unwrap_or_else(|| "N/A".to_string());
-                        let act_hex = report.first_error_actual.map(|b| b.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ")).unwrap_or_else(|| "N/A".to_string());
-                        ui.monospace(format!("  [预期正确数据]: {}", exp_hex));
-                        ui.monospace(format!("  [实际读回数据]: {}", act_hex));
-                        ui.label(RichText::new("- 微观定性说明: 数据首部标记失效，读回呈现固件截断特征，确证该位置之后物理存储单元不存在。").weak());
+                        egui::Frame::none()
+                            .fill(theme::CANVAS_BG)
+                            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                            .rounding(egui::Rounding::same(6.0))
+                            .inner_margin(egui::Margin::same(10.0))
+                            .show(ui, |ui| {
+                                ui.label(RichText::new(format!("首次故障出现位置: {}.h2w (全局物理偏移: 0x{:016X}，即 {:.2} GB 处)", report.first_error_file.unwrap_or(1), err_off, gb(err_off))).size(12.0).color(theme::ACCENT_RED));
+                                ui.add_space(4.0);
+                                let exp_hex = report.first_error_expected.map(|b| b.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ")).unwrap_or_else(|| "N/A".to_string());
+                                let act_hex = report.first_error_actual.map(|b| b.iter().map(|x| format!("{:02X}", x)).collect::<Vec<_>>().join(" ")).unwrap_or_else(|| "N/A".to_string());
+                                ui.label(RichText::new(format!("[预期正确数据]: {}", exp_hex)).size(11.5).color(theme::TEXT_SECONDARY));
+                                ui.add_space(2.0);
+                                ui.label(RichText::new(format!("[实际读回数据]: {}", act_hex)).size(11.5).color(theme::ACCENT_RED));
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("微观定性说明: 数据首部标记失效，读回呈现固件截断特征，确证该位置之后物理存储单元不存在。").size(11.0).color(theme::TEXT_MUTED));
+                            });
                     }
                 }
 
                 // 6. 保姆级维权维权指南与消法第55条
                 if report.is_fake {
-                    ui.add_space(8.0);
-                    ui.label(RichText::new("四、 消费者权益保护法维权指南 (假一赔三)").strong().color(Color32::from_rgb(255, 180, 0)));
-                    ui.label("【第一步·直接截图】：直接使用快捷键截取本电子公文卡片发给商家客服；");
-                    ui.label("【第二步·法定索赔】：依据《消法》第55条要求【全额退款 + 三倍赔偿（不足500元按500元）】；");
-                    ui.label("【第三步·官方投诉】：若商家推诿，在平台申请纠纷小二介入，或将本截图上传至全国 12315 平台投诉。");
+                    ui.add_space(12.0);
+                    ui.label(
+                        RichText::new("四、 消费者权益保护法维权指南 (假一赔三)")
+                            .strong()
+                            .size(13.0)
+                            .color(theme::ACCENT_AMBER),
+                    );
+                    ui.add_space(6.0);
+                    egui::Frame::none()
+                        .fill(Color32::from_rgb(30, 24, 14))
+                        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 45, 20)))
+                        .rounding(egui::Rounding::same(6.0))
+                        .inner_margin(egui::Margin::same(10.0))
+                        .show(ui, |ui| {
+                            ui.label(RichText::new("【第一步·直接截图】：直接使用快捷键截取本电子公文卡片发给商家客服；").size(12.0).color(theme::TEXT_PRIMARY));
+                            ui.add_space(3.0);
+                            ui.label(RichText::new("【第二步·法定索赔】：依据《消法》第55条要求【全额退款 + 三倍赔偿（不足500元按500元）】；").size(12.0).color(theme::TEXT_PRIMARY));
+                            ui.add_space(3.0);
+                            ui.label(RichText::new("【第三步·官方投诉】：若商家推诿，在平台申请纠纷小二介入，或将本截图上传至全国 12315 平台投诉。").size(12.0).color(theme::TEXT_PRIMARY));
+                        });
                 }
 
-                ui.add_space(10.0);
+                ui.add_space(14.0);
                 ui.separator();
+                ui.add_space(10.0);
 
                 // 底部辅助按钮与截屏提示
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("[截图提示] 请直接按系统快捷键 Win + Shift + S 或截屏工具截取上方完整公文卡片，可直接作为维权与法庭证据！").color(Color32::LIGHT_GREEN).strong());
-                    if ui.button("复制全文 Markdown").clicked() {
-                        ui.output_mut(|o| o.copied_text = report.generate_markdown());
-                    }
-                    if report.is_fake && ui.button("保存 .md 证据档案到本地").clicked() {
-                        if let Ok(p) = report.auto_archive_evidence() {
-                            self.state.controller.set_status_message(format!("证据档案已安全落盘: {:?}", p));
+                    ui.label(
+                        RichText::new("截图提示: 请直接按快捷键 Win + Shift + S 截取上方完整公文卡片，可直接作为维权证据")
+                            .size(11.5)
+                            .color(theme::ACCENT_GREEN)
+                            .strong(),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if theme::ghost_button(ui, "复制全文 Markdown").clicked() {
+                            ui.output_mut(|o| o.copied_text = report.generate_markdown());
                         }
-                    }
+                        if report.is_fake {
+                            ui.add_space(6.0);
+                            if theme::ghost_button(ui, "保存 .md 证据档案到本地").clicked() {
+                                if let Ok(p) = report.auto_archive_evidence() {
+                                    self.state.controller.set_status_message(format!("证据档案已安全落盘: {:?}", p));
+                                }
+                            }
+                        }
+                    });
                 });
             });
     }
 
 
     fn render_settings_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("高级设置");
-        ui.separator();
+        ui.label(RichText::new("高级设置").size(18.0).strong().color(theme::TEXT_PRIMARY));
+        ui.label(RichText::new("调整 Direct I/O 底层传输参数、防伪加盐凭证与系统窗口行为。").size(12.0).color(theme::TEXT_MUTED));
+        ui.add_space(8.0);
 
-        ui.checkbox(&mut self.state.use_random_salt, "启用随机加盐 (防止固件针对固定数据作弊)");
-        if !self.state.use_random_salt {
-            ui.label("当前使用标准模式 (Salt = 0)，兼容 H2testw 与原版 F3。");
-        } else {
-            ui.colored_label(Color32::YELLOW, "提示：加盐后生成的文件需在相同盐值下才能校验。");
-        }
-
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            ui.label("Direct I/O 单次传输块大小:");
-            ui.selectable_value(&mut self.state.chunk_size_mb, 1, "1 MB (标准推荐)");
-            ui.selectable_value(&mut self.state.chunk_size_mb, 2, "2 MB (高速固态)");
-            ui.selectable_value(&mut self.state.chunk_size_mb, 4, "4 MB (极致吞吐)");
-        });
-
-        ui.add_space(10.0);
-        ui.group(|ui| {
-            ui.label(RichText::new("分卷测试选项 (类似 --start-at / --end-at):").strong());
-            ui.horizontal(|ui| {
-                ui.label("起始文件编号:");
-                ui.add(
-                    egui::DragValue::new(&mut self.state.start_file_num)
-                        .range(0..=10000)
-                        .prefix("从第 ")
-                        .suffix(" 个文件开始写入"),
-                );
-            });
-            ui.horizontal(|ui| {
-                let mut end_enabled = self.state.end_file_num.is_some();
-                if ui.checkbox(&mut end_enabled, "指定结束文件编号:").changed() {
-                    self.state.end_file_num =
-                        if end_enabled { Some(self.state.start_file_num + 5) } else { None };
-                }
-                if let Some(ref mut end) = self.state.end_file_num {
-                    ui.add(
-                        egui::DragValue::new(end)
-                            .range(0..=10000)
-                            .prefix("写到第 ")
-                            .suffix(" 个文件截止"),
-                    );
+        // 卡片 1: 防伪加盐与互通模式
+        egui::Frame::none()
+            .fill(theme::SURFACE_BG)
+            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .rounding(egui::Rounding::same(8.0))
+            .inner_margin(egui::Margin::same(14.0))
+            .show(ui, |ui| {
+                ui.label(RichText::new("数据防伪与生态互通").size(14.0).strong().color(theme::TEXT_PRIMARY));
+                ui.add_space(6.0);
+                ui.checkbox(&mut self.state.use_random_salt, "启用随机加盐 (防止固件针对固定数据流作弊)");
+                ui.add_space(3.0);
+                if !self.state.use_random_salt {
+                    ui.label(RichText::new("当前为标准模式 (Salt = 0)，100% 逐比特向后兼容 H2testw 与原版 F3。").size(11.5).color(theme::TEXT_MUTED));
+                } else {
+                    ui.label(RichText::new("提示：加盐后生成的数据流具备单向雪崩特征，需在相同盐值下才能校验。").size(11.5).color(theme::ACCENT_AMBER));
                 }
             });
-            ui.horizontal(|ui| {
-                let mut limit_enabled = self.state.max_test_gb.is_some();
-                if ui.checkbox(&mut limit_enabled, "限制写入容量 (GB):").changed() {
-                    self.state.max_test_gb = if limit_enabled { Some(16) } else { None };
-                }
-                if let Some(ref mut gb) = self.state.max_test_gb {
-                    ui.add(egui::DragValue::new(gb).range(1..=4096).suffix(" GB"));
-                }
-            });
-        });
 
         ui.add_space(10.0);
-        ui.group(|ui| {
-            ui.label(RichText::new("系统托盘与窗口行为:").strong());
-            ui.checkbox(
-                &mut self.state.minimize_to_tray_on_close,
-                "点击窗口关闭按钮 (×) 时最小化到系统托盘 (保持后台任务无损运行)",
-            );
-            if ui.button("打开路径信息中心...").clicked() {
-                self.state.show_path_info_modal = true;
-            }
-        });
 
-        ui.add_space(10.0);
-        ui.group(|ui| {
-            ui.label(RichText::new("环境与核心路径信息概览:").strong());
-            let selected = Some(self.state.inventory.selected_path());
-            let path_info = AppPathInfo::gather(selected);
-
-            let mut row = |label: &str, p: &std::path::Path, is_file: bool| {
+        // 卡片 2: Direct I/O 缓冲区大小
+        egui::Frame::none()
+            .fill(theme::SURFACE_BG)
+            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .rounding(egui::Rounding::same(8.0))
+            .inner_margin(egui::Margin::same(14.0))
+            .show(ui, |ui| {
+                ui.label(RichText::new("I/O 传输块大小").size(14.0).strong().color(theme::TEXT_PRIMARY));
+                ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("{}:", label)).color(Color32::from_rgb(0, 180, 255)));
-                    ui.monospace(p.to_string_lossy().to_string());
-                    if ui.button("复制").clicked() {
-                        let _ = paths::copy_to_clipboard(&p.to_string_lossy());
+                    ui.label(RichText::new("单次 Direct I/O 扇区对齐缓冲区:").size(12.0).color(theme::TEXT_SECONDARY));
+                    ui.selectable_value(&mut self.state.chunk_size_mb, 1, "1 MB (标准推荐)");
+                    ui.selectable_value(&mut self.state.chunk_size_mb, 2, "2 MB (高速固态)");
+                    ui.selectable_value(&mut self.state.chunk_size_mb, 4, "4 MB (极致吞吐)");
+                });
+            });
+
+        ui.add_space(10.0);
+
+        // 卡片 3: 分卷测试选项
+        egui::Frame::none()
+            .fill(theme::SURFACE_BG)
+            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .rounding(egui::Rounding::same(8.0))
+            .inner_margin(egui::Margin::same(14.0))
+            .show(ui, |ui| {
+                ui.label(RichText::new("分卷测试选项 (类似 --start-at / --end-at)").size(14.0).strong().color(theme::TEXT_PRIMARY));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("起始文件编号:").size(12.0).color(theme::TEXT_SECONDARY));
+                    ui.add(
+                        egui::DragValue::new(&mut self.state.start_file_num)
+                            .range(0..=10000)
+                            .prefix("从第 ")
+                            .suffix(" 个文件开始写入"),
+                    );
+                });
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    let mut end_enabled = self.state.end_file_num.is_some();
+                    if ui.checkbox(&mut end_enabled, "指定结束文件编号:").changed() {
+                        self.state.end_file_num =
+                            if end_enabled { Some(self.state.start_file_num + 5) } else { None };
                     }
-                    if ui.button(if is_file { "定位" } else { "打开" }).clicked() {
-                        let _ = paths::open_in_explorer(p);
+                    if let Some(ref mut end) = self.state.end_file_num {
+                        ui.add(
+                            egui::DragValue::new(end)
+                                .range(0..=10000)
+                                .prefix("写到第 ")
+                                .suffix(" 个文件截止"),
+                        );
                     }
                 });
-            };
-
-            row("程序执行文件", &path_info.exe_path, true);
-            row("程序所在目录", &path_info.exe_dir, false);
-            row("当前工作目录", &path_info.working_dir, false);
-            if let Some(ref vol) = path_info.selected_volume {
-                row("当前测试目标卷", vol, false);
-            }
-            row("维权存证档案目录", &path_info.evidence_dir, false);
-            row("系统临时文件目录", &path_info.temp_dir, false);
-        });
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    let mut limit_enabled = self.state.max_test_gb.is_some();
+                    if ui.checkbox(&mut limit_enabled, "限制写入容量 (GB):").changed() {
+                        self.state.max_test_gb = if limit_enabled { Some(16) } else { None };
+                    }
+                    if let Some(ref mut gb) = self.state.max_test_gb {
+                        ui.add(egui::DragValue::new(gb).range(1..=4096).suffix(" GB"));
+                    }
+                });
+            });
 
         ui.add_space(10.0);
-        ui.group(|ui| {
-            ui.label(RichText::new("退出应用程序:").strong());
-            ui.horizontal(|ui| {
-                if ui
-                    .button(RichText::new("退出 F3 闪存测试").color(Color32::from_rgb(231, 76, 60)))
-                    .clicked()
-                {
+
+        // 卡片 4: 托盘与窗口行为
+        egui::Frame::none()
+            .fill(theme::SURFACE_BG)
+            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .rounding(egui::Rounding::same(8.0))
+            .inner_margin(egui::Margin::same(14.0))
+            .show(ui, |ui| {
+                ui.label(RichText::new("系统托盘与窗口行为").size(14.0).strong().color(theme::TEXT_PRIMARY));
+                ui.add_space(6.0);
+                ui.checkbox(
+                    &mut self.state.minimize_to_tray_on_close,
+                    "点击窗口关闭按钮 (×) 时最小化到系统托盘 (保持后台任务无损运行)",
+                );
+                ui.add_space(6.0);
+                if theme::ghost_button(ui, "打开核心路径信息中心", [160.0, 30.0]).clicked() {
+                    self.state.show_path_info_modal = true;
+                }
+            });
+
+        ui.add_space(10.0);
+
+        // 卡片 5: 环境与路径全景概览
+        egui::Frame::none()
+            .fill(theme::SURFACE_BG)
+            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .rounding(egui::Rounding::same(8.0))
+            .inner_margin(egui::Margin::same(14.0))
+            .show(ui, |ui| {
+                ui.label(RichText::new("运行时核心路径概览").size(14.0).strong().color(theme::TEXT_PRIMARY));
+                ui.add_space(8.0);
+
+                let selected = Some(self.state.inventory.selected_path());
+                let path_info = AppPathInfo::gather(selected);
+
+                let mut render_path_row = |label: &str, p: &std::path::Path, is_file: bool| {
+                    egui::Frame::none()
+                        .fill(theme::CANVAS_BG)
+                        .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                        .rounding(egui::Rounding::same(6.0))
+                        .inner_margin(egui::Margin::same(8.0))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(label).size(12.0).strong().color(theme::TEXT_SECONDARY));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if theme::ghost_button(ui, if is_file { "定位" } else { "打开" }, [55.0, 24.0]).clicked() {
+                                        let _ = paths::open_in_explorer(p);
+                                    }
+                                    ui.add_space(4.0);
+                                    if theme::ghost_button(ui, "复制", [55.0, 24.0]).clicked() {
+                                        let _ = paths::copy_to_clipboard(&p.to_string_lossy());
+                                    }
+                                });
+                            });
+                            ui.add_space(3.0);
+                            ui.label(RichText::new(p.to_string_lossy().to_string()).size(11.0).monospace().color(theme::TEXT_PRIMARY));
+                        });
+                    ui.add_space(4.0);
+                };
+
+                render_path_row("程序执行文件", &path_info.exe_path, true);
+                render_path_row("程序所在目录", &path_info.exe_dir, false);
+                render_path_row("当前工作目录", &path_info.working_dir, false);
+                if let Some(ref vol) = path_info.selected_volume {
+                    render_path_row("当前测试目标卷", vol, false);
+                }
+                render_path_row("维权存证档案目录", &path_info.evidence_dir, false);
+                render_path_row("系统临时文件目录", &path_info.temp_dir, false);
+            });
+
+        ui.add_space(10.0);
+
+        // 卡片 6: 安全退出程序
+        egui::Frame::none()
+            .fill(theme::SURFACE_BG)
+            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .rounding(egui::Rounding::same(8.0))
+            .inner_margin(egui::Margin::same(14.0))
+            .show(ui, |ui| {
+                ui.label(RichText::new("退出应用程序").size(14.0).strong().color(theme::TEXT_PRIMARY));
+                ui.add_space(4.0);
+                ui.label(RichText::new("安全终止后台测试任务、释放设备排他锁并退出程序。").size(12.0).color(theme::TEXT_MUTED));
+                ui.add_space(8.0);
+                if theme::danger_button(ui, "退出 F3 闪存测试", [160.0, 36.0]).clicked() {
                     let is_running = self.state.controller.poll().status == TaskStatus::Running;
                     if is_running {
                         self.state.show_exit_confirm_modal = true;
@@ -1199,7 +1716,6 @@ impl F3App {
                     }
                 }
             });
-        });
     }
 
     /// 渲染核心路径信息全景模态对话框
@@ -1217,25 +1733,33 @@ impl F3App {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.set_width(560.0);
-                ui.label(RichText::new("F3-Win 运行时目录与证据档案配置概览").strong().size(14.0));
+                ui.label(RichText::new("F3-Win 运行时目录与证据档案配置概览").strong().size(14.0).color(theme::TEXT_PRIMARY));
+                ui.add_space(6.0);
                 ui.separator();
                 ui.add_space(6.0);
 
                 let render_row = |ui: &mut egui::Ui, title: &str, path: &std::path::Path, is_file: bool| {
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(title).strong().color(Color32::from_rgb(0, 180, 255)));
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button(if is_file { "在资源管理器中定位" } else { "在资源管理器中打开" }).clicked() {
-                                    let _ = paths::open_in_explorer(path);
-                                }
-                                if ui.button("复制路径").clicked() {
-                                    let _ = paths::copy_to_clipboard(&path.to_string_lossy());
-                                }
+                    egui::Frame::none()
+                        .fill(theme::CANVAS_BG)
+                        .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                        .rounding(egui::Rounding::same(6.0))
+                        .inner_margin(egui::Margin::same(8.0))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(title).strong().size(12.0).color(theme::TEXT_SECONDARY));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if theme::ghost_button(ui, if is_file { "定位" } else { "打开" }, [55.0, 24.0]).clicked() {
+                                        let _ = paths::open_in_explorer(path);
+                                    }
+                                    ui.add_space(4.0);
+                                    if theme::ghost_button(ui, "复制", [55.0, 24.0]).clicked() {
+                                        let _ = paths::copy_to_clipboard(&path.to_string_lossy());
+                                    }
+                                });
                             });
+                            ui.add_space(3.0);
+                            ui.label(RichText::new(path.to_string_lossy().to_string()).size(11.0).monospace().color(theme::TEXT_PRIMARY));
                         });
-                        ui.monospace(path.to_string_lossy().to_string());
-                    });
                     ui.add_space(4.0);
                 };
 
@@ -1251,7 +1775,7 @@ impl F3App {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(RichText::new("关闭对话框").strong()).clicked() {
+                        if theme::primary_button(ui, "关闭对话框", [100.0, 32.0]).clicked() {
                             self.state.show_path_info_modal = false;
                         }
                     });
@@ -1271,22 +1795,36 @@ impl F3App {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.set_width(420.0);
-                ui.colored_label(
-                    Color32::from_rgb(231, 76, 60),
-                    RichText::new("警告：后台 Direct I/O 硬件测试正在进行中！").strong().size(14.0),
-                );
-                ui.label("如果现在退出，将中断正在进行的扇区写入/校验/探测，并提前释放卷排他锁。");
-                ui.label("是否确认中止当前任务并退出程序？");
+                egui::Frame::none()
+                    .fill(theme::SURFACE_BG)
+                    .stroke(egui::Stroke::new(1.0, theme::ACCENT_RED))
+                    .rounding(egui::Rounding::same(8.0))
+                    .inner_margin(egui::Margin::same(12.0))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            theme::pill_badge(ui, "操作拦截", theme::ACCENT_RED, Color32::from_rgb(45, 16, 16));
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new("后台 Direct I/O 硬件测试正在进行中！")
+                                    .strong()
+                                    .size(13.5)
+                                    .color(theme::ACCENT_RED),
+                            );
+                        });
+                        ui.add_space(6.0);
+                        ui.label(RichText::new("如果现在退出，将中断正在进行的扇区写入/校验/探测，并提前释放卷排他锁。").size(12.0).color(theme::TEXT_SECONDARY));
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("是否确认中止当前任务并退出程序？").size(12.0).strong().color(theme::TEXT_PRIMARY));
+                    });
+
                 ui.add_space(10.0);
-                ui.separator();
-                ui.add_space(6.0);
 
                 ui.horizontal(|ui| {
-                    if ui.button("取消 (继续测试)").clicked() {
+                    if theme::ghost_button(ui, "取消 (继续测试)", [120.0, 32.0]).clicked() {
                         self.state.show_exit_confirm_modal = false;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(RichText::new("强制中止并退出").color(Color32::from_rgb(231, 76, 60))).clicked() {
+                        if theme::danger_button(ui, "强制中止并退出", [130.0, 32.0]).clicked() {
                             self.perform_exit(ctx);
                         }
                     });
