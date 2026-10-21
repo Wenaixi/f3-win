@@ -5,7 +5,7 @@ use crate::gui::theme;
 pub fn render_heatmap(ui: &mut Ui, blocks: &[BlockState]) {
     let frame = egui::Frame::none()
         .fill(theme::SURFACE_BG)
-        .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+        .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
         .rounding(egui::Rounding::same(8.0))
         .inner_margin(egui::Margin::symmetric(14.0, 10.0));
 

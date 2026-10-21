@@ -218,7 +218,7 @@ impl eframe::App for F3App {
 
         let top_frame = egui::Frame::none()
             .fill(theme::PANEL_BG)
-            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
             .inner_margin(egui::Margin::symmetric(14.0, 9.0));
 
         egui::TopBottomPanel::top("top_nav")
@@ -245,7 +245,7 @@ impl eframe::App for F3App {
                             Color32::TRANSPARENT
                         };
                         let stroke = if is_active {
-                            egui::Stroke::new(1.0, theme::BORDER_STRONG)
+                            egui::Stroke::new(1.0_f32, theme::BORDER_STRONG)
                         } else {
                             egui::Stroke::NONE
                         };
@@ -286,7 +286,7 @@ impl eframe::App for F3App {
 
         let bottom_frame = egui::Frame::none()
             .fill(theme::PANEL_BG)
-            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
             .inner_margin(egui::Margin::symmetric(14.0, 7.0));
 
         egui::TopBottomPanel::bottom("status_bar")
@@ -889,7 +889,7 @@ impl F3App {
                 if let Some(ref err) = res.error {
                     egui::Frame::none()
                         .fill(theme::SURFACE_BG)
-                        .stroke(egui::Stroke::new(1.0, theme::ACCENT_AMBER))
+                        .stroke(egui::Stroke::new(1.0_f32, theme::ACCENT_AMBER))
                         .rounding(egui::Rounding::same(8.0))
                         .inner_margin(egui::Margin::same(14.0))
                         .show(ui, |ui| {
@@ -911,7 +911,7 @@ impl F3App {
                     let border_color = if res.is_fake { theme::ACCENT_RED } else { theme::ACCENT_GREEN };
                     egui::Frame::none()
                         .fill(theme::SURFACE_BG)
-                        .stroke(egui::Stroke::new(1.0, border_color))
+                        .stroke(egui::Stroke::new(1.0_f32, border_color))
                         .rounding(egui::Rounding::same(8.0))
                         .inner_margin(egui::Margin::same(16.0))
                         .show(ui, |ui| {
@@ -956,7 +956,7 @@ impl F3App {
             let fixer = SafePartitionFixer::new(plan.clone());
             egui::Frame::none()
                 .fill(theme::SURFACE_BG)
-                .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
                 .rounding(egui::Rounding::same(8.0))
                 .inner_margin(egui::Margin::same(16.0))
                 .show(ui, |ui| {
@@ -967,7 +967,7 @@ impl F3App {
 
                     egui::Frame::none()
                         .fill(theme::CANVAS_BG)
-                        .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                        .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
                         .rounding(egui::Rounding::same(6.0))
                         .inner_margin(egui::Margin::same(10.0))
                         .show(ui, |ui| {
@@ -1022,7 +1022,7 @@ impl F3App {
         } else {
             egui::Frame::none()
                 .fill(theme::SURFACE_BG)
-                .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
                 .rounding(egui::Rounding::same(8.0))
                 .inner_margin(egui::Margin::same(18.0))
                 .show(ui, |ui| {
@@ -1078,7 +1078,7 @@ impl F3App {
         ui.add_space(16.0);
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
-            .stroke(egui::Stroke::new(1.0, theme::ACCENT_CYAN))
+            .stroke(egui::Stroke::new(1.0_f32, theme::ACCENT_CYAN))
             .rounding(egui::Rounding::same(8.0))
             .inner_margin(egui::Margin::same(18.0))
             .show(ui, |ui| {
@@ -1104,7 +1104,7 @@ impl F3App {
                 // 2. 写入阶段状态卡片
                 egui::Frame::none()
                     .fill(Color32::from_rgb(14, 26, 36))
-                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(24, 48, 64)))
+                    .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(24, 48, 64)))
                     .rounding(egui::Rounding::same(6.0))
                     .inner_margin(egui::Margin::same(12.0))
                     .show(ui, |ui| {
@@ -1144,7 +1144,7 @@ impl F3App {
                 ui.add_space(6.0);
                 egui::Frame::none()
                     .fill(theme::CANVAS_BG)
-                    .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                    .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
                     .rounding(egui::Rounding::same(6.0))
                     .inner_margin(egui::Margin::same(10.0))
                     .show(ui, |ui| {
@@ -1169,7 +1169,7 @@ impl F3App {
                 ui.add_space(6.0);
                 egui::Frame::none()
                     .fill(theme::CANVAS_BG)
-                    .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                    .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
                     .rounding(egui::Rounding::same(6.0))
                     .inner_margin(egui::Margin::same(10.0))
                     .show(ui, |ui| {
@@ -1283,9 +1283,9 @@ impl F3App {
 
         ui.add_space(16.0);
         let frame_stroke = if report.is_fake {
-            egui::Stroke::new(1.0, theme::ACCENT_RED)
+            egui::Stroke::new(1.0_f32, theme::ACCENT_RED)
         } else {
-            egui::Stroke::new(1.0, theme::ACCENT_GREEN)
+            egui::Stroke::new(1.0_f32, theme::ACCENT_GREEN)
         };
 
         egui::Frame::none()
@@ -1321,7 +1321,7 @@ impl F3App {
                 if report.is_fake {
                     egui::Frame::none()
                         .fill(Color32::from_rgb(34, 18, 22))
-                        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(80, 24, 28)))
+                        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(80, 24, 28)))
                         .rounding(egui::Rounding::same(6.0))
                         .inner_margin(egui::Margin::same(12.0))
                         .show(ui, |ui| {
@@ -1351,7 +1351,7 @@ impl F3App {
                 } else {
                     egui::Frame::none()
                         .fill(Color32::from_rgb(14, 30, 22))
-                        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(20, 60, 40)))
+                        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(20, 60, 40)))
                         .rounding(egui::Rounding::same(6.0))
                         .inner_margin(egui::Margin::same(12.0))
                         .show(ui, |ui| {
@@ -1386,7 +1386,7 @@ impl F3App {
                 ui.add_space(6.0);
                 egui::Frame::none()
                     .fill(theme::CANVAS_BG)
-                    .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                    .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
                     .rounding(egui::Rounding::same(6.0))
                     .inner_margin(egui::Margin::same(10.0))
                     .show(ui, |ui| {
@@ -1411,7 +1411,7 @@ impl F3App {
                 ui.add_space(6.0);
                 egui::Frame::none()
                     .fill(theme::CANVAS_BG)
-                    .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                    .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
                     .rounding(egui::Rounding::same(6.0))
                     .inner_margin(egui::Margin::same(10.0))
                     .show(ui, |ui| {
@@ -1462,7 +1462,7 @@ impl F3App {
                     if let Some(err_off) = report.first_error_offset {
                         egui::Frame::none()
                             .fill(theme::CANVAS_BG)
-                            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                            .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
                             .rounding(egui::Rounding::same(6.0))
                             .inner_margin(egui::Margin::same(10.0))
                             .show(ui, |ui| {
@@ -1491,7 +1491,7 @@ impl F3App {
                     ui.add_space(6.0);
                     egui::Frame::none()
                         .fill(Color32::from_rgb(30, 24, 14))
-                        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(60, 45, 20)))
+                        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(60, 45, 20)))
                         .rounding(egui::Rounding::same(6.0))
                         .inner_margin(egui::Margin::same(10.0))
                         .show(ui, |ui| {
@@ -1541,7 +1541,7 @@ impl F3App {
         // 卡片 1: 防伪加盐与互通模式
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
-            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
             .rounding(egui::Rounding::same(8.0))
             .inner_margin(egui::Margin::same(14.0))
             .show(ui, |ui| {
@@ -1561,7 +1561,7 @@ impl F3App {
         // 卡片 2: Direct I/O 缓冲区大小
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
-            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
             .rounding(egui::Rounding::same(8.0))
             .inner_margin(egui::Margin::same(14.0))
             .show(ui, |ui| {
@@ -1580,7 +1580,7 @@ impl F3App {
         // 卡片 3: 分卷测试选项
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
-            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
             .rounding(egui::Rounding::same(8.0))
             .inner_margin(egui::Margin::same(14.0))
             .show(ui, |ui| {
@@ -1628,7 +1628,7 @@ impl F3App {
         // 卡片 4: 托盘与窗口行为
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
-            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
             .rounding(egui::Rounding::same(8.0))
             .inner_margin(egui::Margin::same(14.0))
             .show(ui, |ui| {
@@ -1649,7 +1649,7 @@ impl F3App {
         // 卡片 5: 环境与路径全景概览
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
-            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
             .rounding(egui::Rounding::same(8.0))
             .inner_margin(egui::Margin::same(14.0))
             .show(ui, |ui| {
@@ -1662,7 +1662,7 @@ impl F3App {
                 let mut render_path_row = |label: &str, p: &std::path::Path, is_file: bool| {
                     egui::Frame::none()
                         .fill(theme::CANVAS_BG)
-                        .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                        .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
                         .rounding(egui::Rounding::same(6.0))
                         .inner_margin(egui::Margin::same(8.0))
                         .show(ui, |ui| {
@@ -1699,7 +1699,7 @@ impl F3App {
         // 卡片 6: 安全退出程序
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
-            .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+            .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
             .rounding(egui::Rounding::same(8.0))
             .inner_margin(egui::Margin::same(14.0))
             .show(ui, |ui| {
@@ -1741,7 +1741,7 @@ impl F3App {
                 let render_row = |ui: &mut egui::Ui, title: &str, path: &std::path::Path, is_file: bool| {
                     egui::Frame::none()
                         .fill(theme::CANVAS_BG)
-                        .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+                        .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
                         .rounding(egui::Rounding::same(6.0))
                         .inner_margin(egui::Margin::same(8.0))
                         .show(ui, |ui| {
@@ -1775,7 +1775,7 @@ impl F3App {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if theme::primary_button(ui, "关闭对话框", [100.0, 32.0]).clicked() {
+                        if ui.add_sized([100.0, 32.0], theme::primary_button("关闭对话框")).clicked() {
                             self.state.show_path_info_modal = false;
                         }
                     });
@@ -1797,7 +1797,7 @@ impl F3App {
                 ui.set_width(420.0);
                 egui::Frame::none()
                     .fill(theme::SURFACE_BG)
-                    .stroke(egui::Stroke::new(1.0, theme::ACCENT_RED))
+                    .stroke(egui::Stroke::new(1.0_f32, theme::ACCENT_RED))
                     .rounding(egui::Rounding::same(8.0))
                     .inner_margin(egui::Margin::same(12.0))
                     .show(ui, |ui| {
@@ -1820,11 +1820,11 @@ impl F3App {
                 ui.add_space(10.0);
 
                 ui.horizontal(|ui| {
-                    if theme::ghost_button(ui, "取消 (继续测试)", [120.0, 32.0]).clicked() {
+                    if ui.add_sized([120.0, 32.0], theme::ghost_button("取消 (继续测试)")).clicked() {
                         self.state.show_exit_confirm_modal = false;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if theme::danger_button(ui, "强制中止并退出", [130.0, 32.0]).clicked() {
+                        if ui.add_sized([130.0, 32.0], theme::danger_button("强制中止并退出")).clicked() {
                             self.perform_exit(ctx);
                         }
                     });

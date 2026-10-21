@@ -5,7 +5,7 @@ use crate::gui::theme;
 pub fn render_speed_plot(ui: &mut Ui, history: &[[f64; 2]], title: &str, plot_id: &str) {
     let frame = egui::Frame::none()
         .fill(theme::SURFACE_BG)
-        .stroke(egui::Stroke::new(1.0, theme::BORDER_HAIRLINE))
+        .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
         .rounding(egui::Rounding::same(8.0))
         .inner_margin(egui::Margin::symmetric(14.0, 10.0));
 
@@ -56,8 +56,7 @@ pub fn render_speed_plot(ui: &mut Ui, history: &[[f64; 2]], title: &str, plot_id
         let line = Line::new(points)
             .color(line_color)
             .width(2.0_f32)
-            .fill(0.0)
-            .fill_alpha(0.08)
+            .fill(0.0_f32)
             .name("物理带宽 (MB/s)");
 
         Plot::new(plot_id)
