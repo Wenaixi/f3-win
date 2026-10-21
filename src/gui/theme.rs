@@ -1,5 +1,5 @@
 use eframe::egui::{
-    self, Color32, Margin, Response, Rounding, Stroke, Ui, Vec2, WidgetText,
+    self, Color32, Margin, Rounding, Stroke, Ui, Vec2, WidgetText,
 };
 
 // ==========================================

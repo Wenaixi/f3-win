@@ -1,4 +1,4 @@
-use egui::{Color32, RichText, Ui};
+use egui::{RichText, Ui};
 use egui_plot::{Line, Plot, PlotPoints};
 use crate::gui::theme;
 

@@ -537,7 +537,7 @@ impl F3App {
                 speed_bps,
                 duration_seconds,
                 eta_seconds: 0,
-                stats: if current_is_write { snapshot.stats } else { BlockStats::default() },
+                stats: if current_is_write { snapshot.stats } else { Default::default() },
                 heatmap_sample: None,
                 is_finished: true,
                 error: None,
