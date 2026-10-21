@@ -708,3 +708,25 @@
      - 业务界面与图表 (`app.rs`, `plot.rs`, `heatmap.rs`)：全量 26 处 Frame、热力图容器与速率曲线面板中的 `Rounding::same` 统一替换为 `Rounding::ZERO`；
   4. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
 
+### 卷枚举修复与直角工业黑白重塑CI全绿双架构部署大成版记录 (Run 39636580182)
+- 流水线状态与指标：Run ID 39636580182 (Status: completed success，全量子任务 100% 满分全绿)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy --all-targets -- -D warnings 并通过全部核心单元测试 (2m 17s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-v0.1.0-x86_64-pc-windows-msvc.zip (2m 13s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-v0.1.0-aarch64-pc-windows-msvc.zip (1m 45s)
+- 产物详情与验证：
+  - Windows x64 生产二进制：f3-win.exe (约 3.3 MB，时间戳 2026-10-21 16:43)
+  - Windows ARM64 生产二进制：f3-win-arm64.exe (约 3.2 MB，时间戳 2026-10-21 16:42)
+  - 本地已安全热更新就位：f3-win.exe、f3-win-arm64.exe、f3-win-v0.1.0.exe 与 f3-win-v0.1.0-arm64.exe
+- 架构演化与核心飞跃总结：
+  1. 卷枚举识别底层修复：
+     - 彻底修复 src/core/devices.rs 中路径字符串混入字符 '0' 并补齐 UTF-16 null 终止符，GetDriveTypeW 恢复正常解析，U 盘在写入测试与读取校验界面 100% 正常识别与秒级挂载；
+  2. 闪电探测页白块彻底根除：
+     - 将 primary_button 重塑为深冷炭黑底色 Color32::from_rgb(26, 32, 44) 搭配 1px 亮银金属质感直角高光边框 Color32::from_rgb(180, 195, 215) 与高亮白文字，消除突兀刺眼大白块；
+  3. 全端去圆角，确立硬核工业直角美学：
+     - theme.rs 全局主题与控件交互状态全量收敛为 Rounding::ZERO；
+     - 全量 26 处业务容器 Frame、热力图面板与测速示波器外框圆角归零；
+  4. 读写状态机彻底隔离：
+     - 写入、读取、探测三者互斥置灰保护，测速折线图与公文卡片独立绑定无污染；
+  5. 严格遵守不停止、不干扰任何运行中已有进程的铁律，通过 Windows 内核原生更名机制完成本地热更新部署；
+  6. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+
