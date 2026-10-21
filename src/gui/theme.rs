@@ -30,10 +30,17 @@ pub const TEXT_INVERTED: Color32 = Color32::from_rgb(12, 14, 18);
 
 // 4. 严格克制的语义指示色 (Semantic Tokens)
 pub const ACCENT_WHITE: Color32 = Color32::from_rgb(248, 249, 250);
-pub const STATUS_GOOD: Color32 = Color32::from_rgb(16, 185, 129);   // 冷翡翠绿
-pub const STATUS_BAD: Color32 = Color32::from_rgb(239, 68, 68);     // 警示绯红
-pub const STATUS_WARN: Color32 = Color32::from_rgb(245, 158, 11);   // 琥珀金黄
-pub const STATUS_CYAN: Color32 = Color32::from_rgb(56, 189, 248);   // 微弱冰蓝数据流
+pub const ACCENT_GREEN: Color32 = Color32::from_rgb(16, 185, 129);   // 冷翡翠绿
+pub const ACCENT_RED: Color32 = Color32::from_rgb(239, 68, 68);       // 警示绯红
+pub const ACCENT_AMBER: Color32 = Color32::from_rgb(245, 158, 11);   // 琥珀金黄
+pub const ACCENT_CYAN: Color32 = Color32::from_rgb(56, 189, 248);     // 微弱冰蓝数据流
+pub const ACCENT_PURPLE: Color32 = Color32::from_rgb(168, 85, 247);  // 洋紫覆写假盘色
+
+pub const STATUS_GOOD: Color32 = ACCENT_GREEN;
+pub const STATUS_BAD: Color32 = ACCENT_RED;
+pub const STATUS_WARN: Color32 = ACCENT_AMBER;
+pub const STATUS_CYAN: Color32 = ACCENT_CYAN;
+pub const STATUS_PURPLE: Color32 = ACCENT_PURPLE;
 
 // ==========================================
 // 主题配置注入 (Theme Installation)
@@ -119,10 +126,29 @@ pub fn install_modern_theme(ctx: &egui::Context) {
 // 统一高级组件渲染原语 (Modern Components)
 // ==========================================
 
+/// 辅助转换 trait，使 bento_card 支持 f32 与 Option<f32> 零成本自适应挂载
+pub trait IntoOptionF32 {
+    fn into_option_f32(self) -> Option<f32>;
+}
+
+impl IntoOptionF32 for f32 {
+    #[inline]
+    fn into_option_f32(self) -> Option<f32> {
+        Some(self)
+    }
+}
+
+impl IntoOptionF32 for Option<f32> {
+    #[inline]
+    fn into_option_f32(self) -> Option<f32> {
+        self
+    }
+}
+
 /// 渲染现代 Bento-Grid 高级卡片容器
 pub fn bento_card<R>(
     ui: &mut Ui,
-    width: Option<f32>,
+    width: impl IntoOptionF32,
     add_contents: impl FnOnce(&mut Ui) -> R,
 ) -> egui::InnerResponse<R> {
     let frame = egui::Frame::none()
@@ -131,7 +157,7 @@ pub fn bento_card<R>(
         .rounding(Rounding::same(8.0))
         .inner_margin(Margin::same(12.0));
 
-    if let Some(w) = width {
+    if let Some(w) = width.into_option_f32() {
         ui.allocate_ui(egui::vec2(w, 0.0), |ui| {
             ui.set_width(w);
             frame.show(ui, add_contents).inner
