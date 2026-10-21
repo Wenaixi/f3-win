@@ -544,7 +544,7 @@ impl VolumeInfo {
         } else if self.is_removable {
             "可移动 U 盘"
         } else {
-            "本地硬盘"
+            "移动存储设备"
         };
         let label_part = if !self.label.is_empty() {
             format!(" [{}]", self.label)
@@ -569,8 +569,9 @@ impl VolumeInfo {
         for i in 0..26 {
             if (mask & (1 << i)) != 0 {
                 let letter = (b'A' + i as u8) as char;
-                let root_str = format!("{}:\\0", letter);
-                let wide: Vec<u16> = root_str.encode_utf16().collect();
+                let root_str = format!("{}:\\", letter);
+                let mut wide: Vec<u16> = root_str.encode_utf16().collect();
+                wide.push(0);
 
                 let drive_type = unsafe { GetDriveTypeW(PCWSTR(wide.as_ptr())) };
                 if drive_type == 0 || drive_type == 1 {

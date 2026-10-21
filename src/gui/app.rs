@@ -258,7 +258,7 @@ impl eframe::App for F3App {
                         )
                         .fill(bg_color)
                         .stroke(stroke)
-                        .rounding(egui::Rounding::same(5.0));
+                        .rounding(egui::Rounding::ZERO);
 
                         if ui.add(btn).clicked() {
                             self.state.current_tab = tab;
@@ -890,7 +890,7 @@ impl F3App {
                     egui::Frame::none()
                         .fill(theme::SURFACE_BG)
                         .stroke(egui::Stroke::new(1.0_f32, theme::ACCENT_AMBER))
-                        .rounding(egui::Rounding::same(8.0))
+                        .rounding(egui::Rounding::ZERO)
                         .inner_margin(egui::Margin::same(14.0))
                         .show(ui, |ui| {
                             if err.contains("用户中止") || err.contains("手动中止") {
@@ -912,7 +912,7 @@ impl F3App {
                     egui::Frame::none()
                         .fill(theme::SURFACE_BG)
                         .stroke(egui::Stroke::new(1.0_f32, border_color))
-                        .rounding(egui::Rounding::same(8.0))
+                        .rounding(egui::Rounding::ZERO)
                         .inner_margin(egui::Margin::same(16.0))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
@@ -957,7 +957,7 @@ impl F3App {
             egui::Frame::none()
                 .fill(theme::SURFACE_BG)
                 .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-                .rounding(egui::Rounding::same(8.0))
+                .rounding(egui::Rounding::ZERO)
                 .inner_margin(egui::Margin::same(16.0))
                 .show(ui, |ui| {
                     ui.label(RichText::new("待执行安全分区方案").size(15.0).strong().color(theme::TEXT_PRIMARY));
@@ -968,7 +968,7 @@ impl F3App {
                     egui::Frame::none()
                         .fill(theme::CANVAS_BG)
                         .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-                        .rounding(egui::Rounding::same(6.0))
+                        .rounding(egui::Rounding::ZERO)
                         .inner_margin(egui::Margin::same(10.0))
                         .show(ui, |ui| {
                             ui.label(RichText::new(format!("目标物理磁盘: PhysicalDrive{}", plan.disk_index)).size(12.0).color(theme::TEXT_SECONDARY));
@@ -1023,7 +1023,7 @@ impl F3App {
             egui::Frame::none()
                 .fill(theme::SURFACE_BG)
                 .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-                .rounding(egui::Rounding::same(8.0))
+                .rounding(egui::Rounding::ZERO)
                 .inner_margin(egui::Margin::same(18.0))
                 .show(ui, |ui| {
                     ui.label(RichText::new("暂无待修复方案").size(14.0).strong().color(theme::TEXT_PRIMARY));
@@ -1079,7 +1079,7 @@ impl F3App {
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
             .stroke(egui::Stroke::new(1.0_f32, theme::ACCENT_CYAN))
-            .rounding(egui::Rounding::same(8.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin::same(18.0))
             .show(ui, |ui| {
                 // 1. 报告红头与公文标识
@@ -1105,7 +1105,7 @@ impl F3App {
                 egui::Frame::none()
                     .fill(Color32::from_rgb(14, 26, 36))
                     .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(24, 48, 64)))
-                    .rounding(egui::Rounding::same(6.0))
+                    .rounding(egui::Rounding::ZERO)
                     .inner_margin(egui::Margin::same(12.0))
                     .show(ui, |ui| {
                         ui.label(
@@ -1145,7 +1145,7 @@ impl F3App {
                 egui::Frame::none()
                     .fill(theme::CANVAS_BG)
                     .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-                    .rounding(egui::Rounding::same(6.0))
+                    .rounding(egui::Rounding::ZERO)
                     .inner_margin(egui::Margin::same(10.0))
                     .show(ui, |ui| {
                         ui.label(RichText::new(format!("被测逻辑盘符: {}   |   物理磁盘对象: {}", report.target_drive, report.physical_drive_path)).size(12.0).color(theme::TEXT_SECONDARY));
@@ -1170,7 +1170,7 @@ impl F3App {
                 egui::Frame::none()
                     .fill(theme::CANVAS_BG)
                     .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-                    .rounding(egui::Rounding::same(6.0))
+                    .rounding(egui::Rounding::ZERO)
                     .inner_margin(egui::Margin::same(10.0))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -1291,7 +1291,7 @@ impl F3App {
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
             .stroke(frame_stroke)
-            .rounding(egui::Rounding::same(8.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin::same(18.0))
             .show(ui, |ui| {
                 // 1. 报告红头与公文标识
@@ -1322,7 +1322,7 @@ impl F3App {
                     egui::Frame::none()
                         .fill(Color32::from_rgb(34, 18, 22))
                         .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(80, 24, 28)))
-                        .rounding(egui::Rounding::same(6.0))
+                        .rounding(egui::Rounding::ZERO)
                         .inner_margin(egui::Margin::same(12.0))
                         .show(ui, |ui| {
                             ui.label(
@@ -1352,7 +1352,7 @@ impl F3App {
                     egui::Frame::none()
                         .fill(Color32::from_rgb(14, 30, 22))
                         .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(20, 60, 40)))
-                        .rounding(egui::Rounding::same(6.0))
+                        .rounding(egui::Rounding::ZERO)
                         .inner_margin(egui::Margin::same(12.0))
                         .show(ui, |ui| {
                             ui.label(
@@ -1387,7 +1387,7 @@ impl F3App {
                 egui::Frame::none()
                     .fill(theme::CANVAS_BG)
                     .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-                    .rounding(egui::Rounding::same(6.0))
+                    .rounding(egui::Rounding::ZERO)
                     .inner_margin(egui::Margin::same(10.0))
                     .show(ui, |ui| {
                         ui.label(RichText::new(format!("被测逻辑盘符: {}   |   物理磁盘对象: {}", report.target_drive, report.physical_drive_path)).size(12.0).color(theme::TEXT_SECONDARY));
@@ -1412,7 +1412,7 @@ impl F3App {
                 egui::Frame::none()
                     .fill(theme::CANVAS_BG)
                     .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-                    .rounding(egui::Rounding::same(6.0))
+                    .rounding(egui::Rounding::ZERO)
                     .inner_margin(egui::Margin::same(10.0))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -1463,7 +1463,7 @@ impl F3App {
                         egui::Frame::none()
                             .fill(theme::CANVAS_BG)
                             .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-                            .rounding(egui::Rounding::same(6.0))
+                            .rounding(egui::Rounding::ZERO)
                             .inner_margin(egui::Margin::same(10.0))
                             .show(ui, |ui| {
                                 ui.label(RichText::new(format!("首次故障出现位置: {}.h2w (全局物理偏移: 0x{:016X}，即 {:.2} GB 处)", report.first_error_file.unwrap_or(1), err_off, gb(err_off))).size(12.0).color(theme::ACCENT_RED));
@@ -1492,7 +1492,7 @@ impl F3App {
                     egui::Frame::none()
                         .fill(Color32::from_rgb(30, 24, 14))
                         .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(60, 45, 20)))
-                        .rounding(egui::Rounding::same(6.0))
+                        .rounding(egui::Rounding::ZERO)
                         .inner_margin(egui::Margin::same(10.0))
                         .show(ui, |ui| {
                             ui.label(RichText::new("【第一步·直接截图】：直接使用快捷键截取本电子公文卡片发给商家客服；").size(12.0).color(theme::TEXT_PRIMARY));
@@ -1542,7 +1542,7 @@ impl F3App {
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
             .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-            .rounding(egui::Rounding::same(8.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin::same(14.0))
             .show(ui, |ui| {
                 ui.label(RichText::new("数据防伪与生态互通").size(14.0).strong().color(theme::TEXT_PRIMARY));
@@ -1562,7 +1562,7 @@ impl F3App {
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
             .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-            .rounding(egui::Rounding::same(8.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin::same(14.0))
             .show(ui, |ui| {
                 ui.label(RichText::new("I/O 传输块大小").size(14.0).strong().color(theme::TEXT_PRIMARY));
@@ -1581,7 +1581,7 @@ impl F3App {
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
             .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-            .rounding(egui::Rounding::same(8.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin::same(14.0))
             .show(ui, |ui| {
                 ui.label(RichText::new("分卷测试选项 (类似 --start-at / --end-at)").size(14.0).strong().color(theme::TEXT_PRIMARY));
@@ -1629,7 +1629,7 @@ impl F3App {
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
             .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-            .rounding(egui::Rounding::same(8.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin::same(14.0))
             .show(ui, |ui| {
                 ui.label(RichText::new("系统托盘与窗口行为").size(14.0).strong().color(theme::TEXT_PRIMARY));
@@ -1650,7 +1650,7 @@ impl F3App {
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
             .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-            .rounding(egui::Rounding::same(8.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin::same(14.0))
             .show(ui, |ui| {
                 ui.label(RichText::new("运行时核心路径概览").size(14.0).strong().color(theme::TEXT_PRIMARY));
@@ -1663,7 +1663,7 @@ impl F3App {
                     egui::Frame::none()
                         .fill(theme::CANVAS_BG)
                         .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-                        .rounding(egui::Rounding::same(6.0))
+                        .rounding(egui::Rounding::ZERO)
                         .inner_margin(egui::Margin::same(8.0))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
@@ -1700,7 +1700,7 @@ impl F3App {
         egui::Frame::none()
             .fill(theme::SURFACE_BG)
             .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-            .rounding(egui::Rounding::same(8.0))
+            .rounding(egui::Rounding::ZERO)
             .inner_margin(egui::Margin::same(14.0))
             .show(ui, |ui| {
                 ui.label(RichText::new("退出应用程序").size(14.0).strong().color(theme::TEXT_PRIMARY));
@@ -1742,7 +1742,7 @@ impl F3App {
                     egui::Frame::none()
                         .fill(theme::CANVAS_BG)
                         .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-                        .rounding(egui::Rounding::same(6.0))
+                        .rounding(egui::Rounding::ZERO)
                         .inner_margin(egui::Margin::same(8.0))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
@@ -1798,7 +1798,7 @@ impl F3App {
                 egui::Frame::none()
                     .fill(theme::SURFACE_BG)
                     .stroke(egui::Stroke::new(1.0_f32, theme::ACCENT_RED))
-                    .rounding(egui::Rounding::same(8.0))
+                    .rounding(egui::Rounding::ZERO)
                     .inner_margin(egui::Margin::same(12.0))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {

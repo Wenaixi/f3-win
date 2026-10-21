@@ -6,7 +6,7 @@ pub fn render_speed_plot(ui: &mut Ui, history: &[[f64; 2]], title: &str, plot_id
     let frame = egui::Frame::none()
         .fill(theme::SURFACE_BG)
         .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
-        .rounding(egui::Rounding::same(8.0))
+        .rounding(egui::Rounding::ZERO)
         .inner_margin(egui::Margin::symmetric(14.0, 10.0));
 
     frame.show(ui, |ui| {
