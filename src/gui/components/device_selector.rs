@@ -62,7 +62,7 @@ pub fn render_storage_device_selector(
             });
 
         ui.add_space(4.0);
-        if theme::ghost_button(ui, "刷新设备", [72.0, 26.0]).clicked() {
+        if ui.add_sized([72.0, 26.0], theme::ghost_button("刷新设备")).clicked() {
             inventory.refresh();
         }
     });
@@ -102,7 +102,7 @@ pub fn render_storage_volume_selector(
             });
 
         ui.add_space(4.0);
-        if theme::ghost_button(ui, "刷新卷", [62.0, 26.0]).clicked() {
+        if ui.add_sized([62.0, 26.0], theme::ghost_button("刷新卷")).clicked() {
             inventory.refresh();
         }
     });

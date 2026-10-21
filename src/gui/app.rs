@@ -367,7 +367,7 @@ impl F3App {
         // 主操作与状态按钮
         ui.horizontal(|ui| {
             if is_write_running {
-                if theme::danger_button(ui, "停止写入", [130.0, 36.0]).clicked() {
+                if ui.add_sized([130.0, 36.0], theme::danger_button("停止写入")).clicked() {
                     self.state.controller.cancel();
                 }
             } else {
@@ -378,7 +378,7 @@ impl F3App {
                     "开始写入"
                 };
                 if can_start {
-                    if theme::primary_button(ui, btn_text, [130.0, 36.0]).clicked() {
+                    if ui.add_sized([130.0, 36.0], theme::primary_button(btn_text)).clicked() {
                         self.start_write_task();
                     }
                 } else {
@@ -389,7 +389,7 @@ impl F3App {
             ui.add_space(10.0);
 
             // 便捷操作幽灵胶囊按钮
-            if theme::ghost_button(ui, "打开所在目录", [110.0, 36.0]).clicked() {
+            if ui.add_sized([110.0, 36.0], theme::ghost_button("打开所在目录")).clicked() {
                 let _ = std::process::Command::new("explorer")
                     .arg(self.state.inventory.selected_path())
                     .spawn();
@@ -398,7 +398,7 @@ impl F3App {
             let is_busy = snapshot.status == TaskStatus::Running;
             if is_busy {
                 let _ = ui.add_enabled(false, egui::Button::new(RichText::new("清理测试文件").size(12.0)));
-            } else if theme::ghost_button(ui, "清理测试文件", [110.0, 36.0]).clicked() {
+            } else if ui.add_sized([110.0, 36.0], theme::ghost_button("清理测试文件")).clicked() {
                 let path = self.state.inventory.selected_path();
                 self.state.controller.start_cleanup(path);
             }
@@ -578,7 +578,7 @@ impl F3App {
 
         ui.horizontal(|ui| {
             if is_read_running {
-                if theme::danger_button(ui, "停止校验", [130.0, 36.0]).clicked() {
+                if ui.add_sized([130.0, 36.0], theme::danger_button("停止校验")).clicked() {
                     self.state.controller.cancel();
                 }
             } else {
@@ -589,7 +589,7 @@ impl F3App {
                     "开始校验"
                 };
                 if can_start {
-                    if theme::primary_button(ui, btn_text, [130.0, 36.0]).clicked() {
+                    if ui.add_sized([130.0, 36.0], theme::primary_button(btn_text)).clicked() {
                         self.start_read_task();
                     }
                 } else {
@@ -619,18 +619,18 @@ impl F3App {
 
         // 便捷按钮与自动清理控制
         ui.horizontal(|ui| {
-            if theme::ghost_button(ui, "打开所在目录", [110.0, 30.0]).clicked() {
+            if ui.add_sized([110.0, 30.0], theme::ghost_button("打开所在目录")).clicked() {
                 let _ = std::process::Command::new("explorer")
                     .arg(self.state.inventory.selected_path())
                     .spawn();
             }
-            if theme::ghost_button(ui, "转到写入页", [90.0, 30.0]).clicked() {
+            if ui.add_sized([90.0, 30.0], theme::ghost_button("转到写入页")).clicked() {
                 self.state.current_tab = AppTab::WriteTest;
             }
             let is_busy = snapshot.status == TaskStatus::Running;
             if is_busy {
                 let _ = ui.add_enabled(false, egui::Button::new(RichText::new("清理测试文件").size(12.0)));
-            } else if theme::ghost_button(ui, "清理测试文件", [110.0, 30.0]).clicked() {
+            } else if ui.add_sized([110.0, 30.0], theme::ghost_button("清理测试文件")).clicked() {
                 let path = self.state.inventory.selected_path();
                 self.state.controller.start_cleanup(path);
             }
@@ -855,7 +855,7 @@ impl F3App {
 
         ui.horizontal(|ui| {
             if is_probe_running {
-                if theme::danger_button(ui, "停止探测", [130.0, 36.0]).clicked() {
+                if ui.add_sized([130.0, 36.0], theme::danger_button("停止探测")).clicked() {
                     self.state.controller.cancel();
                 }
             } else {
@@ -866,7 +866,7 @@ impl F3App {
                     "开始探测"
                 };
                 if can_start {
-                    if theme::primary_button(ui, btn_text, [130.0, 36.0]).clicked() {
+                    if ui.add_sized([130.0, 36.0], theme::primary_button(btn_text)).clicked() {
                         self.start_probe_task();
                     }
                 } else {
@@ -994,7 +994,7 @@ impl F3App {
                             let is_busy = snapshot.status == TaskStatus::Running;
                             ui.horizontal(|ui| {
                                 if !is_busy {
-                                    if theme::primary_button(ui, "应用安全分区 (运行 diskpart)", [220.0, 36.0]).clicked() {
+                                    if ui.add_sized([220.0, 36.0], theme::primary_button("应用安全分区 (运行 diskpart)")).clicked() {
                                         if let Err(e) = self.state.controller.start_fix(plan.clone()) {
                                             self.state.controller.set_status_message(format!("启动修复失败: {}", e));
                                         }
@@ -1004,7 +1004,7 @@ impl F3App {
                                 }
 
                                 ui.add_space(10.0);
-                                if theme::ghost_button(ui, "导出 diskpart 脚本", [150.0, 36.0]).clicked() {
+                                if ui.add_sized([150.0, 36.0], theme::ghost_button("导出 diskpart 脚本")).clicked() {
                                     let desk = PathBuf::from(std::env::var("USERPROFILE").unwrap_or_default())
                                         .join(r"Desktop\f3_fix.diskpart");
                                     let _ = plan.export_script_to_file(&desk);
@@ -1229,7 +1229,7 @@ impl F3App {
                             .strong(),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if theme::ghost_button(ui, "复制报告 Markdown").clicked() {
+                        if ui.add(theme::ghost_button("复制报告 Markdown")).clicked() {
                             ui.output_mut(|o| o.copied_text = report.generate_markdown());
                         }
                     });
@@ -1516,12 +1516,12 @@ impl F3App {
                             .strong(),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if theme::ghost_button(ui, "复制全文 Markdown").clicked() {
+                        if ui.add(theme::ghost_button("复制全文 Markdown")).clicked() {
                             ui.output_mut(|o| o.copied_text = report.generate_markdown());
                         }
                         if report.is_fake {
                             ui.add_space(6.0);
-                            if theme::ghost_button(ui, "保存 .md 证据档案到本地").clicked() {
+                            if ui.add(theme::ghost_button("保存 .md 证据档案到本地")).clicked() {
                                 if let Ok(p) = report.auto_archive_evidence() {
                                     self.state.controller.set_status_message(format!("证据档案已安全落盘: {:?}", p));
                                 }
@@ -1639,7 +1639,7 @@ impl F3App {
                     "点击窗口关闭按钮 (×) 时最小化到系统托盘 (保持后台任务无损运行)",
                 );
                 ui.add_space(6.0);
-                if theme::ghost_button(ui, "打开核心路径信息中心", [160.0, 30.0]).clicked() {
+                if ui.add_sized([160.0, 30.0], theme::ghost_button("打开核心路径信息中心")).clicked() {
                     self.state.show_path_info_modal = true;
                 }
             });
@@ -1669,11 +1669,11 @@ impl F3App {
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new(label).size(12.0).strong().color(theme::TEXT_SECONDARY));
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if theme::ghost_button(ui, if is_file { "定位" } else { "打开" }, [55.0, 24.0]).clicked() {
+                                    if ui.add_sized([55.0, 24.0], theme::ghost_button(if is_file { "定位" } else { "打开" })).clicked() {
                                         let _ = paths::open_in_explorer(p);
                                     }
                                     ui.add_space(4.0);
-                                    if theme::ghost_button(ui, "复制", [55.0, 24.0]).clicked() {
+                                    if ui.add_sized([55.0, 24.0], theme::ghost_button("复制")).clicked() {
                                         let _ = paths::copy_to_clipboard(&p.to_string_lossy());
                                     }
                                 });
@@ -1707,7 +1707,7 @@ impl F3App {
                 ui.add_space(4.0);
                 ui.label(RichText::new("安全终止后台测试任务、释放设备排他锁并退出程序。").size(12.0).color(theme::TEXT_MUTED));
                 ui.add_space(8.0);
-                if theme::danger_button(ui, "退出 F3 闪存测试", [160.0, 36.0]).clicked() {
+                if ui.add_sized([160.0, 36.0], theme::danger_button("退出 F3 闪存测试")).clicked() {
                     let is_running = self.state.controller.poll().status == TaskStatus::Running;
                     if is_running {
                         self.state.show_exit_confirm_modal = true;
@@ -1748,11 +1748,11 @@ impl F3App {
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new(title).strong().size(12.0).color(theme::TEXT_SECONDARY));
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if theme::ghost_button(ui, if is_file { "定位" } else { "打开" }, [55.0, 24.0]).clicked() {
+                                    if ui.add_sized([55.0, 24.0], theme::ghost_button(if is_file { "定位" } else { "打开" })).clicked() {
                                         let _ = paths::open_in_explorer(path);
                                     }
                                     ui.add_space(4.0);
-                                    if theme::ghost_button(ui, "复制", [55.0, 24.0]).clicked() {
+                                    if ui.add_sized([55.0, 24.0], theme::ghost_button("复制")).clicked() {
                                         let _ = paths::copy_to_clipboard(&path.to_string_lossy());
                                     }
                                 });
