@@ -157,7 +157,7 @@ impl IntoOptionF32 for Option<f32> {
     }
 }
 
-/// 渲染现代 Bento-Grid 高级直角卡片容器
+/// 渲染现代 Bento-Grid 高级直角卡片容器 (顶部水平严格对齐 / 内部强制纵向排版 / 绝对等高防抖)
 pub fn bento_card<R>(
     ui: &mut Ui,
     width: impl IntoOptionF32,
@@ -167,17 +167,25 @@ pub fn bento_card<R>(
         .fill(SURFACE_BG)
         .stroke(Stroke::new(1.0_f32, BORDER_HAIRLINE))
         .rounding(Rounding::ZERO)
-        .inner_margin(Margin::same(12.0));
+        .inner_margin(Margin::symmetric(12.0, 10.0));
 
+    let card_height = 70.0;
     if let Some(w) = width.into_option_f32() {
-        ui.allocate_ui(egui::vec2(w, 0.0), |ui| {
-            ui.set_width(w);
-            ui.set_min_height(68.0);
-            frame.show(ui, add_contents).inner
-        })
+        ui.allocate_ui_with_layout(
+            egui::vec2(w, card_height),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                ui.set_width(w);
+                ui.set_height(card_height);
+                frame.show(ui, |ui| {
+                    ui.set_width(w - 24.0); // 扣除左右内边距 12*2
+                    add_contents(ui)
+                }).inner
+            },
+        )
     } else {
         ui.scope(|ui| {
-            ui.set_min_height(68.0);
+            ui.set_min_height(card_height);
             frame.show(ui, add_contents).inner
         })
     }
@@ -199,11 +207,11 @@ pub fn danger_button(text: impl Into<WidgetText>) -> egui::Button<'static> {
         .rounding(Rounding::ZERO)
 }
 
-/// 渲染次级幽灵透明直角按钮 (透明底 / 极细边框 / 零圆角)
+/// 渲染次级直角按钮 (微透深冷炭黑底 / 精致微弱边框 / 零圆角 / 具有清晰 hover 与按下动态反馈)
 pub fn ghost_button(text: impl Into<WidgetText>) -> egui::Button<'static> {
     egui::Button::new(text)
-        .fill(Color32::TRANSPARENT)
-        .stroke(Stroke::new(1.0_f32, BORDER_HAIRLINE))
+        .fill(Color32::from_rgb(20, 24, 32))
+        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(50, 58, 74)))
         .rounding(Rounding::ZERO)
 }
 

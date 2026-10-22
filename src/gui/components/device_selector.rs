@@ -63,8 +63,9 @@ pub fn render_storage_device_selector(
                 }
             });
 
-        ui.add_space(4.0);
-        if ui.add_sized([86.0, 26.0], theme::ghost_button("刷新设备 (F5)")).clicked() {
+        ui.add_space(8.0);
+        let dev_btn = ui.add_sized([92.0, 28.0], theme::ghost_button("刷新设备 (F5)"));
+        if dev_btn.on_hover_text("扫描并重新加载当前系统接入的物理磁盘设备 (快捷键 F5)").clicked() {
             inventory.refresh();
         }
     });
@@ -111,8 +112,9 @@ pub fn render_storage_volume_selector(
                 }
             });
 
-        ui.add_space(4.0);
-        if ui.add_sized([76.0, 26.0], theme::ghost_button("刷新卷 (F5)")).clicked() {
+        ui.add_space(8.0);
+        let vol_btn = ui.add_sized([92.0, 28.0], theme::ghost_button("刷新卷 (F5)"));
+        if vol_btn.on_hover_text("扫描并重新加载当前系统挂载的所有存储分区卷 (快捷键 F5)").clicked() {
             inventory.refresh();
         }
     });

@@ -453,8 +453,8 @@ impl F3App {
 
         ui.add_space(12.0);
 
-        // 现代 Bento-Grid 四卡片核心指标仪表盘 (严格隔离任务状态，杜绝跨任务数据污染)
-        ui.horizontal(|ui| {
+        // 现代 Bento-Grid 四卡片核心指标仪表盘 (严格隔离任务状态，顶端绝对对齐，杜绝跨任务数据污染与下沉错位)
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             let card_width = (ui.available_width() - 36.0) / 4.0;
 
             let display_speed = if is_write_running {
@@ -476,10 +476,11 @@ impl F3App {
             // 卡片 1: 瞬时速率
             theme::bento_card(ui, card_width, |ui| {
                 ui.label(RichText::new("实时写入速度").size(11.0).color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(format!("{:.2}", display_speed))
-                            .size(24.0)
+                            .size(22.0)
                             .strong()
                             .color(theme::ACCENT_CYAN),
                     );
@@ -492,13 +493,14 @@ impl F3App {
             // 卡片 2: 已写入数据
             theme::bento_card(ui, card_width, |ui| {
                 ui.label(RichText::new("已写入容量").size(11.0).color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(format!(
                             "{:.2}",
                             display_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
                         ))
-                        .size(24.0)
+                        .size(22.0)
                         .strong()
                         .color(theme::TEXT_PRIMARY),
                     );
@@ -511,18 +513,21 @@ impl F3App {
             // 卡片 3: 动态 ETA 倒计时
             theme::bento_card(ui, card_width, |ui| {
                 ui.label(RichText::new("预计剩余时间").size(11.0).color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
                 let eta_str = if is_write_running {
                     format_eta(snapshot.eta_seconds)
                 } else {
                     "空闲待命".to_string()
                 };
-                ui.label(
-                    RichText::new(eta_str)
-                        .size(20.0)
-                        .strong()
-                        .monospace() // 等宽排版，彻底消除秒数刷新时字符变宽水平微颤
-                        .color(if is_write_running { theme::ACCENT_AMBER } else { theme::TEXT_SECONDARY }),
-                );
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(eta_str)
+                            .size(20.0)
+                            .strong()
+                            .monospace() // 等宽排版，彻底消除秒数刷新时字符变宽水平微颤
+                            .color(if is_write_running { theme::ACCENT_AMBER } else { theme::TEXT_SECONDARY }),
+                    );
+                });
             });
 
             ui.add_space(12.0);
@@ -530,6 +535,7 @@ impl F3App {
             // 卡片 4: I/O 驱动模式
             theme::bento_card(ui, card_width, |ui| {
                 ui.label(RichText::new("I/O 底层驱动").size(11.0).color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Direct I/O").size(18.0).strong().color(theme::TEXT_PRIMARY));
                     theme::badge_green(ui, "无缓冲");
@@ -704,8 +710,8 @@ impl F3App {
             &empty_stats
         };
 
-        // 现代 Bento-Grid 四卡片核心指标仪表盘 (读取校验专属)
-        ui.horizontal(|ui| {
+        // 现代 Bento-Grid 四卡片核心指标仪表盘 (读取校验专属，顶端绝对对齐，彻底消除阶梯下沉错位)
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             let card_width = (ui.available_width() - 36.0) / 4.0;
 
             let display_speed = if is_read_running {
@@ -727,10 +733,11 @@ impl F3App {
             // 卡片 1: 实时读取速度
             theme::bento_card(ui, card_width, |ui| {
                 ui.label(RichText::new("实时读取速度").size(11.0).color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(format!("{:.2}", display_speed))
-                            .size(24.0)
+                            .size(22.0)
                             .strong()
                             .color(theme::ACCENT_GREEN),
                     );
@@ -743,13 +750,14 @@ impl F3App {
             // 卡片 2: 已校验数据量
             theme::bento_card(ui, card_width, |ui| {
                 ui.label(RichText::new("已校验容量").size(11.0).color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(format!(
                             "{:.2}",
                             display_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
                         ))
-                        .size(24.0)
+                        .size(22.0)
                         .strong()
                         .color(theme::TEXT_PRIMARY),
                     );
@@ -762,18 +770,21 @@ impl F3App {
             // 卡片 3: 预计剩余时间
             theme::bento_card(ui, card_width, |ui| {
                 ui.label(RichText::new("预计剩余时间").size(11.0).color(theme::TEXT_MUTED));
+                ui.add_space(4.0);
                 let eta_str = if is_read_running {
                     format_eta(snapshot.eta_seconds)
                 } else {
                     "空闲待命".to_string()
                 };
-                ui.label(
-                    RichText::new(eta_str)
-                        .size(20.0)
-                        .strong()
-                        .monospace() // 等宽排版，彻底消除秒数刷新时字符变宽水平微颤
-                        .color(if is_read_running { theme::ACCENT_AMBER } else { theme::TEXT_SECONDARY }),
-                );
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(eta_str)
+                            .size(20.0)
+                            .strong()
+                            .monospace() // 等宽排版，彻底消除秒数刷新时字符变宽水平微颤
+                            .color(if is_read_running { theme::ACCENT_AMBER } else { theme::TEXT_SECONDARY }),
+                    );
+                });
             });
 
             ui.add_space(12.0);
@@ -781,18 +792,21 @@ impl F3App {
             // 卡片 4: 介质健康结论
             theme::bento_card(ui, card_width, |ui| {
                 ui.label(RichText::new("扇区健康状态").size(11.0).color(theme::TEXT_MUTED));
-                let has_errors = stats.bad > 0 || stats.overwritten > 0 || stats.changed > 0;
-                if is_read_running || self.state.audit_record.read_tested {
-                    if has_errors {
-                        theme::badge_red(ui, "发现异常坏块");
-                    } else if stats.good > 0 {
-                        theme::badge_green(ui, "数据完整健康");
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    let has_errors = stats.bad > 0 || stats.overwritten > 0 || stats.changed > 0;
+                    if is_read_running || self.state.audit_record.read_tested {
+                        if has_errors {
+                            theme::badge_red(ui, "发现异常坏块");
+                        } else if stats.good > 0 {
+                            theme::badge_green(ui, "数据完整健康");
+                        } else {
+                            theme::badge_cyan(ui, "正在校验");
+                        }
                     } else {
-                        theme::badge_cyan(ui, "正在校验");
+                        theme::badge_neutral(ui, "未校验");
                     }
-                } else {
-                    theme::badge_neutral(ui, "未校验");
-                }
+                });
             });
         });
 
@@ -959,7 +973,11 @@ impl F3App {
         } else {
             0.0
         };
-        ui.add(ProgressBar::new(progress).show_percentage());
+        ui.add(
+            ProgressBar::new(progress)
+                .fill(theme::ACCENT_GREEN)
+                .show_percentage(),
+        );
 
         if is_probe_running || snapshot.kind == crate::core::controller::TaskKind::Probe {
             ui.add_space(14.0);
