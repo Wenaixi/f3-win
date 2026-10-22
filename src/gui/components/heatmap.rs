@@ -37,13 +37,15 @@ pub fn render_heatmap(ui: &mut Ui, blocks: &[BlockState]) {
         let cols = 50;
         let rows = total_cells.div_ceil(cols);
 
-        let desired_size = Vec2::new(ui.available_width(), (rows as f32) * 9.0 + 4.0);
+        let available_w = ui.available_width();
+        let gap = 2.0_f32;
+        let cell_width = ((available_w - (cols as f32 - 1.0) * gap) / (cols as f32)).max(2.0);
+        // 根据单元格宽度动态联动高度，保持晶圆微网格黄金比例 (约 4:3)，消除宽屏扁长失真
+        let cell_height = (cell_width * 0.75).clamp(6.0, 11.0);
+        let desired_size = Vec2::new(available_w, (rows as f32) * (cell_height + gap) + 4.0);
         let (rect, _response): (Rect, Response) = ui.allocate_exact_size(desired_size, Sense::hover());
 
         let painter = ui.painter_at(rect);
-        let gap = 2.0_f32;
-        let cell_width = ((rect.width() - (cols as f32 - 1.0) * gap) / (cols as f32)).max(2.0);
-        let cell_height = 7.0_f32;
 
         for (i, &state) in blocks.iter().enumerate() {
             let col = i % cols;

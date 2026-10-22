@@ -50,13 +50,16 @@ pub fn render_storage_device_selector(
                         )
                     };
 
-                    let resp = ui.add_enabled(
+                    let mut resp = ui.add_enabled(
                         is_safe,
                         egui::SelectableLabel::new(
                             selected_idx == Some(idx),
                             label_text,
                         ),
                     );
+                    if !is_safe {
+                        resp = resp.on_disabled_hover_text("此设备为系统盘或内置固定总线磁盘，为保护系统与数据安全已硬锁定，严禁作为破坏性测试目标");
+                    }
 
                     if resp.clicked() && is_safe {
                         inventory.select_device(idx);
@@ -65,7 +68,7 @@ pub fn render_storage_device_selector(
             });
 
         ui.add_space(4.0);
-        if ui.add_sized([72.0, 26.0], theme::ghost_button("刷新设备")).clicked() {
+        if ui.add_sized([86.0, 26.0], theme::ghost_button("刷新设备 (F5)")).clicked() {
             inventory.refresh();
         }
     });
@@ -99,13 +102,16 @@ pub fn render_storage_volume_selector(
                     } else {
                         format!("{} [受保护系统卷]", vol.display_name())
                     };
-                    let resp = ui.add_enabled(
+                    let mut resp = ui.add_enabled(
                         is_safe,
                         egui::SelectableLabel::new(
                             selected_idx == idx,
                             label_text,
                         ),
                     );
+                    if !is_safe {
+                        resp = resp.on_disabled_hover_text("此分区位于系统引导盘或受保护磁盘上，为防止误操作导致系统崩溃已禁用");
+                    }
                     if resp.clicked() && is_safe {
                         inventory.select_volume(idx);
                     }
@@ -113,7 +119,7 @@ pub fn render_storage_volume_selector(
             });
 
         ui.add_space(4.0);
-        if ui.add_sized([62.0, 26.0], theme::ghost_button("刷新卷")).clicked() {
+        if ui.add_sized([76.0, 26.0], theme::ghost_button("刷新卷 (F5)")).clicked() {
             inventory.refresh();
         }
     });

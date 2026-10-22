@@ -213,17 +213,17 @@ impl eframe::App for F3App {
                     bytes_processed: snapshot.total_bytes_processed,
                     total_bytes_expected: snapshot.total_bytes_processed,
                     speed_bps: snapshot.current_speed_mb * 1024.0 * 1024.0,
-                    duration_seconds: 0.0,
+                    duration_seconds: snapshot.duration_seconds,
                     eta_seconds: 0,
                     stats: snapshot.stats,
                     heatmap_sample: None,
                     is_finished: true,
                     error: snapshot.error.clone(),
-                    first_error_offset: None,
-                    first_error_file: None,
-                    first_error_expected: None,
-                    first_error_actual: None,
-                    physiology: None,
+                    first_error_offset: snapshot.first_error_offset,
+                    first_error_file: snapshot.first_error_file,
+                    first_error_expected: snapshot.first_error_expected,
+                    first_error_actual: snapshot.first_error_actual,
+                    physiology: snapshot.physiology,
                 };
                 let report = DiagnosticReport::build(
                     dev,
@@ -231,7 +231,7 @@ impl eframe::App for F3App {
                     &self.state.inventory.selected_path(),
                     &dummy_telemetry,
                     self.state.salt,
-                    None,
+                    snapshot.physiology,
                 );
                 let _ = report.auto_save_evidence_if_fake();
             }
@@ -1162,7 +1162,11 @@ impl F3App {
             .show(ui, |ui| {
                 // 1. 报告红头与公文标识
                 ui.horizontal(|ui| {
-                    theme::pill_badge(ui, "物理性能存证 · 无缓冲直通", theme::ACCENT_CYAN, Color32::from_rgb(16, 32, 45));
+                    if report.is_completed {
+                        theme::pill_badge(ui, "物理性能存证 · 无缓冲直通", theme::ACCENT_CYAN, Color32::from_rgb(16, 32, 45));
+                    } else {
+                        theme::pill_badge(ui, "物理性能存证 · 阶段抽样", theme::ACCENT_AMBER, Color32::from_rgb(40, 32, 16));
+                    }
                     ui.add_space(6.0);
                     ui.label(
                         RichText::new("存储介质物理写入性能与颗粒体质检验书")
@@ -1180,35 +1184,67 @@ impl F3App {
                 ui.add_space(10.0);
 
                 // 2. 写入阶段状态卡片
-                egui::Frame::none()
-                    .fill(Color32::from_rgb(14, 26, 36))
-                    .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(24, 48, 64)))
-                    .rounding(egui::Rounding::ZERO)
-                    .inner_margin(egui::Margin::same(12.0))
-                    .show(ui, |ui| {
-                        ui.label(
-                            RichText::new("写入阶段完成：物理数据流已全盘无缓冲直通落盘")
+                if report.is_completed {
+                    egui::Frame::none()
+                        .fill(Color32::from_rgb(14, 26, 36))
+                        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(24, 48, 64)))
+                        .rounding(egui::Rounding::ZERO)
+                        .inner_margin(egui::Margin::same(12.0))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new("写入阶段完成：物理数据流已全盘无缓冲直通落盘")
+                                    .strong()
+                                    .size(14.0)
+                                    .color(theme::ACCENT_CYAN),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "写入数据总量: {:.2} GB  |  连续写入耗时: {:.1} 秒 ({:.2} 分钟)  |  平均写入速度: {:.2} MB/s",
+                                    gb(write_bytes), report.write_duration_secs, report.write_duration_secs / 60.0, write_avg
+                                ))
+                                .size(12.5)
                                 .strong()
-                                .size(14.0)
-                                .color(theme::ACCENT_CYAN),
-                        );
-                        ui.add_space(4.0);
-                        ui.label(
-                            RichText::new(format!(
-                                "写入数据总量: {:.2} GB  |  连续写入耗时: {:.1} 秒 ({:.2} 分钟)  |  平均写入速度: {:.2} MB/s",
-                                gb(write_bytes), report.write_duration_secs, report.write_duration_secs / 60.0, write_avg
-                            ))
-                            .size(12.5)
-                            .strong()
-                            .color(theme::TEXT_PRIMARY),
-                        );
-                        ui.add_space(4.0);
-                        ui.label(
-                            RichText::new("说明：本阶段已将高熵伪随机数据真实写入存储物理芯片。已排除操作系统文件缓存，可直接作为物理写入吞吐能力的法定证据。")
-                                .size(11.5)
-                                .color(theme::TEXT_MUTED),
-                        );
-                    });
+                                .color(theme::TEXT_PRIMARY),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new("说明：本阶段已将高熵伪随机数据真实写入存储物理芯片。已排除操作系统文件缓存，可直接作为物理写入吞吐能力的法定证据。")
+                                    .size(11.5)
+                                    .color(theme::TEXT_MUTED),
+                            );
+                        });
+                } else {
+                    egui::Frame::none()
+                        .fill(Color32::from_rgb(28, 24, 16))
+                        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(70, 55, 25)))
+                        .rounding(egui::Rounding::ZERO)
+                        .inner_margin(egui::Margin::same(12.0))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new("写入阶段已中止 (阶段性抽样写入)：当前已无缓冲直通落盘")
+                                    .strong()
+                                    .size(14.0)
+                                    .color(theme::ACCENT_AMBER),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "已写入容量: {:.2} GB  |  阶段测试耗时: {:.1} 秒  |  实测写入速度: {:.2} MB/s",
+                                    gb(write_bytes), report.write_duration_secs, write_avg
+                                ))
+                                .size(12.5)
+                                .strong()
+                                .color(theme::TEXT_PRIMARY),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new("说明：本次写入测试中途中止，当前数据仅代表已写入区间的性能抽检，不代表整盘完整写入结论。")
+                                    .size(11.5)
+                                    .color(theme::TEXT_MUTED),
+                            );
+                        });
+                }
 
                 ui.add_space(12.0);
 
@@ -1362,6 +1398,8 @@ impl F3App {
         ui.add_space(16.0);
         let frame_stroke = if report.is_fake {
             egui::Stroke::new(1.0_f32, theme::ACCENT_RED)
+        } else if !report.is_completed {
+            egui::Stroke::new(1.0_f32, theme::ACCENT_AMBER)
         } else {
             egui::Stroke::new(1.0_f32, theme::ACCENT_GREEN)
         };
@@ -1376,6 +1414,8 @@ impl F3App {
                 ui.horizontal(|ui| {
                     if report.is_fake {
                         theme::pill_badge(ui, "司法鉴定级存证 · 欺诈确证", theme::ACCENT_RED, Color32::from_rgb(45, 16, 16));
+                    } else if !report.is_completed {
+                        theme::pill_badge(ui, "司法鉴定级存证 · 阶段抽检", theme::ACCENT_AMBER, Color32::from_rgb(40, 32, 16));
                     } else {
                         theme::pill_badge(ui, "司法鉴定级存证 · 物理合规", theme::ACCENT_GREEN, Color32::from_rgb(16, 40, 28));
                     }
@@ -1424,6 +1464,30 @@ impl F3App {
                                 RichText::new("通俗比喻：打个比方，这就像一个外壳标着 64 升的大水桶，内部实际只有 8 升！倒进多出来的水会全部漏掉或覆盖旧水。存入该盘的重要照片或文档将在超过真实容量后永久丢失！")
                                     .size(11.5)
                                     .color(theme::TEXT_MUTED),
+                            );
+                        });
+                } else if !report.is_completed {
+                    egui::Frame::none()
+                        .fill(Color32::from_rgb(28, 24, 16))
+                        .stroke(egui::Stroke::new(1.0_f32, Color32::from_rgb(70, 55, 25)))
+                        .rounding(egui::Rounding::ZERO)
+                        .inner_margin(egui::Margin::same(12.0))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new("一句话通俗诊断：本次校验中途停止，当前已测区间物理扇区吻合")
+                                    .strong()
+                                    .size(14.0)
+                                    .color(theme::ACCENT_AMBER),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "实测已校验容量为 {:.2} GB，未见任何地址回绕、位黑洞或异常坏道。注意：剩余空间未经验证，本记录仅作为阶段性抽样存证，不代表整盘终局结论。",
+                                    gb(read_bytes)
+                                ))
+                                .size(12.5)
+                                .strong()
+                                .color(theme::TEXT_PRIMARY),
                             );
                         });
                 } else {
