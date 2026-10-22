@@ -312,9 +312,14 @@ impl SafePartitionFixer {
     // 依赖注入执行入口：支持自定义 Runner 适配器
     pub fn apply_with_runner<R: DiskpartRunner>(&self, runner: &R) -> Result<String, String> {
         let dev = self.verify_safety().map_err(|e| format!("安全拦截: {}", e))?;
-        // 在执行前，尝试卸载该物理磁盘上已挂载的逻辑卷，防止 VDS 0x80042412 冲突
+        // 在执行前，尝试卸载该物理磁盘上已挂载的逻辑卷，通知系统下线并立即释放锁，防止 VDS 0x80042412 冲突
         for &letter in &dev.mounted_volumes {
-            let _ = crate::core::devices::PhysicalDeviceInfo::lock_and_dismount_volume(letter);
+            if let Ok(handle) = crate::core::devices::PhysicalDeviceInfo::lock_and_dismount_volume(letter) {
+                // 卸载指令下发后显式关闭句柄，释放进程句柄表与排他锁，确保后续 diskpart 进程获得独占写入权
+                unsafe {
+                    let _ = windows::Win32::Foundation::CloseHandle(handle);
+                }
+            }
         }
         self.plan.execute_with_runner(runner)
     }
