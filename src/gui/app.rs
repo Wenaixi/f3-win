@@ -982,7 +982,7 @@ impl F3App {
                 Some((cached_disk, res)) if *cached_disk == plan.disk_index => res.clone(),
                 _ => {
                     let fixer = SafePartitionFixer::new(plan.clone());
-                    let res = fixer.dry_run();
+                    let res = fixer.dry_run().map_err(|e| e.to_string());
                     self.state.cached_dry_run_report = Some((plan.disk_index, res.clone()));
                     res
                 }
