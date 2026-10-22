@@ -1,6 +1,6 @@
 [package]
 name = "f3-win"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["F3-Win Contributors"]
 description = "Fight Flash Fraud for Windows - Ultra-high-performance flash drive capacity and speed test GUI"
