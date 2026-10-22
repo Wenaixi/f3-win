@@ -16,6 +16,17 @@ use windows::Win32::System::Ioctl::{DISK_GEOMETRY_EX, IOCTL_DISK_GET_DRIVE_GEOME
 const GENERIC_READ_ACCESS: u32 = 0x8000_0000;
 const GENERIC_WRITE_ACCESS: u32 = 0x4000_0000;
 
+/// 解析 Win32 原始错误码 (从 HRESULT 中提取 Facility 7 的 low-16 位，或直接保留原始代码)
+#[inline]
+pub fn parse_win32_code(hr: i32) -> u32 {
+    let u = hr as u32;
+    if (u & 0xFFFF_0000) == 0x8007_0000 {
+        u & 0xFFFF
+    } else {
+        u
+    }
+}
+
 // 存储块 I/O 最小抽象接缝 (BlockIo)
 // 提供脱离硬件与内核绑定的纯净块读写接口，使核心探针与算法具备脱机可测性
 pub trait BlockIo: Send + Sync {
@@ -80,11 +91,22 @@ impl DirectIoFile {
 
         match handle {
             Ok(h) if h != INVALID_HANDLE_VALUE && !h.is_invalid() => Ok(Self { handle: h, is_write: true, sector_size: 512 }),
-            _ => Err(format!(
-                "无法以 Direct I/O 写入模式创建文件 {:?}: 错误 {}",
-                path,
-                std::io::Error::last_os_error()
-            )),
+            _ => {
+                let os_err = std::io::Error::last_os_error();
+                let code = os_err.raw_os_error().map(|c| c as u32).unwrap_or(0);
+                let friendly = match code {
+                    19 => " (目标磁盘处于写保护状态，请检查物理写保护开关或只读属性)",
+                    1167 | 1117 | 21 => " (设备未连接或发生严重硬件掉盘故障)",
+                    _ => "",
+                };
+                Err(format!(
+                    "无法以 Direct I/O 写入模式创建文件 {:?}: 错误 [Win32: {}] {}{}",
+                    path,
+                    code,
+                    os_err,
+                    friendly
+                ))
+            }
         }
     }
 
@@ -135,11 +157,22 @@ impl DirectIoFile {
                 let sector_size = Self::query_raw_device_sector_size(h);
                 Ok(Self { handle: h, is_write: true, sector_size })
             }
-            _ => Err(format!(
-                "无法打开底层物理设备 {:?}: 错误 {}",
-                path,
-                std::io::Error::last_os_error()
-            )),
+            _ => {
+                let os_err = std::io::Error::last_os_error();
+                let code = os_err.raw_os_error().map(|c| c as u32).unwrap_or(0);
+                let friendly = match code {
+                    19 => " (目标物理设备处于写保护状态，请检查硬件写保护拨码开关)",
+                    1167 | 1117 | 21 => " (设备未连接或发生严重硬件掉盘故障)",
+                    _ => "",
+                };
+                Err(format!(
+                    "无法打开底层物理设备 {:?}: 错误 [Win32: {}] {}{}",
+                    path,
+                    code,
+                    os_err,
+                    friendly
+                ))
+            }
         }
     }
 
@@ -232,11 +265,24 @@ impl DirectIoFile {
                 }
                 Ok(written)
             }
-            Err(e) => Err(format!(
-                "Direct I/O 写入失败 (Win32 错误码 {}): {}",
-                e.code().0,
-                e.message()
-            )),
+            Err(e) => {
+                let code = parse_win32_code(e.code().0);
+                let friendly = match code {
+                    19 => " (介质受写入保护，请检查物理写保护开关或只读属性)",
+                    1167 => " (设备已断开连接/突发硬件拔盘)",
+                    1117 => " (硬件 I/O 设备错误/主控无响应)",
+                    21 => " (设备未就绪/突发掉盘)",
+                    23 => " (数据错误 CRC/物理坏块)",
+                    112 | 39 => " (磁盘空间已满)",
+                    _ => "",
+                };
+                Err(format!(
+                    "Direct I/O 写入失败 [Win32: {}]: {}{}",
+                    code,
+                    e.message(),
+                    friendly
+                ))
+            }
         }
     }
 
@@ -265,15 +311,23 @@ impl DirectIoFile {
         match res {
             Ok(_) => Ok(bytes_read as usize),
             Err(e) => {
-                // Win32 ERROR_HANDLE_EOF (38 / 0x80070026) 是正常的读取文件末尾标记
-                let code = e.code().0;
-                if code == 38 || code as u32 == 0x80070026 {
+                let code = parse_win32_code(e.code().0);
+                // Win32 ERROR_HANDLE_EOF (38) 是正常的读取文件末尾标记
+                if code == 38 {
                     Ok(0)
                 } else {
+                    let friendly = match code {
+                        1167 => " (设备已断开连接/突发硬件拔盘)",
+                        1117 => " (硬件 I/O 设备错误/主控无响应)",
+                        21 => " (设备未就绪/突发掉盘)",
+                        23 => " (数据错误 CRC/物理坏块)",
+                        _ => "",
+                    };
                     Err(format!(
-                        "Direct I/O 读取失败 (Win32 错误码 {}): {}",
+                        "Direct I/O 读取失败 [Win32: {}]: {}{}",
                         code,
-                        e.message()
+                        e.message(),
+                        friendly
                     ))
                 }
             }
@@ -453,6 +507,19 @@ mod tests {
         let read_len = dev.read_at(&mut read_buf, 2048 * 512).unwrap();
         assert_eq!(read_len, 512);
         assert_eq!(read_buf, test_data);
+    }
+
+    #[test]
+    fn test_parse_win32_code_hresult_and_raw() {
+        assert_eq!(parse_win32_code(0x80070070u32 as i32), 112); // ERROR_DISK_FULL
+        assert_eq!(parse_win32_code(0x80070027u32 as i32), 39);  // ERROR_HANDLE_DISK_FULL
+        assert_eq!(parse_win32_code(0x80070013u32 as i32), 19);  // ERROR_WRITE_PROTECT
+        assert_eq!(parse_win32_code(0x8007048Fu32 as i32), 1167); // ERROR_DEVICE_NOT_CONNECTED
+        assert_eq!(parse_win32_code(0x8007045Du32 as i32), 1117); // ERROR_IO_DEVICE
+        assert_eq!(parse_win32_code(0x80070015u32 as i32), 21);  // ERROR_NOT_READY
+        assert_eq!(parse_win32_code(0x80070017u32 as i32), 23);  // ERROR_CRC
+        assert_eq!(parse_win32_code(112), 112);
+        assert_eq!(parse_win32_code(19), 19);
     }
 
     #[test]
