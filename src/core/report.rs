@@ -297,7 +297,7 @@ impl DiagnosticReport {
                 } else if peak_speed_mb < 43.5 {
                     "USB 2.0 High-Speed (480Mbps 物理通道，实际读取带宽上限约 43.5 MB/s)".to_string()
                 } else if peak_speed_mb < 450.0 {
-                    "USB 3.2 Gen 1x1 (5Gbps 物理通道，SuperSpeed 理论 500MB/s，BOT/UASP 实测上限约 450 MB/s)".to_string()
+                    "USB 3.2 Gen 1x1 (5Gbps 物理通道，SuperSpeed 理论 500 MB/s，BOT/UASP 实测上限约 450 MB/s)".to_string()
                 } else if peak_speed_mb < 1050.0 {
                     "USB 3.2 Gen 2x1 (10Gbps 高速物理通道，128b/132b 编码，实测上限约 1050 MB/s)".to_string()
                 } else if peak_speed_mb < 2050.0 {
@@ -365,7 +365,7 @@ impl DiagnosticReport {
         let pathology_analysis = if bytes_processed == 0 {
             "【芯片级微观生理诊断】：测试样本未达稳态评估阈值，暂无法提取芯片微观生理特征。".to_string()
         } else if is_fake || avg_speed_mb < 8.0 {
-            "【芯片级物理病理解析】：该设备在初始阶段测得的高速传输，系主控在前端开辟的极小容量动态 SLC Cache 模拟加速所致；当模拟缓存耗尽后，速度呈现断崖式下跌，暴露出背后极低性能的劣质物理颗粒；测试过程中的剧烈速度锯齿波动与卡顿归零，系由于廉价主控芯片无外置 DRAM 物理缓存，在执行后台坏块磨损均衡与垃圾回收 (Garbage Collection, GC) 物理块擦除锁定 (tBERS 典型耗时 2~5ms) 时芯片算力死锁，导致数据总线发生周期性传输阻塞。该生理特征为典型黑产劣质盘的标志性行为。".to_string()
+            "【芯片级物理病理解析】：该设备在初始阶段测得的高速传输，系主控在前端开辟的极小容量动态 SLC Cache 模拟加速所致；当模拟缓存耗尽后，速度呈现断崖式下跌，暴露出背后极低性能的劣质物理颗粒；测试过程中的剧烈速度锯齿波动与卡顿归零，系由于廉价主控芯片无外置 DRAM 物理缓存，在执行后台坏块磨损均衡与垃圾回收 (Garbage Collection, GC) 物理块擦除锁定（tBERS 典型耗时 2~5 ms）时芯片算力死锁，导致数据总线发生周期性传输阻塞。该生理特征为典型黑产劣质盘的标志性行为。".to_string()
         } else {
             "【芯片级物理生理诊断】：数据传输平稳连续，闪存主控转换层 (FTL) 逻辑与物理映射状态健康，浮栅电荷保持力优良，芯片内部未见异常 GC 阻塞、坏块重映射死锁或温控热节流降频。".to_string()
         };

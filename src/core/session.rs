@@ -134,17 +134,35 @@ impl H2wSession {
         Self { config, cancel_flag }
     }
 
-    // 发现目标目录下所有以 .h2w 结尾的文件，并按数字编号升序排序
+    // 发现目标目录下所有以 .h2w 结尾的有效测试文件，并按数字编号升序排序
     pub fn discover_h2w_files(dir: &Path) -> Vec<(u64, PathBuf)> {
         let mut files = Vec::new();
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
+                // 安全防呆 1: 必须是标准物理普通文件，杜绝扫描或误删目录与重解析点
+                let is_file = entry.file_type().is_ok_and(|ft| ft.is_file());
+                if !is_file {
+                    continue;
+                }
+
                 let path = entry.path();
                 if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                    if let Some(prefix) = file_name.strip_suffix(".h2w") {
-                        if let Ok(num) = prefix.parse::<u64>() {
-                            if num > 0 {
-                                files.push((num - 1, path));
+                    // 安全防呆 2: 支持 Windows 平台大小写不敏感扩展名匹配 (.h2w / .H2W)
+                    let is_h2w_ext = file_name.len() > 4
+                        && file_name[file_name.len() - 4..].eq_ignore_ascii_case(".h2w");
+
+                    if is_h2w_ext {
+                        let prefix = &file_name[..file_name.len() - 4];
+                        // 安全防呆 3: 严格校验为非零开头的纯正整数数字，杜绝 '+', '-', 空格与前导零重复
+                        let is_valid_number = !prefix.is_empty()
+                            && !prefix.starts_with('0')
+                            && prefix.chars().all(|c| c.is_ascii_digit());
+
+                        if is_valid_number {
+                            if let Ok(num) = prefix.parse::<u64>() {
+                                if num > 0 {
+                                    files.push((num - 1, path));
+                                }
                             }
                         }
                     }
@@ -354,10 +372,56 @@ impl H2wSession {
                             || e.contains("disk full");
 
                         if is_disk_full {
+                            // 阶梯式降级探测填充末尾可用扇区 (1MB 块写满后，尝试按 64KB -> 4KB -> 512B 粒度写满磁盘末尾)
+                            let sector_size = writer.sector_size();
+                            let step_sizes = [64 * 1024, 4 * 1024, sector_size];
+                            for &step in &step_sizes {
+                                if step < sector_size || step >= buf.len() {
+                                    continue;
+                                }
+                                while file_offset + step as u64 <= GIGABYTE {
+                                    if self.cancel_flag.load(Ordering::Relaxed) {
+                                        break;
+                                    }
+                                    let step_global_offset = (file_index * GIGABYTE) + file_offset;
+                                    fill_sectors(&mut buf[..step], step_global_offset, self.config.salt);
+                                    match writer.write_at(&buf[..step], file_offset) {
+                                        Ok(written) => {
+                                            total_written += written as u64;
+                                            file_offset += written as u64;
+                                        }
+                                        Err(err) => {
+                                            let full = err.contains("112")
+                                                || err.contains("39")
+                                                || err.contains("空间不足")
+                                                || err.contains("disk full");
+                                            if full {
+                                                break;
+                                            } else {
+                                                let _ = tx.send(self.make_telemetry_with_tracker(
+                                                    H2wPhase::Failed,
+                                                    file_index + 1,
+                                                    None,
+                                                    total_written,
+                                                    target_free_bytes,
+                                                    0.0,
+                                                    0,
+                                                    BlockStats::default(),
+                                                    None,
+                                                    true,
+                                                    Some(format!("尾部降级写入发生物理 I/O 故障: {}", err)),
+                                                    &tracker,
+                                                ));
+                                                return false;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             file_full = true;
                             if file_offset > 0 {
-                                // 截断掉对齐多写的尾部后必须真正落盘。失败不能静默：
-                                // 用户此前的数据可能仍停留在主控易失缓存里。
+                                // 截断到实际有效写入的扇区对齐长度并硬件穿透冲刷落盘
                                 let trunc = writer.truncate_to(file_offset);
                                 let flushed = writer.flush();
                                 if let Err(msg) = trunc.and(flushed) {
@@ -829,5 +893,58 @@ impl H2wSession {
         t.duration_seconds = tracker.start_time.elapsed().as_secs_f64();
         t.physiology = Some(tracker.snapshot(bytes_processed));
         t
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_discover_h2w_files_strict_filtering() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "f3_test_discover_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // 创建合规测试文件
+        std::fs::write(temp_dir.join("1.h2w"), b"valid_1").unwrap();
+        std::fs::write(temp_dir.join("2.H2W"), b"valid_2_upper").unwrap();
+        std::fs::write(temp_dir.join("10.h2w"), b"valid_10").unwrap();
+
+        // 创建非法文件与同名文件夹，测试防呆拦截
+        std::fs::write(temp_dir.join("0.h2w"), b"zero").unwrap();
+        std::fs::write(temp_dir.join("01.h2w"), b"leading_zero").unwrap();
+        std::fs::write(temp_dir.join("+1.h2w"), b"plus_sign").unwrap();
+        std::fs::write(temp_dir.join("foo.h2w"), b"alpha").unwrap();
+        std::fs::write(temp_dir.join("1.h2w.bak"), b"bak").unwrap();
+        std::fs::create_dir(temp_dir.join("3.h2w")).unwrap(); // 文件夹严禁误识别
+
+        let discovered = H2wSession::discover_h2w_files(&temp_dir);
+        assert_eq!(discovered.len(), 3, "只有 1.h2w, 2.H2W, 10.h2w 应该被匹配");
+        assert_eq!(discovered[0].0, 0); // 1.h2w 映射为序号 0
+        assert_eq!(discovered[1].0, 1); // 2.H2W 映射为序号 1
+        assert_eq!(discovered[2].0, 9); // 10.h2w 映射为序号 9
+
+        // 测试安全一键清理：只删除匹配的文件，保留所有非法与用户文件/文件夹
+        let (deleted, _freed) = H2wSession::cleanup_h2w_files(&temp_dir).unwrap();
+        assert_eq!(deleted, 3);
+        assert!(!temp_dir.join("1.h2w").exists());
+        assert!(!temp_dir.join("2.H2W").exists());
+        assert!(!temp_dir.join("10.h2w").exists());
+
+        // 验证用户目录与非标文件完好无损未被误删
+        assert!(temp_dir.join("0.h2w").exists());
+        assert!(temp_dir.join("01.h2w").exists());
+        assert!(temp_dir.join("+1.h2w").exists());
+        assert!(temp_dir.join("foo.h2w").exists());
+        assert!(temp_dir.join("1.h2w.bak").exists());
+        assert!(temp_dir.join("3.h2w").is_dir());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
