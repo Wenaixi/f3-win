@@ -878,3 +878,21 @@
      - 单元格高度计算改为 cell_width * 0.75 结合 clamp(6.0, 11.0)，容器高度联动自适应，彻底根除 1080p @ 150% 笔记本与超宽屏下热力图被拉伸为扁长条纹的几何失真缺陷；
   6. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
 
+### CI全绿双架构部署大成版记录 (Run 39730409418)
+- 流水线状态与指标：Run ID 39730409418 (Status: completed success，全量子任务 100% 满分全绿)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy --all-targets -- -D warnings 并通过全部核心单元测试 (2m 22s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-v0.1.0-x86_64-pc-windows-msvc.zip (2m 12s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-v0.1.0-aarch64-pc-windows-msvc.zip (3m 19s)
+- 产物详情与验证：
+  - Windows x64 生产二进制：f3-win.exe / f3-win-v0.1.0.exe / f3-win-v0.1.0-x86_64.exe (精确 3,432,960 字节，SHA-256: c3cf845aa13175173f7c4d03abcb7bc65d1cdeeee89318780be1858c38538760，编译时间戳 2026-10-22 05:55)
+  - Windows ARM64 生产二进制：f3-win-arm64.exe / f3-win-v0.1.0-arm64.exe (精确 3,264,000 字节，SHA-256: 8d2f92c5beb64dc6d7e1608b5e813dc01d323e740fa8822a1ea32baa983e1761，编译时间戳 2026-10-22 05:57)
+  - 本地已安全热更新就位：f3-win.exe、f3-win-arm64.exe、f3-win-v0.1.0.exe、f3-win-v0.1.0-arm64.exe 与 f3-win-v0.1.0-x86_64.exe
+- 架构演化与核心飞跃总结：
+  1. 精准修复 report 结构体与主题配置阻断：补齐 DiagnosticReport::build_with_kind 中缺失的 is_completed 字段；移除 theme.rs 中 egui 0.29 未定义的实验性字段，保证代码库严格对齐 Clippy 零警告门禁；
+  2. 全端无障碍与高对比度焦点体系：冷银白 BORDER_FOCUS (7.2:1 超高对比度，超 WCAG AA 3.0:1 门禁)；
+  3. 司法存证案卷真实物证直通：测试完成边界直通真实耗时、首发错误 offset/expected/actual 与生理快照，彻底根除 dummy_telemetry 导致的物证缺失；
+  4. 阶段性中途抽检客观定性：未全盘校验完成时出具琥珀色阶段抽检结论，非整盘合规不予签发 AAA 级报告；
+  5. 晶圆热力图 4:3 黄金微网格：单元格高度动态联动 cell_width * 0.75，彻底消除高分屏与宽屏拉伸变形；
+  6. 严格执行 Windows 原生更名热替换机制，平稳完成部署；
+  7. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+
