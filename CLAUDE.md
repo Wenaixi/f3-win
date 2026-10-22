@@ -1021,3 +1021,17 @@
      - 将 AppState::default() 中的 use_random_salt 默认值从 false 设为 true，开箱即用不可逆非线性雪崩 PRF 动态加盐防伪，击穿扩容盘主控的模逆元算力回放作弊；同时在高级设置页保留开关，供需要 100% 逐比特向后兼容原版 F3 / H2testw 的用户自主切换；
   5. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
 
+### 顶部导航栏正交极简F3品牌图标与GPU显存零开销纹理缓存交付记录 (2026-10-22)
+- 治理目标：响应用户核心诉求，将顶部主导航栏左上角单调简陋的纯文本 "F3" 标题升级为瑞士平面极简正交负空间 F3 品牌图标，增强应用程序的专业工业级品牌质感与视觉辨识度。
+- 架构设计与无损渲染管线 (src/gui/app.rs)：
+  1. 静态资产内嵌与零运行时 I/O 开销：
+     - 复用 assets/icon_64.rgba (精确 16,384 字节，64x64 32-bit RGBA 纯原始像素通道数据)；
+     - 借助 include_bytes! 在编译期静态内嵌进可执行文件二进制段，运行时零磁盘读写、零动态解码计算开销；
+  2. GPU 显存级纹理句柄生命周期托管 (F3App.logo_texture)：
+     - 在 F3App 结构体中新增 logo_texture: egui::TextureHandle 字段，由 eframe/egui 的 Context 直接持有生命周期；
+     - 在 F3App::new(cc) 构造初始化阶段，通过 ColorImage::from_rgba_unmultiplied([64, 64], &ICON_RGBA) 解析并在 GPU 显卡端完成一键纹理载入，全局仅分配一次，彻底消除了每帧单帧循环重复创建纹理的高显存占用与内存泄漏隐患；
+  3. 像素级精密排版与无障碍悬停提示：
+     - 在 render_top_nav 左上角标题区域分配 22.0x22.0 px 紧凑矩形容器，通过 ui.painter().image 注入 GPU 纹理，配对 Rect::from_min_max(pos, pos + [22.0, 22.0]) 与 uv: [0, 0]..[1, 1] 全幅映射；
+     - 图标容器附加 on_hover_text("F3 (Fight Flash Fraud) 闪存测试与维权鉴定工具箱") 友好提示，右侧优雅保留 [DIRECT I/O] 核心驱动徽标，视觉对齐严谨，完美融入深空黑白极简工业风整体界面；
+  4. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+
