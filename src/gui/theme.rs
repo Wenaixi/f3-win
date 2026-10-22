@@ -127,7 +127,6 @@ pub fn install_modern_theme(ctx: &egui::Context) {
 
     // 全局排版、间距与键盘无障碍交互配置 (WCAG 2.1 AA)
     ctx.style_mut(|style| {
-        style.interaction.selectable_labels_and_buttons = true;
         style.spacing.item_spacing = egui::vec2(8.0, 8.0);
         style.spacing.button_padding = egui::vec2(12.0, 6.0);
         style.spacing.window_margin = Margin::same(12.0);

@@ -272,6 +272,7 @@ impl DiagnosticReport {
             first_error_actual: telemetry.first_error_actual,
 
             inference,
+            is_completed,
             is_fake,
             real_usable_bytes,
             fake_bytes,
