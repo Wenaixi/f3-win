@@ -814,3 +814,22 @@
      - GetMessageW 循环采用严格 .0 > 0 判定防御 -1 紧凑死循环；
   6. 严格执行 Windows 原生更名热替换机制，平稳完成部署；
   7. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+
+### 设备选择器置灰安全阻断、TabBar悬停微光与全端禁用按钮管道加固大成版记录 (2026-10-22)
+- 治理目标：对标工业级体验标准，深度治理多子代理审查发现的下拉菜单穿透、导航栏悬停反馈失效、禁用按钮光标脱节与探测页结果挂载跳跃等细节缺陷。
+- 核心成果与技术飞跃：
+  1. 存储设备与卷选择器底层置灰锁定 (src/gui/components/device_selector.rs):
+     - 下拉菜单 ComboBox 列表项接入 ui.add_enabled(is_safe, egui::SelectableLabel::new(...))；
+     - 非安全物理磁盘显式后缀标注 [锁定保护]，非移动系统卷显式后缀标注 [受保护系统卷]；
+     - 彻底在下拉展开层直接原生置灰锁定并屏蔽点击交互，杜绝任何对系统引导盘的误选；
+  2. 导航栏 TabBar 悬停微光与直角微质感反馈 (src/gui/app.rs):
+     - 重构 render_tab 为 ui.allocate_exact_size(78.0, 30.0) 结合 painter 精准绘制；
+     - 激活态保持 SURFACE_ACTIVE 与高对比度正文，未激活悬停态 (Hover) 泛起 SURFACE_HOVER 冷冽微光与 1px 发丝边框；
+     - 彻底消除原 button fill(TRANSPARENT) 强制覆盖 visuals 导致的主题悬停高亮失效问题；
+  3. 全端禁用按钮接入原生禁用交互管道 (src/gui/theme.rs & app.rs):
+     - theme.rs 抽象封装 render_disabled_button(ui, size, text)，内聚 ui.add_enabled_ui(false, ...)；
+     - 写入页、读取页、闪电探测页与分区自愈页全量置灰操作按钮全面接入该管道，强制锁定禁止光标并阻断动画与交互响应；
+  4. 闪电探测页待命占位相框与布局防抖 (src/gui/app.rs):
+     - 为闪电探测结果面板添加 else 待命占位分支，呈现深空 SURFACE_BG + 1px 细发丝边框相框；
+     - 彻底消除探测前空空如也、探测完成后瞬间撑开 150px 高度造成的突兀布局跳跃 (Mount Shift)；
+  5. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
