@@ -19,7 +19,7 @@ pub fn render_heatmap(ui: &mut Ui, blocks: &[BlockState]) {
             );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                legend_badge(ui, Color32::from_rgb(168, 85, 247), "回绕覆盖");
+                legend_badge(ui, theme::ACCENT_PURPLE, "回绕覆盖");
                 ui.add_space(4.0);
                 legend_badge(ui, theme::ACCENT_AMBER, "数据异常");
                 ui.add_space(4.0);
@@ -59,10 +59,10 @@ pub fn render_heatmap(ui: &mut Ui, blocks: &[BlockState]) {
                 BlockState::Good => theme::ACCENT_GREEN,
                 BlockState::Bad => theme::ACCENT_RED,
                 BlockState::Changed => theme::ACCENT_AMBER,
-                BlockState::Overwritten => Color32::from_rgb(168, 85, 247),
+                BlockState::Overwritten => theme::ACCENT_PURPLE,
             };
 
-            painter.rect_filled(cell_rect, 1.5, color);
+            painter.rect_filled(cell_rect, egui::Rounding::ZERO, color);
         }
     });
 }
@@ -70,7 +70,7 @@ pub fn render_heatmap(ui: &mut Ui, blocks: &[BlockState]) {
 fn legend_badge(ui: &mut Ui, color: Color32, text: &str) {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(9.0), Sense::hover());
-        ui.painter().rect_filled(rect, 2.0, color);
+        ui.painter().rect_filled(rect, egui::Rounding::ZERO, color);
         ui.label(RichText::new(text).size(11.0).color(theme::TEXT_MUTED));
     });
 }

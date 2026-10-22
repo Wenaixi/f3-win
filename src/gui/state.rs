@@ -34,6 +34,12 @@ pub struct AppState {
     // 全局持久化的读写速度全景与生理审计档案 (写入与读取双端并存)
     pub audit_record: SpeedAuditRecord,
 
+    // 记录上一次选中的测试卷路径 (用于盘符切换时原子重置审计报告，杜绝跨盘幽灵报告)
+    pub last_selected_path: Option<std::path::PathBuf>,
+
+    // 物理分区自愈现场安全复核缓存 (避免 60FPS UI 循环中每 16ms 轮询底层 Win32 IOCTL)
+    pub cached_dry_run_report: Option<(u32, Result<crate::core::fix::DryRunReport, String>)>,
+
     // 系统托盘与弹窗控制状态
     pub minimize_to_tray_on_close: bool,
     pub show_path_info_modal: bool,
@@ -76,6 +82,8 @@ impl Default for AppState {
             max_test_gb: None,
             auto_cleanup_after_read: false,
             audit_record: SpeedAuditRecord::default(),
+            last_selected_path: None,
+            cached_dry_run_report: None,
             minimize_to_tray_on_close: true,
             show_path_info_modal: false,
             show_exit_confirm_modal: false,

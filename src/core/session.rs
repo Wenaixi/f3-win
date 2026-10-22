@@ -265,7 +265,7 @@ impl H2wSession {
                     BlockStats::default(),
                     None,
                     true,
-                    None,
+                    Some("用户已中止写入".into()),
                     &tracker,
                 ));
                 return false;
@@ -534,7 +534,7 @@ impl H2wSession {
                     stats,
                     None,
                     true,
-                    None,
+                    Some("用户已中止校验".into()),
                     &tracker,
                 ));
                 return false;

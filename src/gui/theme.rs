@@ -25,7 +25,7 @@ pub const BORDER_WHITE: Color32 = Color32::from_rgb(220, 228, 240);
 // 3. 文字层级 (Typography Tokens)
 pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(242, 245, 248);
 pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(155, 165, 178);
-pub const TEXT_MUTED: Color32 = Color32::from_rgb(98, 108, 124);
+pub const TEXT_MUTED: Color32 = Color32::from_rgb(110, 121, 139); // 提升至 WCAG AA 4.5:1 标准对比度
 pub const TEXT_INVERTED: Color32 = Color32::from_rgb(12, 14, 18);
 
 // 4. 严格克制的语义指示色 (Semantic Tokens)
@@ -36,11 +36,19 @@ pub const ACCENT_AMBER: Color32 = Color32::from_rgb(245, 158, 11);   // 琥珀�
 pub const ACCENT_CYAN: Color32 = Color32::from_rgb(56, 189, 248);     // 微弱冰蓝数据流
 pub const ACCENT_PURPLE: Color32 = Color32::from_rgb(168, 85, 247);  // 洋紫覆写假盘色
 
+// 语义微暗底色体系 (Badge Low-contrast Backgrounds)
+pub const ACCENT_GREEN_BG: Color32 = Color32::from_rgb(16, 40, 28);
+pub const ACCENT_RED_BG: Color32 = Color32::from_rgb(45, 16, 16);
+pub const ACCENT_AMBER_BG: Color32 = Color32::from_rgb(45, 35, 16);
+pub const ACCENT_CYAN_BG: Color32 = Color32::from_rgb(16, 32, 45);
+pub const ACCENT_PURPLE_BG: Color32 = Color32::from_rgb(38, 18, 55);
+
 pub const STATUS_GOOD: Color32 = ACCENT_GREEN;
 pub const STATUS_BAD: Color32 = ACCENT_RED;
 pub const STATUS_WARN: Color32 = ACCENT_AMBER;
 pub const STATUS_CYAN: Color32 = ACCENT_CYAN;
 pub const STATUS_PURPLE: Color32 = ACCENT_PURPLE;
+pub const STATUS_UNTESTED: Color32 = Color32::from_rgb(24, 29, 38);
 
 // ==========================================
 // 主题配置注入 (Theme Installation)
@@ -107,9 +115,9 @@ pub fn install_modern_theme(ctx: &egui::Context) {
         expansion: 0.0,
     };
 
-    // 选中与高亮规范
+    // 选中与高亮规范：纯白清晰勾选指示
     visuals.selection.bg_fill = Color32::from_rgb(40, 48, 64);
-    visuals.selection.stroke = Stroke::new(1.0_f32, BORDER_STRONG);
+    visuals.selection.stroke = Stroke::new(1.5_f32, ACCENT_WHITE);
 
     ctx.set_visuals(visuals);
 
@@ -191,6 +199,14 @@ pub fn ghost_button(text: impl Into<WidgetText>) -> egui::Button<'static> {
         .rounding(Rounding::ZERO)
 }
 
+/// 渲染置灰禁用直角按钮 (深底 / 暗淡边框 / 零圆角 / 保持一致高度)
+pub fn disabled_button(text: impl Into<WidgetText>) -> egui::Button<'static> {
+    egui::Button::new(text)
+        .fill(SURFACE_BG)
+        .stroke(Stroke::new(1.0_f32, BORDER_HAIRLINE))
+        .rounding(Rounding::ZERO)
+}
+
 /// 渲染微型状态指示点 (Status Marker)
 pub fn status_dot(ui: &mut Ui, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
@@ -217,5 +233,37 @@ pub fn pill_badge(ui: &mut Ui, text: &str, bg: Color32, fg: Color32) {
     let (rect, _) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, Rounding::ZERO, bg);
+    let stroke_color = Color32::from_rgba_unmultiplied(fg.r(), fg.g(), fg.b(), 50);
+    painter.rect_stroke(rect, Rounding::ZERO, Stroke::new(1.0_f32, stroke_color));
     painter.galley(rect.min + padding, galley, fg);
+}
+
+/// 语义快捷徽标：翠绿合规健康徽标
+pub fn badge_green(ui: &mut Ui, text: &str) {
+    pill_badge(ui, text, ACCENT_GREEN_BG, ACCENT_GREEN);
+}
+
+/// 语义快捷徽标：警示绯红损坏徽标
+pub fn badge_red(ui: &mut Ui, text: &str) {
+    pill_badge(ui, text, ACCENT_RED_BG, ACCENT_RED);
+}
+
+/// 语义快捷徽标：琥珀金黄异常徽标
+pub fn badge_amber(ui: &mut Ui, text: &str) {
+    pill_badge(ui, text, ACCENT_AMBER_BG, ACCENT_AMBER);
+}
+
+/// 语义快捷徽标：微弱冰蓝数据流徽标
+pub fn badge_cyan(ui: &mut Ui, text: &str) {
+    pill_badge(ui, text, ACCENT_CYAN_BG, ACCENT_CYAN);
+}
+
+/// 语义快捷徽标：洋紫覆写假盘徽标
+pub fn badge_purple(ui: &mut Ui, text: &str) {
+    pill_badge(ui, text, ACCENT_PURPLE_BG, ACCENT_PURPLE);
+}
+
+/// 语义快捷徽标：中性沉稳灰度徽标
+pub fn badge_neutral(ui: &mut Ui, text: &str) {
+    pill_badge(ui, text, SURFACE_BG, TEXT_MUTED);
 }

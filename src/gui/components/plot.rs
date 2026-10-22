@@ -2,12 +2,24 @@ use egui::{RichText, Ui};
 use egui_plot::{Line, Plot, PlotPoints};
 use crate::gui::theme;
 
-pub fn render_speed_plot(ui: &mut Ui, history: &[[f64; 2]], title: &str, plot_id: &str) {
+/// 折线图通道类型 (强类型替代脆弱的字符串包含匹配)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlotKind {
+    Write,
+    Verify,
+}
+
+pub fn render_speed_plot(ui: &mut Ui, history: &[[f64; 2]], title: &str, plot_id: &str, kind: PlotKind) {
     let frame = egui::Frame::none()
         .fill(theme::SURFACE_BG)
         .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
         .rounding(egui::Rounding::ZERO)
         .inner_margin(egui::Margin::symmetric(14.0, 10.0));
+
+    let theme_color = match kind {
+        PlotKind::Write => theme::ACCENT_CYAN,
+        PlotKind::Verify => theme::ACCENT_GREEN,
+    };
 
     frame.show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -25,7 +37,7 @@ pub fn render_speed_plot(ui: &mut Ui, history: &[[f64; 2]], title: &str, plot_id
                             RichText::new(format!("{:.2} MB/s", last[1]))
                                 .size(13.0)
                                 .strong()
-                                .color(theme::ACCENT_CYAN),
+                                .color(theme_color), // 颜色严格与通道类型强绑定，彻底消除读取页右上角写死青色的Bug
                         );
                         ui.label(RichText::new("瞬时:").size(11.0).color(theme::TEXT_MUTED));
                     });
@@ -45,12 +57,7 @@ pub fn render_speed_plot(ui: &mut Ui, history: &[[f64; 2]], title: &str, plot_id
             if t > max_time { max_time = t; }
         }
 
-        let is_write = title.contains("写入");
-        let line_color = if is_write {
-            theme::ACCENT_CYAN
-        } else {
-            theme::ACCENT_GREEN
-        };
+        let line_color = theme_color;
 
         let points: PlotPoints = history.iter().map(|&[t, s]| [t, s]).collect();
         let line = Line::new(points)
