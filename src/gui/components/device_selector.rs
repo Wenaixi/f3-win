@@ -50,9 +50,12 @@ pub fn render_storage_device_selector(
                         )
                     };
 
-                    let resp = ui.selectable_label(
-                        selected_idx == Some(idx),
-                        label_text,
+                    let resp = ui.add_enabled(
+                        is_safe,
+                        egui::SelectableLabel::new(
+                            selected_idx == Some(idx),
+                            label_text,
+                        ),
                     );
 
                     if resp.clicked() && is_safe {
@@ -91,9 +94,17 @@ pub fn render_storage_volume_selector(
                 let volumes = inventory.volumes().to_vec();
                 for (idx, vol) in volumes.iter().enumerate() {
                     let is_safe = vol.is_safe_target;
-                    let resp = ui.selectable_label(
-                        selected_idx == idx,
-                        vol.display_name(),
+                    let label_text = if is_safe {
+                        vol.display_name()
+                    } else {
+                        format!("{} [受保护系统卷]", vol.display_name())
+                    };
+                    let resp = ui.add_enabled(
+                        is_safe,
+                        egui::SelectableLabel::new(
+                            selected_idx == idx,
+                            label_text,
+                        ),
                     );
                     if resp.clicked() && is_safe {
                         inventory.select_volume(idx);

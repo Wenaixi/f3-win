@@ -215,6 +215,18 @@ pub fn disabled_button(text: impl Into<WidgetText>) -> egui::Button<'static> {
         .rounding(Rounding::ZERO)
 }
 
+/// 渲染置灰禁用直角按钮并强制接入 egui 禁用交互管道 (锁定鼠标禁止光标并屏蔽动画)
+pub fn render_disabled_button(
+    ui: &mut Ui,
+    size: impl Into<Vec2>,
+    text: impl Into<WidgetText>,
+) -> egui::Response {
+    ui.add_enabled_ui(false, |ui| {
+        ui.add_sized(size.into(), disabled_button(text))
+    })
+    .inner
+}
+
 /// 渲染微型状态指示点 (Status Marker)
 pub fn status_dot(ui: &mut Ui, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());

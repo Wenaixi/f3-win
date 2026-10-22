@@ -240,36 +240,44 @@ impl eframe::App for F3App {
                     ui.separator();
                     ui.add_space(8.0);
 
-                    // 现代一体化黑白选项卡项
+                    // 现代一体化黑白选项卡项 (带 Hover 动态微光与直角微质感反馈)
                     let mut render_tab = |ui: &mut egui::Ui, tab: AppTab, label: &str| {
                         let is_active = self.state.current_tab == tab;
-                        let text_color = if is_active {
-                            theme::TEXT_PRIMARY
-                        } else {
-                            theme::TEXT_SECONDARY
-                        };
-                        let bg_color = if is_active {
-                            theme::SURFACE_ACTIVE
-                        } else {
-                            Color32::TRANSPARENT
-                        };
-                        let stroke = if is_active {
-                            egui::Stroke::new(1.0_f32, theme::BORDER_STRONG)
-                        } else {
-                            egui::Stroke::NONE
-                        };
+                        let (rect, resp) = ui.allocate_exact_size(egui::vec2(78.0, 30.0), egui::Sense::click());
+                        if ui.is_rect_visible(rect) {
+                            let (bg, stroke, text_color) = if is_active {
+                                (
+                                    theme::SURFACE_ACTIVE,
+                                    egui::Stroke::new(1.0_f32, theme::BORDER_STRONG),
+                                    theme::TEXT_PRIMARY,
+                                )
+                            } else if resp.hovered() {
+                                (
+                                    theme::SURFACE_HOVER,
+                                    egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE),
+                                    theme::TEXT_PRIMARY,
+                                )
+                            } else {
+                                (
+                                    Color32::TRANSPARENT,
+                                    egui::Stroke::NONE,
+                                    theme::TEXT_SECONDARY,
+                                )
+                            };
 
-                        let btn = egui::Button::new(
-                            RichText::new(label)
-                                .size(13.0)
-                                .color(text_color)
-                                .strong(),
-                        )
-                        .fill(bg_color)
-                        .stroke(stroke)
-                        .rounding(egui::Rounding::ZERO);
+                            if bg != Color32::TRANSPARENT || stroke != egui::Stroke::NONE {
+                                ui.painter().rect(rect, egui::Rounding::ZERO, bg, stroke);
+                            }
+                            ui.painter().text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                label,
+                                egui::FontId::proportional(13.0),
+                                text_color,
+                            );
+                        }
 
-                        if ui.add(btn).clicked() {
+                        if resp.clicked() {
                             self.state.current_tab = tab;
                         }
                     };
@@ -397,7 +405,7 @@ impl F3App {
                         self.start_write_task();
                     }
                 } else {
-                    let _ = ui.add_sized(main_btn_size, theme::disabled_button(btn_text));
+                    theme::render_disabled_button(ui, main_btn_size, btn_text);
                 }
             }
 
@@ -410,7 +418,7 @@ impl F3App {
 
             let is_busy = snapshot.status == TaskStatus::Running;
             if is_busy {
-                let _ = ui.add_sized([110.0, 36.0], theme::disabled_button("清理测试文件"));
+                theme::render_disabled_button(ui, [110.0, 36.0], "清理测试文件");
             } else if ui.add_sized([110.0, 36.0], theme::ghost_button("清理测试文件")).clicked() {
                 let path = self.state.inventory.selected_path();
                 self.state.controller.start_cleanup(path);
@@ -612,7 +620,7 @@ impl F3App {
                         self.start_read_task();
                     }
                 } else {
-                    let _ = ui.add_sized(main_btn_size, theme::disabled_button(btn_text));
+                    theme::render_disabled_button(ui, main_btn_size, btn_text);
                 }
             }
 
@@ -649,7 +657,7 @@ impl F3App {
                 self.state.current_tab = AppTab::WriteTest;
             }
             if is_busy {
-                let _ = ui.add_sized([110.0, 36.0], theme::disabled_button("清理测试文件"));
+                theme::render_disabled_button(ui, [110.0, 36.0], "清理测试文件");
             } else if ui.add_sized([110.0, 36.0], theme::ghost_button("清理测试文件")).clicked() {
                 let path = self.state.inventory.selected_path();
                 self.state.controller.start_cleanup(path);
@@ -897,7 +905,7 @@ impl F3App {
                         self.start_probe_task();
                     }
                 } else {
-                    let _ = ui.add_sized(probe_btn_size, theme::disabled_button(btn_text));
+                    theme::render_disabled_button(ui, probe_btn_size, btn_text);
                 }
             }
         });
@@ -971,6 +979,22 @@ impl F3App {
                         });
                 }
             }
+        } else {
+            ui.add_space(14.0);
+            egui::Frame::none()
+                .fill(theme::SURFACE_BG)
+                .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_HAIRLINE))
+                .rounding(egui::Rounding::ZERO)
+                .inner_margin(egui::Margin::same(16.0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        theme::badge_neutral(ui, "待命就绪");
+                        ui.add_space(6.0);
+                        ui.label(RichText::new("物理磁盘探测就绪").size(15.0).strong().color(theme::TEXT_PRIMARY));
+                    });
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("选择上方目标移动磁盘并点击「开始探测」，系统将通过底层跳跃探针在数分钟内测定真实物理容量。").size(12.0).color(theme::TEXT_MUTED));
+                });
         }
     }
 
@@ -1036,7 +1060,7 @@ impl F3App {
                                         }
                                     }
                                 } else {
-                                    let _ = ui.add_sized([220.0, 36.0], theme::disabled_button("正在执行安全分区..."));
+                                    theme::render_disabled_button(ui, [220.0, 36.0], "正在执行安全分区...");
                                 }
 
                                 ui.add_space(10.0);
@@ -1051,7 +1075,7 @@ impl F3App {
                         Err(err) => {
                             ui.label(RichText::new(format!("物理安全拦截: {}", err)).size(12.0).color(theme::ACCENT_RED));
                             ui.add_space(10.0);
-                            let _ = ui.add_sized([220.0, 36.0], theme::disabled_button("无法应用安全分区"));
+                            theme::render_disabled_button(ui, [220.0, 36.0], "无法应用安全分区");
                         }
                     }
                 });
