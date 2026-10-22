@@ -626,12 +626,12 @@ impl VolumeInfo {
                     if let Some(dev_info) = PhysicalDeviceInfo::query_by_index(d_idx) {
                         dev_info.is_safe_target
                     } else {
-                        // 底层设备反查失败，秉持 Fail-Close 零信任安全原则，严禁放行未经验证的设备
-                        false
+                        // 物理磁盘反查受阻但卷本身经 GetDriveTypeW 确认为可移动介质(U盘/TF卡)，且绝非系统引导盘
+                        is_removable
                     }
                 } else {
-                    // 无法获取底层物理磁盘编号，拒绝作为安全直通测试目标
-                    false
+                    // 未获取到底层磁盘编号，若明确为可移动介质且绝非系统引导盘则予以放行
+                    is_removable
                 };
 
                 volumes.push(VolumeInfo {

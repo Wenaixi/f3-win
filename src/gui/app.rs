@@ -6,9 +6,7 @@ use crate::core::fix::SafePartitionFixer;
 use crate::core::session::{H2wConfig, H2wMode, H2wTelemetry};
 use crate::core::salt::SaltRegistry;
 use crate::core::report::DiagnosticReport;
-use crate::gui::components::device_selector::{
-    render_storage_device_selector, render_storage_volume_selector,
-};
+use crate::gui::components::device_selector::render_storage_volume_selector;
 use crate::core::paths::{self, AppPathInfo};
 use crate::gui::components::heatmap::render_heatmap;
 use crate::gui::components::plot::render_speed_plot;
@@ -906,12 +904,25 @@ impl F3App {
 
         let is_busy = snapshot.status == TaskStatus::Running;
         ui.add_enabled_ui(!is_busy, |ui| {
-            render_storage_device_selector(ui, &mut self.state.inventory);
+            render_storage_volume_selector(ui, "probe_vol_combo", &mut self.state.inventory);
         });
+
+        if let Some(target) = self.state.inventory.active_target() {
+            ui.add_space(2.0);
+            ui.label(
+                RichText::new(format!(
+                    "已自动关联底层物理磁盘: PhysicalDrive{} ({})",
+                    target.disk_index(),
+                    target.product_name()
+                ))
+                .size(11.5)
+                .color(theme::TEXT_MUTED),
+            );
+        }
 
         ui.add_space(10.0);
 
-        let is_safe = self.state.inventory.selected_device().is_some_and(|d| d.is_safe_target);
+        let is_safe = self.state.inventory.active_target().is_some();
         let is_probe_running = snapshot.status == TaskStatus::Running && snapshot.kind == crate::core::controller::TaskKind::Probe;
         let is_other_running = snapshot.status == TaskStatus::Running && !is_probe_running;
 

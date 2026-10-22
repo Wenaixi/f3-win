@@ -28,41 +28,37 @@ pub fn render_storage_device_selector(
 
         egui::ComboBox::from_id_salt("storage_device_combo")
             .selected_text(RichText::new(current_text).size(12.5).color(theme::TEXT_PRIMARY))
-            .width(460.0)
+            .width(480.0)
             .show_ui(ui, |ui| {
                 let devices = inventory.devices().to_vec();
+                if devices.is_empty() {
+                    ui.label(RichText::new("未检测到物理磁盘设备").color(theme::TEXT_MUTED));
+                }
                 for (idx, dev) in devices.iter().enumerate() {
                     let is_safe = dev.is_safe_target;
-                    let label_text = if is_safe {
-                        format!(
+                    let is_selected = selected_idx == Some(idx);
+                    if is_safe {
+                        let label_text = format!(
                             "[{}] PhysicalDrive{} - {} {} ({:.1} GB)",
                             dev.bus_type.display_name(),
                             dev.drive_index,
                             dev.vendor_id,
                             dev.product_id,
                             dev.total_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
-                        )
+                        );
+                        let rich = RichText::new(label_text).size(12.0).color(theme::TEXT_PRIMARY);
+                        if ui.selectable_label(is_selected, rich).clicked() {
+                            inventory.select_device(idx);
+                        }
                     } else {
-                        format!(
+                        let label_text = format!(
                             "[锁定保护] PhysicalDrive{} - {} (系统或内部磁盘)",
                             dev.drive_index,
                             dev.product_id,
-                        )
-                    };
-
-                    let mut resp = ui.add_enabled(
-                        is_safe,
-                        egui::SelectableLabel::new(
-                            selected_idx == Some(idx),
-                            label_text,
-                        ),
-                    );
-                    if !is_safe {
-                        resp = resp.on_disabled_hover_text("此设备为系统盘或内置固定总线磁盘，为保护系统与数据安全已硬锁定，严禁作为破坏性测试目标");
-                    }
-
-                    if resp.clicked() && is_safe {
-                        inventory.select_device(idx);
+                        );
+                        let rich = RichText::new(label_text).size(12.0).color(theme::TEXT_MUTED);
+                        let resp = ui.selectable_label(false, rich);
+                        resp.on_hover_text("此设备为系统主盘或内部固定磁盘，为保护系统已硬隔离锁定，严禁作为破坏性测试目标");
                     }
                 }
             });
@@ -92,28 +88,25 @@ pub fn render_storage_volume_selector(
 
         egui::ComboBox::from_id_salt(id_salt)
             .selected_text(RichText::new(current_label).size(12.5).color(theme::TEXT_PRIMARY))
-            .width(360.0)
+            .width(480.0)
             .show_ui(ui, |ui| {
                 let volumes = inventory.volumes().to_vec();
+                if volumes.is_empty() {
+                    ui.label(RichText::new("未检测到存储卷，请插入 U 盘后点击刷新 (F5)").color(theme::TEXT_MUTED));
+                }
                 for (idx, vol) in volumes.iter().enumerate() {
                     let is_safe = vol.is_safe_target;
-                    let label_text = if is_safe {
-                        vol.display_name()
+                    let is_selected = selected_idx == idx;
+                    if is_safe {
+                        let rich = RichText::new(vol.display_name()).size(12.0).color(theme::TEXT_PRIMARY);
+                        if ui.selectable_label(is_selected, rich).clicked() {
+                            inventory.select_volume(idx);
+                        }
                     } else {
-                        format!("{} [受保护系统卷]", vol.display_name())
-                    };
-                    let mut resp = ui.add_enabled(
-                        is_safe,
-                        egui::SelectableLabel::new(
-                            selected_idx == idx,
-                            label_text,
-                        ),
-                    );
-                    if !is_safe {
-                        resp = resp.on_disabled_hover_text("此分区位于系统引导盘或受保护磁盘上，为防止误操作导致系统崩溃已禁用");
-                    }
-                    if resp.clicked() && is_safe {
-                        inventory.select_volume(idx);
+                        let label_text = format!("{} [锁定保护]", vol.display_name());
+                        let rich = RichText::new(label_text).size(12.0).color(theme::TEXT_MUTED);
+                        let resp = ui.selectable_label(false, rich);
+                        resp.on_hover_text("此分区位于系统引导盘或受保护磁盘上，为防止误操作已硬隔离锁定");
                     }
                 }
             });

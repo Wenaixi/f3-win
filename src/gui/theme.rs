@@ -76,10 +76,10 @@ pub fn install_modern_theme(ctx: &egui::Context) {
     // 控件交互各状态视觉规范：硬核直角工业风 (Rounding::ZERO)
     visuals.widgets.noninteractive = egui::style::WidgetVisuals {
         bg_fill: SURFACE_BG,
-        weak_bg_fill: Color32::TRANSPARENT,
+        weak_bg_fill: SURFACE_BG, // 修复：避免透明底色作为 fade_out_to_color 导致 disabled 控件文字被淡化成完全透明隐形
         bg_stroke: Stroke::new(1.0_f32, BORDER_HAIRLINE),
         rounding: Rounding::ZERO,
-        fg_stroke: Stroke::new(1.0_f32, TEXT_SECONDARY),
+        fg_stroke: Stroke::new(1.0_f32, TEXT_MUTED),
         expansion: 0.0,
     };
 
