@@ -730,3 +730,28 @@
   5. 严格遵守不停止、不干扰任何运行中已有进程的铁律，通过 Windows 内核原生更名机制完成本地热更新部署；
   6. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
 
+### 全端UI细节治理、消除IOCTL轮询、强类型折线图解耦与状态机闭环交付记录 (2026-10-21)
+- 治理背景：
+  响应用户指令，派出多个并发子代理对全端 UI 细节、布局抖动、组件强类型解耦、底层并发对象生命周期与异常状态机进行地毯式 Code Review，并自主推进全链路修复。
+- 核心攻防与技术飞跃：
+  1. 状态机分卷取消状态反转彻底根治 (src/core/session.rs:265 & 534):
+     - 根因分析：在 execute_write 与 execute_verify 的分卷轮转循环处，检测到 cancel_flag 时原本发送的遥测包中 error: None 且 is_finished: true，导致上层控制器误以为任务顺利完成，向用户弹出虚假的“写入测试完成”/“读取校验完成”；
+     - 架构修复：将分卷切换点的 error 参数严格修正为 Some("用户已中止写入".into()) 与 Some("用户已中止校验".into())，无论在块 I/O 间隙还是分卷边界点击停止，均能精准定性为用户主动中止，彻底消除虚假成功误报；
+  2. 存储设备安全判定全面落地 Fail-Close 零信任规范 (src/core/devices.rs:626):
+     - 彻底消除 Fail-Open 穿透漏洞：当无法获取底层物理磁盘编号或反查 PhysicalDeviceInfo 失败时，严禁回退信任可能被虚拟设备或加密驱动器伪报的 is_removable，一律判定为 is_safe = false；
+     - 坚持绝对白名单原则，只有穿透至内核且确认为 Usb/Sd/Mmc 的设备才允许作为写入与测试目标；
+  3. 彻底消除 16ms 硬件 IOCTL dry_run 轮询死穴 (src/gui/app.rs:980 & state.rs:40):
+     - 根因分析：原分区自愈页在 60FPS UI 主循环中每一帧（每 16ms）无条件实例化 SafePartitionFixer 并执行 IOCTL dry_run() 硬件探测，引发高 CPU 开销与潜在渲染掉帧；
+     - 架构修复：在 AppState 中引入 cached_dry_run_report 缓存通道，仅当方案磁盘序号变更或缓存为空时执行一次底层硬件探测，其余渲染帧直接复用缓存，彻底解放 UI 循环；
+  4. 盘符切换原子重置与全状态资产刷新自动存证 (src/gui/app.rs:146-160):
+     - 盘符切换隔离：在 AppState 中维护 last_selected_path，下拉切换测试卷时原子清空历史 audit_record 与自愈缓存，彻底根除跨盘幽灵报告污染；
+     - 全状态终止感知：边界检查拓展为 task_just_stopped (prev == Running && curr != Running)，掉盘、取消或硬件报错时无条件刷新存储资产，且只要存在坏道或覆盖数据均自动落盘维权存证档案；
+  5. UI 交互防呆、尺寸规范化与布局防抖 (src/gui/app.rs & theme.rs):
+     - 写入与读取卷选择器、分卷断点范围输入框在测试运行中全面置灰锁定；
+     - 消除 10px Layout Shift：将无固定尺寸的禁用按钮统一重塑为 ui.add_sized([w, h], theme::disabled_button(...))，消除禁用/可用切换时的尺寸跳跃；
+     - 路径直通服务收敛：写入与读取页统一复用 crate::core::paths::open_in_explorer；
+  6. 折线图强类型解耦与全端像素级排版升级:
+     - 折线图通道解耦 (src/gui/components/plot.rs)：引入 PlotKind { Write, Verify } 强类型枚举，彻底淘汰基于标题字符串 contains("写入") 的脆弱判定；波形颜色与右上角瞬时速度大字色彩强联动，彻底解决读取页右上角写死青色的 Bug；
+     - 热力图直角化彻底收敛 (src/gui/components/heatmap.rs)：消除采样单元格与图例色块残留的 1.5px/2.0px 圆角，全量收敛为 egui::Rounding::ZERO；
+     - 文字对比度与 Hexdump 规范 (theme.rs & app.rs)：TEXT_MUTED 调亮至 WCAG AA 4.5:1 标准；微观失配 Hexdump 数据注入 .monospace() 严格等宽对齐；
+  7. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
