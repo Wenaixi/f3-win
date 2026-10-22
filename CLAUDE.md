@@ -1006,3 +1006,18 @@
   5. 严格执行 Windows 原生更名热替换机制，平稳完成部署；
   6. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
 
+### Bento卡片阶梯错位根除、刷新卷交互激活、闪电探测进度翠绿与默认防伪加盐交付记录 (2026-10-22)
+- 治理目标：系统化排查并彻底解决 Bento-Grid 四卡片仪表盘阶梯下沉错位、目标卷右侧「刷新卷 (F5)」按钮点击无视觉反馈与尺寸挤压、闪电探测进度条统一采用科技翠绿、以及默认开启防固件作弊加盐模式等四大体验缺陷。
+- 根因定位与架构加固：
+  1. Bento-Grid 卡片阶梯下沉错位彻底根治 (src/gui/theme.rs & app.rs):
+     - 根因分析：原 bento_card 使用 allocate_ui(vec2(w, 0.0), ...)，继承了父级 horizontal 水平布局流且未锁定固定纵向高度；卡片容器内部各卡片的内容（大字、徽标、单位）在 egui 交叉轴 Align::Center 对齐时，因行高微小差异发生垂直漂移，越往右下沉越严重，形成锯齿阶梯状错位；
+     - 架构修复：重构 theme::bento_card，改用 ui.allocate_ui_with_layout(vec2(w, 70.0), Layout::top_down(Align::Min))，强制卡片容器内部采用自上而下的纵向布局并锁定 70px 工业级固定高度；外层卡片排版统一改用 ui.with_layout(Layout::left_to_right(Align::Min)) 顶端绝对对齐；卡片内部统一第一行 11.0px 小标题，插入 4.0px 垂直呼吸间隙，第二行大字数值与状态徽标统一由 ui.horizontal 包裹，实现四卡片绝对等高、顶端绝对平齐；
+  2. 「刷新卷 (F5)」按钮交互高光激活与防视觉死锁 (src/gui/theme.rs & device_selector.rs):
+     - 根因分析：原 ghost_button 写死 fill(Color32::TRANSPARENT)，覆盖了 egui 默认的 Button 交互着色逻辑；分配尺寸 [76.0, 26.0] 严重过窄挤压文字，且与 ComboBox 仅 4px 间距；在盘符未变动时点击后无高光动画、无日志提示，容易被用户误判为点击无响应或死锁；
+     - 架构修复：将 ghost_button 升级为微透深冷炭黑底色 Color32::from_rgb(20, 24, 32) + 金属暗银细边框 Color32::from_rgb(50, 58, 74)，彻底激活原生鼠标悬停高光与按下轻微形变动效；刷新按钮尺寸规范扩充至 [92.0, 28.0]，间距拓展至 8.0px，并补充 on_hover_text 友好悬停操作提示，点击感清脆扎实；
+  3. 闪电探测进度条科技翠绿视觉统一 (src/gui/app.rs):
+     - 将闪电探测页的 ProgressBar::new(progress) 显式配置为 .fill(theme::ACCENT_GREEN).show_percentage()，使探针跳跃阶梯与二分逼近搜索过程中的进度指示条呈现统一的极客翠绿 (RGB: 16, 185, 129)，在深空黑背景下对比度鲜明、质感高级；
+  4. 默认开启高安全防伪加盐模式 (src/gui/state.rs):
+     - 将 AppState::default() 中的 use_random_salt 默认值从 false 设为 true，开箱即用不可逆非线性雪崩 PRF 动态加盐防伪，击穿扩容盘主控的模逆元算力回放作弊；同时在高级设置页保留开关，供需要 100% 逐比特向后兼容原版 F3 / H2testw 的用户自主切换；
+  5. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+
