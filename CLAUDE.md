@@ -755,3 +755,26 @@
      - 热力图直角化彻底收敛 (src/gui/components/heatmap.rs)：消除采样单元格与图例色块残留的 1.5px/2.0px 圆角，全量收敛为 egui::Rounding::ZERO；
      - 文字对比度与 Hexdump 规范 (theme.rs & app.rs)：TEXT_MUTED 调亮至 WCAG AA 4.5:1 标准；微观失配 Hexdump 数据注入 .monospace() 严格等宽对齐；
   7. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+
+### 全端细节治理与状态机闭环CI全绿双架构部署大成版记录 (Run 39723076662)
+- 流水线状态与指标：Run ID 39723076662 (Status: completed success，全量子任务 100% 满分全绿)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy --all-targets -- -D warnings 并通过全部核心单元测试 (2m 13s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-v0.1.0-x86_64-pc-windows-msvc.zip (2m 6s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-v0.1.0-aarch64-pc-windows-msvc.zip (2m 29s)
+- 产物详情与验证：
+  - Windows x64 生产二进制：f3-win.exe (精确 3,422,208 字节，编译时间戳 2026-10-22 04:38)
+  - Windows ARM64 生产二进制：f3-win-arm64.exe (精确 3,254,272 字节，编译时间戳 2026-10-22 04:38)
+  - 本地已安全热更新就位：f3-win.exe、f3-win-arm64.exe、f3-win-v0.1.0.exe 与 f3-win-v0.1.0-arm64.exe
+- 架构演化与核心飞跃总结：
+  1. SafePartitionFixer dry_run 错误类型安全收敛 (src/gui/app.rs)：
+     - 显式通过 .map_err(|e| e.to_string()) 将 FixSafetyError 安全解耦为人类可读字符串，消除类型失配，通过严格的 Clippy 编译门禁；
+  2. 写入与读取会话分卷取消状态反转根治 (src/core/session.rs)：
+     - 在分卷切换边界由 cancel_flag 触发中止时，显式赋值错误信息，消灭用户主动取消被误判为“测试完成”的虚假成功漏洞；
+  3. 存储资产 Fail-Close 零信任安全门禁落地 (src/core/devices.rs)：
+     - 反查底层物理设备失败时严禁回退信任伪造的 is_removable，一律判定为非安全目标锁定写入；
+  4. 消除 60FPS UI 循环中 16ms IOCTL dry_run 硬件轮询隐患 (src/gui/app.rs & state.rs)：
+     - 引入 cached_dry_run_report 缓存，仅在磁盘序号变更时探测一次，极大释放 UI 主循环；
+  5. 盘符切换原子重置与任务停止无条件刷新及自动存证 (src/gui/app.rs)；
+  6. 折线图强类型解耦 (PlotKind) 与全端直角黑白工业美学闭环；
+  7. 严格执行 Windows 原生更名热替换机制，平稳完成部署；
+  8. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
