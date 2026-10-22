@@ -659,7 +659,7 @@ mod tests {
         let (tx, _rx) = crossbeam_channel::unbounded();
         let res = probe.run(&mut dev, tx).expect("探测应顺利执行完成并给出定性报告");
 
-        // 验证 Phase 2 二分逼近能够 100% 抓捕到 6MB 假盘，绝无漏报
+        // 验证 Phase 2 二分逼近能够准确识别 6MB 假盘并收敛边界
         assert!(res.is_fake, "6MB 非二次幂回绕盘必须被 100% 检出为假盘");
         assert_eq!(res.trap, ProbeTrap::WrapAround);
         // 实测容量应逼近 6MB 边界 (在 2048 扇区 / 1MB 容差范围内)
