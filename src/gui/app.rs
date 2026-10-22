@@ -128,6 +128,24 @@ impl eframe::App for F3App {
             }
         }
 
+        // 全局键盘快捷键与无障碍交互支持：
+        // 1. 按 F5 或 Ctrl+R 快捷刷新外置存储设备清单与磁盘可用空间
+        let request_refresh = ctx.input(|i| i.key_pressed(egui::Key::F5) || (i.modifiers.command && i.key_pressed(egui::Key::R)));
+        if request_refresh && snapshot.status != TaskStatus::Running {
+            self.state.inventory.refresh();
+            self.state.cached_dry_run_report = None;
+        }
+
+        // 2. 按 Escape 键快速关闭模态弹窗 (安全退出确认弹窗或核心路径全景弹窗)
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            if self.state.show_exit_confirm_modal {
+                self.state.show_exit_confirm_modal = false;
+            }
+            if self.state.show_path_info_modal {
+                self.state.show_path_info_modal = false;
+            }
+        }
+
         // 动态同步更新托盘图标悬停状态提示文案
         if let Some(ref tray) = self.tray {
             let tip = match snapshot.status {

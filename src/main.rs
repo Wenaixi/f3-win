@@ -52,8 +52,8 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
-            .with_inner_size([960.0, 700.0])
-            .with_min_inner_size([820.0, 580.0])
+            .with_inner_size([920.0, 660.0])
+            .with_min_inner_size([800.0, 540.0])
             .with_title("F3 (管理员)")
             .with_icon(icon_data),
         ..Default::default()
