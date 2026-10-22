@@ -858,3 +858,23 @@
      - TrayManager::destroy() 具备严格幂等性，重复调用或 Drop 触发时安全 no-op；
      - GetMessageW 配合 PostQuitMessage(0) 实现消息泵干净跳出，IDM_ABOUT 异步化派发彻底杜绝模态对话框与 join() 死锁；
   5. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+
+### 全端无障碍键盘导航、司法存证物证直通与高DPI比例加固大成版交付记录 (2026-10-22)
+- 治理目标：对标工业级无障碍规范 (WCAG 2.1 AA)、司法维权存证严谨性与高分屏 (HiDPI 150%) 动态自适应，彻底消除键盘导航断裂、存证物证丢失、中途中止误报健康以及热力图网格失真等系统缺陷。
+- 核心成果与技术飞跃：
+  1. 全端键盘无障碍 Tab 导航与冷银白高对比度焦点环 (src/gui/theme.rs):
+     - 启用 ctx.style_mut(|s| s.interaction.selectable_labels_and_buttons = true)，打通 egui 全局 Tab 键焦点流转与 Enter/Space 触发链路；
+     - BORDER_FOCUS 升级为冷银白 Color32::from_rgb(180, 195, 215)，在深空灰底色上的对比度达 7.2:1，超额满足 WCAG 2.1 AA 3.0:1 的界面控件焦点对比度门禁；
+  2. 设备选择器禁用无障碍解释与全局刷新快捷键 (src/gui/components/device_selector.rs & app.rs):
+     - 为受保护系统卷和固定内置磁盘的置灰项注入 on_disabled_hover_text 悬停提示，清晰解释安全锁定缘由；
+     - 设备与卷选择器刷新按钮显式标注「刷新设备 (F5)」与「刷新卷 (F5)」，并在主事件循环前置拦截 F5 / Ctrl+R 全局刷新快捷键；
+  3. 自动存证案卷直通真实耗时、首发错误物证与测速生理快照 (src/gui/app.rs):
+     - 重构任务完成边界的自动存证数据管道，将 snapshot.duration_seconds、snapshot.first_error_* 与 snapshot.physiology 完整直通 DiagnosticReport::build 与 auto_save_evidence_if_fake，彻底消灭自动存证案卷丢失 Hexdump 物证与测速数据的缺陷；
+  4. 校验中途停止司法严谨定性与防虚假健康背书 (src/gui/app.rs & core/report.rs):
+     - 读写公文卡片与纯文本/Markdown 报告全面强化 is_completed 状态判断；
+     - 中途停止时呈现琥珀色「司法鉴定级存证 · 阶段抽检」公文卡片，客观定性为「实测已校验容量 X GB，未见异常。注意：剩余空间未经验证，本记录仅作为阶段性抽样存证，不代表整盘终局结论」，坚决只有全盘校验完成才出具 [AAA级健康介质] 报告；
+     - 增加 OneDrive/Desktop 路径自动探测与样本量不足门禁，杜绝 0 字节误判 Grade F 报废黑片；
+  5. 晶圆热力图动态保持 4:3 黄金微网格比例 (src/gui/components/heatmap.rs):
+     - 单元格高度计算改为 cell_width * 0.75 结合 clamp(6.0, 11.0)，容器高度联动自适应，彻底根除 1080p @ 150% 笔记本与超宽屏下热力图被拉伸为扁长条纹的几何失真缺陷；
+  6. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+
