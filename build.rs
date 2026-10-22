@@ -7,6 +7,8 @@ fn main() {
         let mut res = winres::WindowsResource::new();
         res.set_icon("assets/app_icon.ico");
         res.set("ProductName", "F3-Win");
+        res.set("ProductVersion", env!("CARGO_PKG_VERSION"));
+        res.set("FileVersion", env!("CARGO_PKG_VERSION"));
         res.set("FileDescription", "F3-Win - Flash Memory Fraud Verification Tool");
         res.set("LegalCopyright", "Copyright (C) 2026 F3-Win Contributors");
         let _ = res.compile();

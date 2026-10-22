@@ -224,7 +224,7 @@ impl DiagnosticReport {
         Self {
             audit_kind,
             tool_name: "F3-Win 闪存检测终端".to_string(),
-            tool_version: "v0.2.0-Release (Win32 Direct I/O)".to_string(),
+            tool_version: format!("v{}-Release (Win32 Direct I/O)", env!("CARGO_PKG_VERSION")),
             os_version: "Microsoft Windows NT (内核特权模式)".to_string(),
             generated_at_local: date_str,
             is_direct_io: true,
