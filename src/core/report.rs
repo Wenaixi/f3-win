@@ -100,6 +100,7 @@ pub struct DiagnosticReport {
     pub inference: HardwareInference,
 
     pub is_fake: bool,
+    pub is_completed: bool,
     pub real_usable_bytes: u64,
     pub fake_bytes: u64,
     pub fake_ratio_pct: f64,
@@ -177,6 +178,8 @@ impl DiagnosticReport {
         let is_verify = audit_kind == AuditKind::VerifyOnly || audit_kind == AuditKind::Comprehensive;
         let total_corrupted = telemetry.stats.bad + telemetry.stats.overwritten + telemetry.stats.changed;
         let is_fake = telemetry.stats.overwritten > 0 || (is_verify && total_corrupted > 0);
+        let is_completed = telemetry.phase == crate::core::session::H2wPhase::Completed
+            || (telemetry.total_bytes_expected > 0 && telemetry.bytes_processed >= telemetry.total_bytes_expected);
 
         let real_usable_bytes = if is_fake {
             if let Some(err_off) = telemetry.first_error_offset {
@@ -212,6 +215,7 @@ impl DiagnosticReport {
             device,
             peak_mb,
             avg_mb,
+            telemetry.bytes_processed,
             telemetry.stats.overwritten > 0,
             telemetry.stats.bad > 0,
             is_fake,
@@ -279,6 +283,7 @@ impl DiagnosticReport {
         device: Option<&PhysicalDeviceInfo>,
         peak_speed_mb: f64,
         avg_speed_mb: f64,
+        bytes_processed: u64,
         has_overwritten: bool,
         has_bad: bool,
         is_fake: bool,
@@ -330,7 +335,9 @@ impl DiagnosticReport {
             }
         };
 
-        let flash_grade = if avg_speed_mb < 1.0 {
+        let flash_grade = if bytes_processed == 0 || avg_speed_mb == 0.0 {
+            "数据样本量不足，无法评估物理颗粒体质 (未检测到稳态读写数据流)".to_string()
+        } else if avg_speed_mb < 1.0 {
             "Grade F (极度报废黑片 / 严重漏电下脚料 / 报废 MicroSD(TF) 废旧打胶封装芯片，坏块率极高，绝缘层破损电荷极速泄露)".to_string()
         } else if avg_speed_mb < 3.0 {
             "Grade D (深度降级 TLC 晶圆残次片 / 二手翻新拆机片 Ink Die，未通过晶圆原厂品控测试，物理擦写寿命极短)".to_string()
@@ -354,7 +361,9 @@ impl DiagnosticReport {
             "物理介质真实合规".to_string()
         };
 
-        let pathology_analysis = if is_fake || avg_speed_mb < 8.0 {
+        let pathology_analysis = if bytes_processed == 0 {
+            "【芯片级微观生理诊断】：测试样本未达稳态评估阈值，暂无法提取芯片微观生理特征。".to_string()
+        } else if is_fake || avg_speed_mb < 8.0 {
             "【芯片级物理病理解析】：该设备在初始阶段测得的高速传输，系主控在前端开辟的极小容量动态 SLC Cache 模拟加速所致；当模拟缓存耗尽后，速度呈现断崖式下跌，暴露出背后极低性能的劣质物理颗粒；测试过程中的剧烈速度锯齿波动与卡顿归零，系由于廉价主控芯片无外置 DRAM 物理缓存，在执行后台坏块磨损均衡与垃圾回收 (Garbage Collection, GC) 物理块擦除锁定 (tBERS 典型耗时 2~5ms) 时芯片算力死锁，导致数据总线发生周期性传输阻塞。该生理特征为典型黑产劣质盘的标志性行为。".to_string()
         } else {
             "【芯片级物理生理诊断】：数据传输平稳连续，闪存主控转换层 (FTL) 逻辑与物理映射状态健康，浮栅电荷保持力优良，芯片内部未见异常 GC 阻塞、坏块重映射死锁或温控热节流降频。".to_string()
@@ -502,6 +511,10 @@ impl DiagnosticReport {
             doc.push_str("3. 对该涉嫌制假售假的经营主体依法移交市场监管部门立案查处。\n");
             doc.push_str("附：F3-Win 物理底层鉴定报告与首次失配 Hexdump 存证文件。\n");
             doc.push_str("```\n");
+        } else if !self.is_completed {
+            doc.push_str("### 综合技术鉴定结论：部分扇区中途抽检存证 (不可作为整盘真实性终局证明)\n\n");
+            let tested_bytes = if self.verify_tested { self.verify_bytes } else { self.write_bytes };
+            doc.push_str(&format!("经底层 Direct I/O 阶段性抽检检验，已测试的 **{:.2} GB** 范围内未见地址回绕、位黑洞或电荷泄露异常。但因本次测试**中途中止**，剩余未测空间可能存在假盘截断或坏道风险。请执行完整全盘测试以获取权威终局鉴定结论！\n", gb(tested_bytes)));
         } else {
             doc.push_str("### 综合技术鉴定结论：该存储设备容量真实合规，各项数据一致。\n\n");
             doc.push_str(&format!("经全盘无缓冲 Direct I/O 逐扇区比对检验，被测介质标称容量 {:.2} GB 与物理真实可用容量 100% 吻合，综合质量评级：**[AAA级健康介质]**。全盘未见地址回绕、位黑洞或电荷泄露异常，介质读写体质优良，可安心存储重要数据！\n", gb(self.announced_bytes)));
@@ -519,22 +532,33 @@ impl DiagnosticReport {
         let serial_str = self.volume_serial.map(|s| format!("{:08X}", s)).unwrap_or_else(|| "UNKNOWN".to_string());
         let now_str = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
         let file_name = format!("f3_evidence_{}_{}.md", serial_str, now_str);
-        let path = exe_dir.join(file_name);
+
+        let candidate_dirs = [
+            exe_dir,
+            get_desktop_dir(),
+            std::env::temp_dir(),
+        ];
 
         let markdown = self.generate_markdown();
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&path)
-            .map_err(|e| format!("无法创建存证文件 ({:?}): {}", path, e))?;
 
-        file.write_all(markdown.as_bytes())
-            .map_err(|e| format!("写入存证文件失败: {}", e))?;
-        file.flush()
-            .map_err(|e| format!("冲刷存证文件失败: {}", e))?;
+        let mut last_err = String::new();
+        for dir in candidate_dirs {
+            let path = dir.join(&file_name);
+            if let Ok(mut file) = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&path)
+            {
+                if file.write_all(markdown.as_bytes()).is_ok() && file.flush().is_ok() {
+                    return Ok(path);
+                }
+            } else {
+                last_err = format!("无法在 {:?} 目录下创建存证文件", dir);
+            }
+        }
 
-        Ok(path)
+        Err(if last_err.is_empty() { "写入存证文件失败".into() } else { last_err })
     }
 
     pub fn export_to_file(&self, path: &Path) -> Result<(), String> {
@@ -595,11 +619,13 @@ impl DiagnosticReport {
         out.push_str(&format!("  * 会话凭证: {} (十进制: {})\n", self.salt_hex, self.salt));
         if self.salt == 0 {
             out.push_str("  * 数据规范: 标准 F3 / H2testw 兼容数据流 (Salt = 0)\n");
+            out.push_str("  * 随机算法: 标准 F3 LCG 线性同余发生器 (兼容原版 F3 / H2testw)\n");
+            out.push_str("  * 防伪声明: 经典算法模式，与原版 F3 / H2testw 工具 100% 逐比特向后兼容\n\n");
         } else {
             out.push_str("  * 防伪技术: 单向非线性雪崩加盐 (抗固件算力回放)\n");
+            out.push_str("  * 随机算法: F3 LCG + 工业级非线性有损雪崩压缩置换 (one_way_seed)\n");
+            out.push_str("  * 防伪声明: Salt 仅存留于宿主机系统盘，绝不向被测盘落盘，彻底击穿模逆元算力回放欺骗\n\n");
         }
-        out.push_str("  * 随机算法: F3 LCG + 工业级非线性有损雪崩压缩置换 (one_way_seed)\n");
-        out.push_str("  * 防伪声明: Salt 仅存留于宿主机系统盘，绝不向被测盘落盘，彻底击穿模逆元算力回放欺骗\n\n");
 
         if self.write_tested {
             out.push_str("[四、写入测试性能全景与 SLC 掉速生理诊断]\n");
@@ -661,6 +687,8 @@ impl DiagnosticReport {
             out.push_str(&format!("  * 虚假容量: {:.2} GB (虚假比例: {:.2}%)\n", gb(self.fake_bytes), self.fake_ratio_pct));
             out.push_str(&format!("  * 造假类型: {}\n", self.inference.fraud_type));
             out.push_str(&format!("  * 颗粒品级: {}\n\n", self.inference.flash_grade));
+        } else if !self.is_completed {
+            out.push_str("  * 核心定性: 阶段性中途抽检存证 (非整盘终局结论，剩余空间未经验证)\n\n");
         } else {
             out.push_str("  * 核心定性: 综合技术鉴定结论：该存储设备容量真实合规，各项数据一致。\n\n");
         }
@@ -672,6 +700,8 @@ impl DiagnosticReport {
             out.push_str("依据《中华人民共和国消费者权益保护法》第五十五条：退一赔三，不足五百元为五百元。\n");
             out.push_str(&format!("涉案设备: {} (卷序列号: {})，标称 {:.2} GB，实测仅 {:.2} GB。\n", self.product_id, serial_hex, gb(self.announced_bytes), gb(self.real_usable_bytes)));
             out.push_str("--------------------------------------------------------------------------------\n");
+        } else if !self.is_completed {
+            out.push_str("  * 状态: 本次测试中途中止，当前已测区间未见异常，无维权事由。\n");
         } else {
             out.push_str("  * 状态: 全部扇区健康合规，无维权申诉事由。\n");
         }
@@ -728,15 +758,23 @@ impl DiagnosticReport {
     }
 }
 
-/// 获取 Windows 桌面目录
+/// 获取 Windows 桌面目录 (支持原生 Desktop 与 OneDrive/Desktop 深度检测)
 fn get_desktop_dir() -> PathBuf {
     if let Ok(profile) = std::env::var("USERPROFILE") {
+        let one_drive_desktop = PathBuf::from(&profile).join("OneDrive").join("Desktop");
+        if one_drive_desktop.exists() {
+            return one_drive_desktop;
+        }
         let p = PathBuf::from(profile).join("Desktop");
         if p.exists() {
             return p;
         }
     }
     if let Ok(home) = std::env::var("HOME") {
+        let one_drive_desktop = PathBuf::from(&home).join("OneDrive").join("Desktop");
+        if one_drive_desktop.exists() {
+            return one_drive_desktop;
+        }
         let p = PathBuf::from(home).join("Desktop");
         if p.exists() {
             return p;
@@ -930,32 +968,33 @@ mod tests {
             mounted_volumes: vec!['G'],
         };
 
+        let sample_bytes = 1024 * 1024 * 1024;
         // Tier 0: < 1.5 MB/s -> USB 1.1 Full-Speed
-        let inf0 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 1.0, 0.8, false, false, false);
+        let inf0 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 1.0, 0.8, sample_bytes, false, false, false);
         assert!(inf0.inferred_bus.contains("USB 1.1 Full-Speed"));
 
         // Tier 1: 1.5 .. 43.5 MB/s -> USB 2.0 High-Speed
-        let inf1 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 35.0, 28.0, false, false, false);
+        let inf1 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 35.0, 28.0, sample_bytes, false, false, false);
         assert!(inf1.inferred_bus.contains("USB 2.0 High-Speed"));
 
         // Tier 2: 43.5 .. 450.0 MB/s -> USB 3.2 Gen 1x1
-        let inf2 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 150.0, 90.0, false, false, false);
+        let inf2 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 150.0, 90.0, sample_bytes, false, false, false);
         assert!(inf2.inferred_bus.contains("USB 3.2 Gen 1x1"));
 
         // Tier 3: 450.0 .. 1050.0 MB/s -> USB 3.2 Gen 2x1
-        let inf3 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 800.0, 650.0, false, false, false);
+        let inf3 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 800.0, 650.0, sample_bytes, false, false, false);
         assert!(inf3.inferred_bus.contains("USB 3.2 Gen 2x1"));
 
         // Tier 4: 1050.0 .. 2050.0 MB/s -> USB 3.2 Gen 2x2
-        let inf4 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 1800.0, 1600.0, false, false, false);
+        let inf4 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 1800.0, 1600.0, sample_bytes, false, false, false);
         assert!(inf4.inferred_bus.contains("USB 3.2 Gen 2x2"));
 
         // Tier 5: 2050.0 .. 3800.0 MB/s -> USB4 Gen 3x2 / Thunderbolt 3/4
-        let inf5 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 3200.0, 2800.0, false, false, false);
+        let inf5 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 3200.0, 2800.0, sample_bytes, false, false, false);
         assert!(inf5.inferred_bus.contains("USB4 Gen 3x2"));
 
         // Tier 6: >= 3800.0 MB/s -> USB4 2.0 / Thunderbolt 5
-        let inf6 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 4500.0, 4100.0, false, false, false);
+        let inf6 = DiagnosticReport::infer_hardware(Some(&dummy_dev), 4500.0, 4100.0, sample_bytes, false, false, false);
         assert!(inf6.inferred_bus.contains("USB4 2.0"));
     }
 
@@ -975,32 +1014,33 @@ mod tests {
             mounted_volumes: vec!['H'],
         };
 
+        let sample_bytes = 1024 * 1024 * 1024;
         // SD 1.01 Default Speed
-        let s0 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 10.0, 8.0, false, false, false);
+        let s0 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 10.0, 8.0, sample_bytes, false, false, false);
         assert!(s0.inferred_bus.contains("Default Speed"));
 
         // SD 1.10 High Speed
-        let s1 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 20.0, 18.0, false, false, false);
+        let s1 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 20.0, 18.0, sample_bytes, false, false, false);
         assert!(s1.inferred_bus.contains("High Speed"));
 
         // UHS-I SDR50
-        let s2 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 40.0, 32.0, false, false, false);
+        let s2 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 40.0, 32.0, sample_bytes, false, false, false);
         assert!(s2.inferred_bus.contains("UHS-I SDR50"));
 
         // UHS-I SDR104
-        let s3 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 90.0, 75.0, false, false, false);
+        let s3 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 90.0, 75.0, sample_bytes, false, false, false);
         assert!(s3.inferred_bus.contains("UHS-I SDR104"));
 
         // UHS-II
-        let s4 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 250.0, 180.0, false, false, false);
+        let s4 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 250.0, 180.0, sample_bytes, false, false, false);
         assert!(s4.inferred_bus.contains("UHS-II"));
 
         // UHS-III
-        let s5 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 500.0, 420.0, false, false, false);
+        let s5 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 500.0, 420.0, sample_bytes, false, false, false);
         assert!(s5.inferred_bus.contains("UHS-III"));
 
         // SD Express
-        let s6 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 1200.0, 950.0, false, false, false);
+        let s6 = DiagnosticReport::infer_hardware(Some(&dummy_sd), 1200.0, 950.0, sample_bytes, false, false, false);
         assert!(s6.inferred_bus.contains("SD Express"));
     }
 
@@ -1020,22 +1060,45 @@ mod tests {
             mounted_volumes: vec!['G'],
         };
 
-        let g_f = DiagnosticReport::infer_hardware(Some(&dummy_dev), 15.0, 0.5, false, false, true);
+        let sample_bytes = 1024 * 1024 * 1024;
+        let g_f = DiagnosticReport::infer_hardware(Some(&dummy_dev), 15.0, 0.5, sample_bytes, false, false, true);
         assert!(g_f.flash_grade.contains("Grade F"));
 
-        let g_d = DiagnosticReport::infer_hardware(Some(&dummy_dev), 20.0, 2.0, false, false, false);
+        let g_d = DiagnosticReport::infer_hardware(Some(&dummy_dev), 20.0, 2.0, sample_bytes, false, false, false);
         assert!(g_d.flash_grade.contains("Grade D"));
 
-        let g_c = DiagnosticReport::infer_hardware(Some(&dummy_dev), 30.0, 5.0, false, false, false);
+        let g_c = DiagnosticReport::infer_hardware(Some(&dummy_dev), 30.0, 5.0, sample_bytes, false, false, false);
         assert!(g_c.flash_grade.contains("Grade C"));
 
-        let g_b = DiagnosticReport::infer_hardware(Some(&dummy_dev), 40.0, 15.0, false, false, false);
+        let g_b = DiagnosticReport::infer_hardware(Some(&dummy_dev), 40.0, 15.0, sample_bytes, false, false, false);
         assert!(g_b.flash_grade.contains("Grade B"));
 
-        let g_a = DiagnosticReport::infer_hardware(Some(&dummy_dev), 100.0, 50.0, false, false, false);
+        let g_a = DiagnosticReport::infer_hardware(Some(&dummy_dev), 100.0, 50.0, sample_bytes, false, false, false);
         assert!(g_a.flash_grade.contains("Grade A"));
 
-        let g_s = DiagnosticReport::infer_hardware(Some(&dummy_dev), 800.0, 200.0, false, false, false);
+        let g_s = DiagnosticReport::infer_hardware(Some(&dummy_dev), 800.0, 200.0, sample_bytes, false, false, false);
         assert!(g_s.flash_grade.contains("Grade S"));
+    }
+
+    #[test]
+    fn test_infer_hardware_insufficient_sample_gate() {
+        let dummy_dev = PhysicalDeviceInfo {
+            drive_index: 1,
+            path: r"\\.\PhysicalDrive1".to_string(),
+            vendor_id: "Test".to_string(),
+            product_id: "Disk".to_string(),
+            serial_number: "000".to_string(),
+            bus_type: StorageBusType::Usb,
+            total_bytes: 32 * 1024 * 1024 * 1024,
+            is_removable: true,
+            is_safe_target: true,
+            warning: None,
+            mounted_volumes: vec!['G'],
+        };
+
+        // 样本量为 0 时必须进入样本不足保护门禁，不得定性为 Grade F 黑片或给出劣质病理推断
+        let inf = DiagnosticReport::infer_hardware(Some(&dummy_dev), 10.0, 0.5, 0, false, false, false);
+        assert!(inf.flash_grade.contains("数据样本量不足"));
+        assert!(inf.pathology_analysis.contains("测试样本未达稳态评估阈值"));
     }
 }
