@@ -816,6 +816,14 @@
   7. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
 
 ### 设备选择器置灰安全阻断、TabBar悬停微光与全端禁用按钮管道加固大成版记录 (2026-10-22)
+- 流水线状态与指标：Run ID 39727118446 (Status: completed success，全量子任务 100% 满分全绿)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy --all-targets -- -D warnings 并通过全部 36 项核心单元测试 (2m 26s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-v0.1.0-x86_64-pc-windows-msvc.zip (2m 20s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-v0.1.0-aarch64-pc-windows-msvc.zip (2m 20s)
+- 产物详情与验证：
+  - Windows x64 生产二进制：f3-win.exe (精确 3,427,328 字节，SHA-256: d365ec43e063f5481986df0e1ff10d009f069313be836765df804efd5a857e5d，编译时间戳 2026-10-22 05:21)
+  - Windows ARM64 生产二进制：f3-win-arm64.exe (精确 3,258,880 字节，SHA-256: e79e2fb297c7185e4970607cbd711f0a3e6cb9fce13bed5cd1746a57042c9586，编译时间戳 2026-10-22 05:21)
+  - 本地已安全热更新就位：f3-win.exe、f3-win-arm64.exe、f3-win-v0.1.0.exe、f3-win-v0.1.0-arm64.exe 与 f3-win-v0.1.0-x86_64.exe
 - 治理目标：对标工业级体验标准，深度治理多子代理审查发现的下拉菜单穿透、导航栏悬停反馈失效、禁用按钮光标脱节与探测页结果挂载跳跃等细节缺陷。
 - 核心成果与技术飞跃：
   1. 存储设备与卷选择器底层置灰锁定 (src/gui/components/device_selector.rs):
