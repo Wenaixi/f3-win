@@ -1,10 +1,10 @@
 [package]
 name = "f3-win"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["F3-Win Contributors"]
 description = "Fight Flash Fraud for Windows - Ultra-high-performance flash drive capacity and speed test GUI"
-license = "GPL-3.0-or-later"
+license = "MIT"
 
 [dependencies]
 # 界面与绘图引擎 (纯 Rust，轻量零系统依赖)

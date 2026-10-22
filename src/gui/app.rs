@@ -1775,7 +1775,7 @@ impl F3App {
                     ui.label(RichText::new("单次 Direct I/O 扇区对齐缓冲区:").size(12.0).color(theme::TEXT_SECONDARY));
                     ui.selectable_value(&mut self.state.chunk_size_mb, 1, "1 MB (标准推荐)");
                     ui.selectable_value(&mut self.state.chunk_size_mb, 2, "2 MB (高速固态)");
-                    ui.selectable_value(&mut self.state.chunk_size_mb, 4, "4 MB (极致吞吐)");
+                    ui.selectable_value(&mut self.state.chunk_size_mb, 4, "4 MB (高速吞吐)");
                 });
             });
 
