@@ -841,3 +841,20 @@
      - 为闪电探测结果面板添加 else 待命占位分支，呈现深空 SURFACE_BG + 1px 细发丝边框相框；
      - 彻底消除探测前空空如也、探测完成后瞬间撑开 150px 高度造成的突兀布局跳跃 (Mount Shift)；
   5. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+
+### Win32内核与原生I/O深度审计与卷句柄安全闭环交付记录 (2026-10-22)
+- 治理目标：系统级深度审计代码库中所有涉及 Win32 HANDLE、物理设备裸盘访问、FSCTL 卷排他锁以及多线程 Worker 生命周期的核心模块，彻底消除句柄泄漏、排他锁死与线程游离隐患。
+- 核心成果与技术飞跃：
+  1. 修复 SafePartitionFixer 裸卷句柄永久泄漏与独占锁死死穴 (src/core/fix.rs:316-322):
+     - 根因分析：在分区修复前调用 lock_and_dismount_volume(letter) 卸载挂载卷时，代码使用 let _ = ...; 丢弃了返回的 Result<HANDLE, String>。由于 Win32 HANDLE 是无 Drop 特质的 POD 结构体，该句柄被静默永久泄漏在进程句柄表中；同时 FSCTL_LOCK_VOLUME 排他锁持续生效，导致后续启动的 diskpart.exe 进程在执行 clean 和重划新分区时面临 VDS 冲突或权限拒绝风险；
+     - 架构修复：下发卸载指令后，显式解包并使用 windows::Win32::Foundation::CloseHandle(handle) 立即释放句柄与排他锁，杜绝句柄表耗尽并确保后续外部工具具备干净的物理介质独占写入权；
+  2. DirectIoFile 与 VolumeLockGuard RAII 全场景闭环确认 (src/core/direct_io.rs & devices.rs):
+     - 物理拔盘 (Surprise Removal 1167/31)：ReadFile/WriteFile 驱动中断返回系统错误，Rust 局部变量退出作用域自动触发 Drop 调用 CloseHandle，递减 FILE_OBJECT 引用计数并释放进程句柄表；
+     - 取消响应：session.rs 与 probe.rs 在读写循环与跳跃/二分循环严格轮询 cancel_flag，响应取消后干净退出闭包，栈顶守卫 VolumeLockGuard 自动释放排他锁并恢复系统卷挂载；
+     - 崩溃与展开：Cargo.toml 锁定 Release 下 panic = "abort"，进程终止时由 Windows 内核对象管理器强制回收整表句柄与排他锁；Debug/Test 下正常走栈展开触发 Drop；
+  3. EngineController 通道自愈与防置灰安全验证 (src/core/controller.rs):
+     - poll() 针对所有任务接收通道均严格兜底 crossbeam_channel::TryRecvError::Disconnected，Worker 线程任何非正常终止均自动推进至 TaskStatus::Error，确保 UI !is_busy 恢复可用，根除界面永久置灰卡死；
+  4. 原生 Win32 系统托盘消息泵与退出幂等性固化 (src/gui/tray.rs):
+     - TrayManager::destroy() 具备严格幂等性，重复调用或 Drop 触发时安全 no-op；
+     - GetMessageW 配合 PostQuitMessage(0) 实现消息泵干净跳出，IDM_ABOUT 异步化派发彻底杜绝模态对话框与 join() 死锁；
+  5. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
