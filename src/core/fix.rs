@@ -115,6 +115,10 @@ impl DiskpartRunner for SystemDiskpartRunner {
             || stderr_str.to_lowercase().contains("error")
             || stdout_str.contains("错误")
             || stderr_str.contains("错误")
+            || stdout_str.to_lowercase().contains("0x800")
+            || stderr_str.to_lowercase().contains("0x800")
+            || stdout_str.to_lowercase().contains("virtual disk service")
+            || stderr_str.to_lowercase().contains("virtual disk service")
             || raw_has_gbk_err;
 
         if has_err {
@@ -184,21 +188,10 @@ impl F3FixPlan {
         }
     }
 
-    // 生成标准的 Windows diskpart 脚本内容
+    // 生成标准的 Windows diskpart 脚本内容 (采用 CRLF 与 ASCII 注释免疫跨代码页乱码)
     pub fn generate_diskpart_script(&self) -> String {
         format!(
-            "REM F3-Win 自动生成的安全分区修复脚本\n\
-            REM 原始标称容量: {} 字节 ({:.2} GB)\n\
-            REM 真实物理容量: {} 字节 ({:.2} GB)\n\
-            REM 安全截断分区: {} MB\n\
-            rescan\n\
-            select disk {}\n\
-            attributes disk clear readonly\n\
-            clean\n\
-            convert mbr\n\
-            create partition primary size={}\n\
-            format fs={} quick\n\
-            assign\n",
+            "REM F3-Win Auto-generated Safe Partition Fix Script\r\n\            REM Announced: {} bytes ({:.2} GB)\r\n\            REM Real Physical: {} bytes ({:.2} GB)\r\n\            REM Safe Partition: {} MB\r\n\            rescan\r\n\            select disk {}\r\n\            attributes disk clear readonly\r\n\            clean\r\n\            convert mbr\r\n\            create partition primary size={}\r\n\            format fs={} quick\r\n\            assign\r\n",
             self.announced_bytes,
             self.announced_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
             self.real_bytes,
@@ -286,7 +279,7 @@ impl SafePartitionFixer {
         let dev = PhysicalDeviceInfo::query_by_index(self.plan.disk_index)
             .ok_or(FixSafetyError::DeviceNotFound(self.plan.disk_index))?;
 
-        if !dev.bus_type.is_removable_bus() && !dev.is_removable {
+        if !dev.is_safe_target {
             return Err(FixSafetyError::NonRemovableBus {
                 disk_index: self.plan.disk_index,
                 bus_name: dev.bus_type.display_name().to_string(),
@@ -313,7 +306,11 @@ impl SafePartitionFixer {
 
     // 依赖注入执行入口：支持自定义 Runner 适配器
     pub fn apply_with_runner<R: DiskpartRunner>(&self, runner: &R) -> Result<String, String> {
-        let _dev = self.verify_safety().map_err(|e| format!("安全拦截: {}", e))?;
+        let dev = self.verify_safety().map_err(|e| format!("安全拦截: {}", e))?;
+        // 在执行前，尝试卸载该物理磁盘上已挂载的逻辑卷，防止 VDS 0x80042412 冲突
+        for &letter in &dev.mounted_volumes {
+            let _ = crate::core::devices::PhysicalDeviceInfo::lock_and_dismount_volume(letter);
+        }
         self.plan.execute_with_runner(runner)
     }
 
@@ -429,12 +426,11 @@ mod tests {
         let script = plan.generate_diskpart_script();
 
         // 规范断言：必须使用 Windows 原生标准 REM 注释，严禁 Linux 风格 # 注释
-        assert!(script.contains("REM F3-Win 自动生成的安全分区修复脚本"));
+        assert!(script.contains("REM F3-Win Auto-generated Safe Partition Fix Script"));
         assert!(!script.contains("# F3-Win"));
 
         // 规范断言：普通数据盘严禁出现 active 指令 (以防在 GPT 分区表上报错)
-        assert!(!script.contains("\nactive\n"));
-        assert!(!script.ends_with("active\n"));
+        assert!(!script.contains("active"));
 
         // 规范断言：必须包含 select disk 2, clean, format quick
         assert!(script.contains("select disk 2"));

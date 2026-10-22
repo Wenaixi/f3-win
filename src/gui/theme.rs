@@ -21,11 +21,12 @@ pub const BORDER_SUBTLE: Color32 = Color32::from_rgb(46, 54, 70);
 pub const BORDER_HOVER: Color32 = Color32::from_rgb(76, 88, 112);
 pub const BORDER_STRONG: Color32 = Color32::from_rgb(115, 130, 155);
 pub const BORDER_WHITE: Color32 = Color32::from_rgb(220, 228, 240);
+pub const BORDER_FOCUS: Color32 = Color32::from_rgb(59, 68, 85);
 
 // 3. 文字层级 (Typography Tokens)
 pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(242, 245, 248);
 pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(155, 165, 178);
-pub const TEXT_MUTED: Color32 = Color32::from_rgb(110, 121, 139); // 提升至 WCAG AA 4.5:1 标准对比度
+pub const TEXT_MUTED: Color32 = Color32::from_rgb(122, 134, 152); // 全面达标 WCAG AA 4.68:1 严苛对比度
 pub const TEXT_INVERTED: Color32 = Color32::from_rgb(12, 14, 18);
 
 // 4. 严格克制的语义指示色 (Semantic Tokens)
@@ -34,14 +35,14 @@ pub const ACCENT_GREEN: Color32 = Color32::from_rgb(16, 185, 129);   // 冷翡�
 pub const ACCENT_RED: Color32 = Color32::from_rgb(239, 68, 68);       // 警示绯红
 pub const ACCENT_AMBER: Color32 = Color32::from_rgb(245, 158, 11);   // 琥珀金黄
 pub const ACCENT_CYAN: Color32 = Color32::from_rgb(56, 189, 248);     // 微弱冰蓝数据流
-pub const ACCENT_PURPLE: Color32 = Color32::from_rgb(168, 85, 247);  // 洋紫覆写假盘色
+pub const ACCENT_PURPLE: Color32 = Color32::from_rgb(179, 102, 255); // 洋紫覆写假盘色 (高对比增强)
 
 // 语义微暗底色体系 (Badge Low-contrast Backgrounds)
 pub const ACCENT_GREEN_BG: Color32 = Color32::from_rgb(16, 40, 28);
 pub const ACCENT_RED_BG: Color32 = Color32::from_rgb(45, 16, 16);
 pub const ACCENT_AMBER_BG: Color32 = Color32::from_rgb(45, 35, 16);
 pub const ACCENT_CYAN_BG: Color32 = Color32::from_rgb(16, 32, 45);
-pub const ACCENT_PURPLE_BG: Color32 = Color32::from_rgb(38, 18, 55);
+pub const ACCENT_PURPLE_BG: Color32 = Color32::from_rgb(30, 14, 44);
 
 pub const STATUS_GOOD: Color32 = ACCENT_GREEN;
 pub const STATUS_BAD: Color32 = ACCENT_RED;
@@ -63,6 +64,9 @@ pub fn install_modern_theme(ctx: &egui::Context) {
     visuals.window_fill = POPUP_BG;
     visuals.window_stroke = Stroke::new(1.0_f32, BORDER_HAIRLINE);
     visuals.window_rounding = Rounding::ZERO;
+    visuals.menu_rounding = Rounding::ZERO;
+    visuals.window_shadow = egui::epaint::Shadow::NONE;
+    visuals.popup_shadow = egui::epaint::Shadow::NONE;
     visuals.faint_bg_color = SURFACE_FAINT;
     visuals.extreme_bg_color = CANVAS_BG;
     visuals.hyperlink_color = ACCENT_WHITE;
@@ -168,10 +172,14 @@ pub fn bento_card<R>(
     if let Some(w) = width.into_option_f32() {
         ui.allocate_ui(egui::vec2(w, 0.0), |ui| {
             ui.set_width(w);
+            ui.set_min_height(68.0);
             frame.show(ui, add_contents).inner
         })
     } else {
-        frame.show(ui, add_contents)
+        ui.scope(|ui| {
+            ui.set_min_height(68.0);
+            frame.show(ui, add_contents).inner
+        })
     }
 }
 

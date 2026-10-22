@@ -212,8 +212,10 @@ impl F3Probe {
         let lower_bound = AUX_PROBE_SECTOR + CACHE_FLUSH_BLOCK_SECTORS;
         let upper_bound = sector;
         let available = upper_bound.saturating_sub(lower_bound);
-        // 空间放不下完整深度时收缩深度，而不是把窗口推出安全区
-        let depth = flush_depth.min(available);
+        // 空间放不下完整深度时收缩深度；强制向下对齐到 128 扇区 (64KB) 整数倍，
+        // 杜绝因 Phase 2 折半中点向上取整多写扇区越过 sector、自覆盖合法探针的假阳性漏洞
+        let aligned_available = (available / CACHE_FLUSH_BLOCK_SECTORS) * CACHE_FLUSH_BLOCK_SECTORS;
+        let depth = (flush_depth.min(aligned_available) / CACHE_FLUSH_BLOCK_SECTORS) * CACHE_FLUSH_BLOCK_SECTORS;
         let start = upper_bound.saturating_sub(depth).max(lower_bound);
         (start, depth)
     }
@@ -446,10 +448,10 @@ impl F3Probe {
 
         // 阶梯耗尽仍未越界时，必须补测标称容量尾部的最后一个可写扇区。
         // 大容量盘的阶梯顶远小于标称容量，不补测就无法证明尾部真实存在，会把假盘误判为正品。
-        if !is_counterfeit {
-            // 取末尾一个完整 64KB 块的首扇区：块对齐更贴近真实主控写入粒度，
-            // 同时避开容量末尾零头扇区可能存在的保留块
-            let tail_sec = total_sectors.saturating_sub(CACHE_FLUSH_BLOCK_SECTORS);
+        // 关键守卫：只有当 tail_sec 严格大于已通过的 safe_left_sectors 时才执行核验，
+        // 彻底根除阶梯正好越过尾端引发的 safe_left > tail 区间倒挂导致 Phase 2 二分跳过的问题
+        let tail_sec = total_sectors.saturating_sub(CACHE_FLUSH_BLOCK_SECTORS);
+        if !is_counterfeit && tail_sec > safe_left_sectors {
             probes_executed += 1;
             let _ = tx.send(ProbeTelemetry {
                 progress_pct: 0.70,

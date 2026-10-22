@@ -27,7 +27,7 @@ pub fn render_heatmap(ui: &mut Ui, blocks: &[BlockState]) {
                 ui.add_space(4.0);
                 legend_badge(ui, theme::ACCENT_GREEN, "校验正常");
                 ui.add_space(4.0);
-                legend_badge(ui, Color32::from_rgb(26, 32, 42), "待测试");
+                legend_badge(ui, theme::STATUS_UNTESTED, "待测试");
             });
         });
 
@@ -55,7 +55,7 @@ pub fn render_heatmap(ui: &mut Ui, blocks: &[BlockState]) {
             let cell_rect = Rect::from_min_size(egui::pos2(x, y), egui::vec2(cell_width, cell_height));
 
             let color = match state {
-                BlockState::Untested => Color32::from_rgb(24, 29, 38),
+                BlockState::Untested => theme::STATUS_UNTESTED,
                 BlockState::Good => theme::ACCENT_GREEN,
                 BlockState::Bad => theme::ACCENT_RED,
                 BlockState::Changed => theme::ACCENT_AMBER,

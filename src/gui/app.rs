@@ -378,8 +378,9 @@ impl F3App {
 
         // 主操作与状态按钮
         ui.horizontal(|ui| {
+            let main_btn_size = [140.0, 36.0];
             if is_write_running {
-                if ui.add_sized([130.0, 36.0], theme::danger_button("停止写入")).clicked() {
+                if ui.add_sized(main_btn_size, theme::danger_button("停止写入")).clicked() {
                     self.state.controller.cancel();
                 }
             } else {
@@ -392,11 +393,11 @@ impl F3App {
                     "开始写入"
                 };
                 if can_start {
-                    if ui.add_sized([130.0, 36.0], theme::primary_button(btn_text)).clicked() {
+                    if ui.add_sized(main_btn_size, theme::primary_button(btn_text)).clicked() {
                         self.start_write_task();
                     }
                 } else {
-                    let _ = ui.add_sized([140.0, 36.0], theme::disabled_button(btn_text));
+                    let _ = ui.add_sized(main_btn_size, theme::disabled_button(btn_text));
                 }
             }
 
@@ -592,8 +593,9 @@ impl F3App {
         let is_other_running = snapshot.status == TaskStatus::Running && !is_read_running;
 
         ui.horizontal(|ui| {
+            let main_btn_size = [140.0, 36.0];
             if is_read_running {
-                if ui.add_sized([130.0, 36.0], theme::danger_button("停止校验")).clicked() {
+                if ui.add_sized(main_btn_size, theme::danger_button("停止校验")).clicked() {
                     self.state.controller.cancel();
                 }
             } else {
@@ -606,11 +608,11 @@ impl F3App {
                     "开始校验"
                 };
                 if can_start {
-                    if ui.add_sized([130.0, 36.0], theme::primary_button(btn_text)).clicked() {
+                    if ui.add_sized(main_btn_size, theme::primary_button(btn_text)).clicked() {
                         self.start_read_task();
                     }
                 } else {
-                    let _ = ui.add_sized([140.0, 36.0], theme::disabled_button(btn_text));
+                    let _ = ui.add_sized(main_btn_size, theme::disabled_button(btn_text));
                 }
             }
 
@@ -638,17 +640,17 @@ impl F3App {
 
         ui.add_space(10.0);
 
-        // 便捷按钮与自动清理控制
+        // 便捷按钮与自动清理控制 (统一对齐 36.0px 工业基线高度，消除切换 Tab 时的微观抖动)
         ui.horizontal(|ui| {
-            if ui.add_sized([110.0, 30.0], theme::ghost_button("打开所在目录")).clicked() {
+            if ui.add_sized([110.0, 36.0], theme::ghost_button("打开所在目录")).clicked() {
                 let _ = crate::core::paths::open_in_explorer(&self.state.inventory.selected_path());
             }
-            if ui.add_sized([90.0, 30.0], theme::ghost_button("转到写入页")).clicked() {
+            if ui.add_sized([90.0, 36.0], theme::ghost_button("转到写入页")).clicked() {
                 self.state.current_tab = AppTab::WriteTest;
             }
             if is_busy {
-                let _ = ui.add_sized([110.0, 30.0], theme::disabled_button("清理测试文件"));
-            } else if ui.add_sized([110.0, 30.0], theme::ghost_button("清理测试文件")).clicked() {
+                let _ = ui.add_sized([110.0, 36.0], theme::disabled_button("清理测试文件"));
+            } else if ui.add_sized([110.0, 36.0], theme::ghost_button("清理测试文件")).clicked() {
                 let path = self.state.inventory.selected_path();
                 self.state.controller.start_cleanup(path);
             }
@@ -695,7 +697,7 @@ impl F3App {
                         RichText::new(format!("{:.2}", display_speed))
                             .size(24.0)
                             .strong()
-                            .color(theme::ACCENT_CYAN),
+                            .color(theme::ACCENT_GREEN),
                     );
                     ui.label(RichText::new("MB/s").size(11.0).color(theme::TEXT_MUTED));
                 });
@@ -876,8 +878,9 @@ impl F3App {
         let is_other_running = snapshot.status == TaskStatus::Running && !is_probe_running;
 
         ui.horizontal(|ui| {
+            let probe_btn_size = [150.0, 36.0];
             if is_probe_running {
-                if ui.add_sized([130.0, 36.0], theme::danger_button("停止探测")).clicked() {
+                if ui.add_sized(probe_btn_size, theme::danger_button("停止探测")).clicked() {
                     self.state.controller.cancel();
                 }
             } else {
@@ -890,11 +893,11 @@ impl F3App {
                     "开始探测"
                 };
                 if can_start {
-                    if ui.add_sized([130.0, 36.0], theme::primary_button(btn_text)).clicked() {
+                    if ui.add_sized(probe_btn_size, theme::primary_button(btn_text)).clicked() {
                         self.start_probe_task();
                     }
                 } else {
-                    let _ = ui.add_sized([150.0, 36.0], theme::disabled_button(btn_text));
+                    let _ = ui.add_sized(probe_btn_size, theme::disabled_button(btn_text));
                 }
             }
         });
@@ -1048,7 +1051,7 @@ impl F3App {
                         Err(err) => {
                             ui.label(RichText::new(format!("物理安全拦截: {}", err)).size(12.0).color(theme::ACCENT_RED));
                             ui.add_space(10.0);
-                            let _ = ui.add_sized([180.0, 36.0], theme::disabled_button("无法应用安全分区"));
+                            let _ = ui.add_sized([220.0, 36.0], theme::disabled_button("无法应用安全分区"));
                         }
                     }
                 });

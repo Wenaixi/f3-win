@@ -100,18 +100,23 @@ unsafe extern "system" fn tray_wnd_proc(
         let cmd_id = wparam.0 & 0xFFFF;
         if cmd_id == IDM_ABOUT {
             let version = env!("CARGO_PKG_VERSION");
-            let title = w!("关于 F3-Win");
             let text_owned = format!(
                 "F3-Win v{}\nFight Flash Fraud for Windows\n\n开源闪存真伪检测与自愈工具\nDirect I/O 原生高性能驱动架构\nhttps://github.com/Wenaixi/f3-win\0",
                 version
             );
-            let text_wide: Vec<u16> = text_owned.encode_utf16().collect();
-            let _ = MessageBoxW(
-                hwnd,
-                PCWSTR(text_wide.as_ptr()),
-                title,
-                MB_OK | MB_ICONINFORMATION,
-            );
+            // 异步解耦弹窗，绝不挂起托盘主消息循环，防止退出时 join() 发生死锁
+            std::thread::spawn(move || {
+                let text_wide: Vec<u16> = text_owned.encode_utf16().collect();
+                let title = w!("关于 F3-Win");
+                unsafe {
+                    let _ = MessageBoxW(
+                        HWND::default(),
+                        PCWSTR(text_wide.as_ptr()),
+                        title,
+                        MB_OK | MB_ICONINFORMATION,
+                    );
+                }
+            });
             if let Some(ref state) = *TRAY_STATE.lock() {
                 let _ = state.event_tx.send(TrayEvent::ShowAboutModal);
                 state.ctx.request_repaint();
@@ -142,8 +147,10 @@ unsafe extern "system" fn tray_wnd_proc(
                 while let Ok(cmd) = state.cmd_rx.try_recv() {
                     match cmd {
                         TrayControlCmd::UpdateTooltip(new_tip) => {
-                            state.current_tip = new_tip.clone();
-                            modify_tray_tooltip(hwnd, &new_tip);
+                            if state.current_tip != new_tip {
+                                state.current_tip = new_tip.clone();
+                                modify_tray_tooltip(hwnd, &new_tip);
+                            }
                         }
                         TrayControlCmd::Destroy => {
                             should_destroy = true;
@@ -381,7 +388,8 @@ impl TrayManager {
                     let _ = ready_tx.send((hwnd.0 as isize, Ok(())));
 
                     let mut msg = MSG::default();
-                    while GetMessageW(&mut msg, HWND::default(), 0, 0).as_bool() {
+                    // 严格使用 .0 > 0 判定：防范 GetMessageW 出错返回 -1 导致的 100% CPU 死循环
+                    while GetMessageW(&mut msg, HWND::default(), 0, 0).0 > 0 {
                         let _ = TranslateMessage(&msg);
                         DispatchMessageW(&msg);
                     }
