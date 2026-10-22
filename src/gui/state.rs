@@ -44,6 +44,9 @@ pub struct AppState {
     pub minimize_to_tray_on_close: bool,
     pub show_path_info_modal: bool,
     pub show_exit_confirm_modal: bool,
+
+    // 闪电探测前用户是否已勾选确认备份数据且知悉后续需格式化
+    pub probe_backup_confirmed: bool,
 }
 
 /// 读写双向速度与生理特征审计记录
@@ -84,9 +87,27 @@ impl Default for AppState {
             audit_record: SpeedAuditRecord::default(),
             last_selected_path: None,
             cached_dry_run_report: None,
-            minimize_to_tray_on_close: true,
+            minimize_to_tray_on_close: false,
             show_path_info_modal: false,
             show_exit_confirm_modal: false,
+            probe_backup_confirmed: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_probe_backup_confirmed_default_false() {
+        let state = AppState::default();
+        assert!(!state.probe_backup_confirmed, "为确保用户数据安全，闪电探测备份确认开关默认必须为未勾选状态");
+    }
+
+    #[test]
+    fn test_minimize_to_tray_on_close_default_false() {
+        let state = AppState::default();
+        assert!(!state.minimize_to_tray_on_close, "默认点击关闭按钮必须直接安全退出并销毁托盘，绝不偷偷驻留后台");
     }
 }

@@ -88,6 +88,8 @@ unsafe extern "system" fn tray_wnd_proc(
         let mouse_msg = (lparam.0 & 0xFFFF) as u32;
         if mouse_msg == WM_LBUTTONUP || mouse_msg == WM_LBUTTONDBLCLK {
             if let Some(ref state) = *TRAY_STATE.lock() {
+                state.ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                state.ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 let _ = state.event_tx.send(TrayEvent::ShowWindow);
                 state.ctx.request_repaint();
             }
@@ -118,6 +120,8 @@ unsafe extern "system" fn tray_wnd_proc(
                 }
             });
             if let Some(ref state) = *TRAY_STATE.lock() {
+                state.ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                state.ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 let _ = state.event_tx.send(TrayEvent::ShowAboutModal);
                 state.ctx.request_repaint();
             }
@@ -125,12 +129,29 @@ unsafe extern "system" fn tray_wnd_proc(
         }
 
         let event = match cmd_id {
-            IDM_SHOW_WINDOW => Some(TrayEvent::ShowWindow),
-            IDM_PATH_INFO => Some(TrayEvent::ShowPathInfoModal),
+            IDM_SHOW_WINDOW => {
+                if let Some(ref state) = *TRAY_STATE.lock() {
+                    state.ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    state.ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                Some(TrayEvent::ShowWindow)
+            }
+            IDM_PATH_INFO => {
+                if let Some(ref state) = *TRAY_STATE.lock() {
+                    state.ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    state.ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                Some(TrayEvent::ShowPathInfoModal)
+            }
             IDM_OPEN_EXE_DIR => Some(TrayEvent::OpenExeDir),
             IDM_OPEN_VOLUME_DIR => Some(TrayEvent::OpenSelectedVolume),
             IDM_OPEN_EVIDENCE_DIR => Some(TrayEvent::OpenEvidenceDir),
-            IDM_EXIT => Some(TrayEvent::RequestExit),
+            IDM_EXIT => {
+                if let Some(ref state) = *TRAY_STATE.lock() {
+                    state.ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                }
+                Some(TrayEvent::RequestExit)
+            }
             _ => None,
         };
         if let Some(ev) = event {

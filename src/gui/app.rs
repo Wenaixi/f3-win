@@ -61,6 +61,16 @@ impl F3App {
         }
         self.state.show_exit_confirm_modal = false;
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        std::process::exit(0);
+    }
+}
+
+impl Drop for F3App {
+    fn drop(&mut self) {
+        self.state.controller.cancel();
+        if let Some(ref mut t) = self.tray {
+            t.destroy();
+        }
     }
 }
 
@@ -932,8 +942,40 @@ impl F3App {
 
     fn render_probe_tab(&mut self, ui: &mut egui::Ui, snapshot: &TaskSnapshot) {
         ui.label(RichText::new("闪电探测 (f3probe)").size(18.0).strong().color(theme::TEXT_PRIMARY));
-        ui.label(RichText::new("直接向物理磁盘写入探针快速探测真实物理容量。探测前将自动独占卸载卷，请备份重要数据。").size(12.0).color(theme::TEXT_MUTED));
-        ui.add_space(6.0);
+        ui.add_space(4.0);
+
+        // 渲染数据安全与操作须知常驻卡片 (自然人性化告诫：测试前备份所有数据，测试完毕后重新格式化)
+        egui::Frame::none()
+            .fill(theme::SURFACE_BG)
+            .stroke(egui::Stroke::new(1.0_f32, theme::BORDER_SUBTLE))
+            .rounding(egui::Rounding::ZERO)
+            .inner_margin(egui::Margin::same(12.0))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    theme::pill_badge(ui, "安全须知", theme::ACCENT_AMBER, theme::ACCENT_AMBER_BG);
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new("闪电探测将直接向磁盘底层写入测试探针，请留意以下两项重要操作：")
+                            .strong()
+                            .size(12.5)
+                            .color(theme::TEXT_PRIMARY),
+                    );
+                });
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new("· 测试前请务必备份所有数据：物理探针会直接覆写关键扇区并重置分区结构，U 盘内的原有文件均会被破坏或清除。请在开始测试前，把所有重要文件复制转移到电脑硬盘中妥善保存。")
+                        .size(11.5)
+                        .color(theme::TEXT_SECONDARY),
+                );
+                ui.add_space(3.0);
+                ui.label(
+                    RichText::new("· 测试完毕后需重新格式化 U 盘：探测完成后，由于底层已被写入探针数据，U 盘暂时无法直接存放文件。测试结束后请打开「此电脑」右键点击该盘选择「格式化」（或前往「分区自愈」标签页一键修复），格式化后即可完全恢复正常使用。")
+                        .size(11.5)
+                        .color(theme::TEXT_SECONDARY),
+                );
+            });
+
+        ui.add_space(8.0);
 
         let is_busy = snapshot.status == TaskStatus::Running;
         ui.add_enabled_ui(!is_busy, |ui| {
@@ -955,24 +997,42 @@ impl F3App {
             );
         }
 
-        ui.add_space(10.0);
+        ui.add_space(8.0);
+
+        // 防呆勾选确认：测试前必须主动确认已备份并知悉需要重新格式化
+        ui.add_enabled_ui(!is_busy, |ui| {
+            ui.checkbox(
+                &mut self.state.probe_backup_confirmed,
+                RichText::new("我已确认备份 U 盘内的所有重要文件，并知晓测试完毕后需要重新格式化 U 盘")
+                    .size(12.0)
+                    .color(if self.state.probe_backup_confirmed {
+                        theme::TEXT_PRIMARY
+                    } else {
+                        theme::ACCENT_AMBER
+                    }),
+            );
+        });
+
+        ui.add_space(8.0);
 
         let is_safe = self.state.inventory.active_target().is_some();
         let is_probe_running = snapshot.status == TaskStatus::Running && snapshot.kind == crate::core::controller::TaskKind::Probe;
         let is_other_running = snapshot.status == TaskStatus::Running && !is_probe_running;
 
         ui.horizontal(|ui| {
-            let probe_btn_size = [150.0, 36.0];
+            let probe_btn_size = [180.0, 36.0];
             if is_probe_running {
                 if ui.add_sized(probe_btn_size, theme::danger_button("停止探测")).clicked() {
                     self.state.controller.cancel();
                 }
             } else {
-                let can_start = is_safe && !is_other_running;
+                let can_start = is_safe && !is_other_running && self.state.probe_backup_confirmed;
                 let btn_text = if is_other_running {
                     "其他任务运行中..."
                 } else if !is_safe {
                     "内部硬盘已安全锁定"
+                } else if !self.state.probe_backup_confirmed {
+                    "请先勾选确认安全须知"
                 } else {
                     "开始探测"
                 };
@@ -1013,7 +1073,7 @@ impl F3App {
                                 ui.add_space(6.0);
                                 ui.label(RichText::new("探测任务已由用户手动中止").size(14.0).strong().color(theme::TEXT_PRIMARY));
                                 ui.add_space(4.0);
-                                ui.label(RichText::new("设备已安全解锁恢复挂载，可随时重新启动探测。").size(12.0).color(theme::TEXT_MUTED));
+                                ui.label(RichText::new("设备已安全解锁恢复挂载。若探测中途已写入探针导致 U 盘无法打开，只需在「此电脑」中右键重新格式化即可恢复使用。").size(12.0).color(theme::TEXT_MUTED));
                             } else {
                                 theme::badge_red(ui, "执行受阻");
                                 ui.add_space(6.0);
@@ -1050,11 +1110,15 @@ impl F3App {
                                 res.real_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
                             )).size(13.0).strong().color(theme::TEXT_PRIMARY));
 
-                            ui.add_space(6.0);
+                            ui.add_space(8.0);
                             if res.is_fake {
-                                ui.label(RichText::new("检测到容量虚标！该设备存在硬件地址回绕或位黑洞。建议前往「分区修复」标签页将分区截断为真实安全容量。").size(12.0).color(theme::ACCENT_RED));
+                                ui.label(RichText::new("检测到容量虚标！该设备存在硬件地址回绕或位黑洞。").size(12.0).strong().color(theme::ACCENT_RED));
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("后续操作建议：请前往「分区自愈」标签页，系统已为您量身计算好安全分区大小，点击即可一键分区并格式化；若暂不修复，也可直接在「此电脑」中右键格式化以恢复基础可用空间。").size(12.0).color(theme::TEXT_SECONDARY));
                             } else {
-                                ui.label(RichText::new("容量完全合规，未见物理回绕或位黑洞。该设备物理容量真实可靠。").size(12.0).color(theme::ACCENT_GREEN));
+                                ui.label(RichText::new("容量完全合规，未见物理回绕或位黑洞。该设备物理容量真实可靠。").size(12.0).strong().color(theme::ACCENT_GREEN));
+                                ui.add_space(4.0);
+                                ui.label(RichText::new("后续操作提示：闪电探测已顺利完成。此时 U 盘处于测试改写状态，请打开「此电脑」右键点击该盘符选择「格式化」，格式化完成后即可重新正常存放文件。").size(12.0).color(theme::TEXT_SECONDARY));
                             }
                         });
                 }
@@ -1073,7 +1137,7 @@ impl F3App {
                         ui.label(RichText::new("物理磁盘探测就绪").size(15.0).strong().color(theme::TEXT_PRIMARY));
                     });
                     ui.add_space(8.0);
-                    ui.label(RichText::new("选择上方目标移动磁盘并点击「开始探测」，系统将通过底层跳跃探针在数分钟内测定真实物理容量。").size(12.0).color(theme::TEXT_MUTED));
+                    ui.label(RichText::new("选择上方目标移动磁盘，在确认已备份好所有数据后点击「开始探测」，系统将通过底层跳跃探针在数分钟内测定真实物理容量。测试完毕后请重新格式化 U 盘。").size(12.0).color(theme::TEXT_MUTED));
                 });
         }
     }
@@ -2131,6 +2195,13 @@ impl F3App {
                 return;
             }
         };
+
+        if !self.state.probe_backup_confirmed {
+            self.state
+                .controller
+                .set_status_message("请先勾选确认数据安全须知（已备份数据并知晓需格式化）！".to_string());
+            return;
+        }
 
         if let Err(e) = self.state.controller.start_probe(target) {
             self.state.controller.set_status_message(e);
