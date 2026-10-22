@@ -14,6 +14,20 @@ use crate::core::speed::{SpeedPhysiologySnapshot, SpeedPhysiologyTracker};
 pub const GIGABYTE: u64 = 1024 * 1024 * 1024; // 1 GiB 标准分卷
 pub const DEFAULT_CHUNK_SIZE: usize = 1024 * 1024; // 默认 1MB 块大小
 
+/// 精准判断 I/O 错误字符串是否代表磁盘物理已满 (Win32 112 ERROR_DISK_FULL 或 39 ERROR_HANDLE_DISK_FULL)
+/// 严格匹配标准 [Win32: 112] 标签或中文/英文已满关键字，坚决杜绝因偏移量或其它错误码 (如 1127/1167) 包含 "112" 子串导致误判
+#[inline]
+pub fn is_disk_full_error(err: &str) -> bool {
+    err.contains("[Win32: 112]")
+        || err.contains("[Win32: 39]")
+        || err.contains(" 112]")
+        || err.contains(" 39]")
+        || err.contains("ERROR_DISK_FULL")
+        || err.contains("空间不足")
+        || err.contains("not enough space")
+        || err.contains("disk full")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum H2wMode {
     Write,
@@ -365,11 +379,7 @@ impl H2wSession {
                         }
                     }
                     Err(e) => {
-                        // 精准判断是否为磁盘已满: 错误码 112 (ERROR_DISK_FULL) 或 39 (ERROR_HANDLE_DISK_FULL)
-                        let is_disk_full = e.contains("112")
-                            || e.contains("39")
-                            || e.contains("空间不足")
-                            || e.contains("disk full");
+                        let is_disk_full = is_disk_full_error(&e);
 
                         if is_disk_full {
                             // 阶梯式降级探测填充末尾可用扇区 (1MB 块写满后，尝试按 64KB -> 4KB -> 512B 粒度写满磁盘末尾)
@@ -391,10 +401,7 @@ impl H2wSession {
                                             file_offset += written as u64;
                                         }
                                         Err(err) => {
-                                            let full = err.contains("112")
-                                                || err.contains("39")
-                                                || err.contains("空间不足")
-                                                || err.contains("disk full");
+                                            let full = is_disk_full_error(&err);
                                             if full {
                                                 break;
                                             } else {
@@ -899,6 +906,22 @@ impl H2wSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_disk_full_error_precision() {
+        assert!(is_disk_full_error("Direct I/O 写入失败 [Win32: 112]: 空间不足"));
+        assert!(is_disk_full_error("Direct I/O 写入失败 [Win32: 39]: 空间不足"));
+        assert!(is_disk_full_error("There is not enough space on the disk."));
+        assert!(is_disk_full_error("disk full occurred"));
+        // 确保不会因为偏移量中包含 112 或其它错误码 (如 1127/1167/19/21/23) 产生致命误报
+        assert!(!is_disk_full_error("短写失败: 写入 512 字节 at offset 112000000"));
+        assert!(!is_disk_full_error("Direct I/O 写入失败 [Win32: 1167]: 设备已断开连接/突发硬件拔盘"));
+        assert!(!is_disk_full_error("Direct I/O 写入失败 [Win32: 1117]: 硬件 I/O 设备错误/主控无响应"));
+        assert!(!is_disk_full_error("Direct I/O 写入失败 [Win32: 19]: 介质受写入保护"));
+        assert!(!is_disk_full_error("Direct I/O 写入失败 [Win32: 21]: 设备未就绪"));
+        assert!(!is_disk_full_error("Direct I/O 写入失败 [Win32: 23]: 数据错误 CRC"));
+        assert!(!is_disk_full_error("Direct I/O 写入失败 [Win32: 1127]: 访问硬盘失败"));
+    }
 
     #[test]
     fn test_discover_h2w_files_strict_filtering() {

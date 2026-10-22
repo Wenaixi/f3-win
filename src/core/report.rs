@@ -433,7 +433,7 @@ impl DiagnosticReport {
             doc.push_str(&format!("| **最低谷底速度 (防冷启动)** | {:.2} MB/s | 劣质坏块或GC停顿下限 |\n", self.write_valley_speed_mb));
             doc.push_str(&format!("| **稳态中位数速度 (P²)** | {:.2} MB/s | 排除突发冲刺后的真实颗粒底速 |\n", self.write_median_speed_mb));
             doc.push_str(&format!("| **速度离散抖动指数 (CV)** | {:.3} | 离散度量化 (CV > 0.40 为劣质黑片) |\n", self.cv_jitter));
-            doc.push_str(&format!("| **卡顿归零停顿率** | {:.2}% | 瞬时速度低于 1MB/s 周期占比 |\n", self.stall_ratio * 100.0));
+            doc.push_str(&format!("| **卡顿归零停顿率** | {:.2}% | 瞬时速度低于 1 MB/s 周期占比 |\n", self.stall_ratio * 100.0));
             if let Some(cliff_b) = self.slc_cliff_bytes {
                 doc.push_str(&format!("| **SLC Cache 耗尽拐点** | **{:.2} GB 处** | 速度由 {:.1} MB/s 暴跌至 {:.1} MB/s (跌幅 **{:.1}%**) |\n", gb(cliff_b), self.slc_cliff_speed_before_mb, self.slc_cliff_speed_after_mb, self.slc_cliff_drop_pct));
             }
@@ -463,7 +463,7 @@ impl DiagnosticReport {
             doc.push_str(&format!("> **【芯片级读取生理诊断】**：{}\n\n", self.inference.pathology_analysis));
 
             doc.push_str("### 【逐扇区健康四态分布统计】\n\n");
-            doc.push_str("| 扇区校验分类 | 扇区计数 (512B) | 对应容量 | 比例 | 技术状态说明 |\n");
+            doc.push_str("| 扇区校验分类 | 扇区计数（512 字节） | 对应容量 | 比例 | 技术状态说明 |\n");
             doc.push_str("| :--- | :--- | :--- | :--- | :--- |\n");
             let total_sec = self.stats.good + self.stats.bad + self.stats.changed + self.stats.overwritten;
             let pct = |cnt: u64| if total_sec > 0 { (cnt as f64 / total_sec as f64) * 100.0 } else { 0.0 };
@@ -491,18 +491,18 @@ impl DiagnosticReport {
 
         doc.push_str("## 六、 物理颗粒与芯片硬件推断结论\n\n");
         if self.is_fake {
-            doc.push_str("### [欺诈定性] 综合技术鉴定结论：确认为严重容量虚标的伪劣扩容假盘！\n\n");
+            doc.push_str("### 综合技术鉴定结论：被测存储介质物理容量与标称容量严重不符，判定为扩容存储介质。\n\n");
             doc.push_str(&format!("1. **标称销售容量**：{:.2} GB\n", gb(self.announced_bytes)));
             doc.push_str(&format!("2. **真实物理可用容量**：**{:.2} GB**\n", gb(self.real_usable_bytes)));
-            doc.push_str(&format!("3. **虚假虚标欺诈容量**：**{:.2} GB** (真实可用仅占标称容量的 **{:.2}%**)\n", gb(self.fake_bytes), 100.0 - self.fake_ratio_pct));
+            doc.push_str(&format!("3. **虚标物理缺失容量**：**{:.2} GB**（真实可用仅占标称容量的 **{:.2}%**）\n", gb(self.fake_bytes), 100.0 - self.fake_ratio_pct));
             doc.push_str(&format!("4. **造假技术定性**：{}\n", self.inference.fraud_type));
-            doc.push_str("5. **事实归因认定**：物理芯片损坏造成的坏道呈现局部离散性分布，且伴随控制器硬件总线错误。本介质在超出真实容量后表现为系统性结构化回绕或丢弃，系生产流通环节通过专用量产工具（MPTool）人工刷写篡改主控固件参数所致，排除偶然质量瑕疵，具备绝对的主观欺诈故意。\n\n");
+            doc.push_str("5. **事实归因认定**：物理芯片硬件损坏引发的坏道通常呈局部离散性分布，且伴随控制器硬件总线故障。本介质在超出物理可用容量后，表现为系统性结构化地址回绕覆盖或丢弃，与量产工具修改固件配置后的特征完全吻合，排除物理颗粒偶发性损坏瑕疵。\n\n");
 
             doc.push_str("## 七、 司法事实认定与消费者权益保护法维权申诉专用文本\n\n");
             doc.push_str("```text\n");
             doc.push_str("关于购买伪劣扩容U盘构成欺诈的主张书与法律意见陈述\n\n");
             doc.push_str("致：[平台客服介入团队 / 消费者协会仲裁庭 / 人民法院审判长]\n\n");
-            doc.push_str(&format!("申请人对购买的存储介质（卷序列号: {}，硬件标识: {} {}）进行了国家司法鉴定通用规范认可的底层无缓冲直接物理 I/O (Win32 Direct I/O) 逐扇区比特级测试。\n\n", serial_hex, self.vendor_id, self.product_id));
+            doc.push_str(&format!("申请人对购买的存储介质（卷序列号：{}，硬件标识：{} {}）进行了国家司法鉴定通用规范认可的底层无缓冲直接物理 I/O（Win32 Direct I/O）逐扇区比特级测试。\n\n", serial_hex, self.vendor_id, self.product_id));
             doc.push_str(&format!("鉴定结果显示：该设备标称销售容量为 {:.2} GB，然而自物理偏移量 0x{:016X} ({:.2} GB) 开始即发生系统性数据覆写与损坏，经严密验证其实际物理可用容量仅为 {:.2} GB，虚假扩容比例高达 {:.2}%。该行为系典型的通过篡改主控固件、以次充好的商业欺诈行为。\n\n", gb(self.announced_bytes), self.first_error_offset.unwrap_or(self.real_usable_bytes), gb(self.first_error_offset.unwrap_or(self.real_usable_bytes)), gb(self.real_usable_bytes), self.fake_ratio_pct));
             doc.push_str("依据《中华人民共和国民法典》第一百四十八条及《中华人民共和国消费者权益保护法》第五十五条第一款规定：\n");
             doc.push_str("“经营者提供商品或者服务有欺诈行为的，应当按照消费者的要求增加赔偿其受到的损失，增加赔偿的金额为消费者购买商品的价款或者接受服务的费用的三倍；增加赔偿的金额不足五百元的，为五百元。”\n\n");
@@ -515,10 +515,10 @@ impl DiagnosticReport {
         } else if !self.is_completed {
             doc.push_str("### 综合技术鉴定结论：部分扇区中途抽检存证 (不可作为整盘真实性终局证明)\n\n");
             let tested_bytes = if self.verify_tested { self.verify_bytes } else { self.write_bytes };
-            doc.push_str(&format!("经底层 Direct I/O 阶段性抽检检验，已测试的 **{:.2} GB** 范围内未见地址回绕、位黑洞或电荷泄露异常。但因本次测试**中途中止**，剩余未测空间可能存在假盘截断或坏道风险。请执行完整全盘测试以获取权威终局鉴定结论！\n", gb(tested_bytes)));
+            doc.push_str(&format!("经底层 Direct I/O 阶段性抽检检验，已测试的 **{:.2} GB** 范围内未见地址回绕、位黑洞或电荷泄露异常。但因本次测试**中途中止**，剩余未测空间可能存在假盘截断或坏道风险。请执行完整全盘测试以获取权威终局鉴定结论。\n", gb(tested_bytes)));
         } else {
             doc.push_str("### 综合技术鉴定结论：该存储设备容量真实合规，各项数据一致。\n\n");
-            doc.push_str(&format!("经全盘无缓冲 Direct I/O 逐扇区比对检验，被测介质标称容量 {:.2} GB 与物理真实可用容量 100% 吻合，综合质量评级：**[AAA级健康介质]**。全盘未见地址回绕、位黑洞或电荷泄露异常，介质读写体质优良，可安心存储重要数据！\n", gb(self.announced_bytes)));
+            doc.push_str(&format!("经全盘无缓冲 Direct I/O 逐扇区比对检验，被测介质标称容量 {:.2} GB 与物理真实可用容量 100% 吻合，综合质量评级：**[AAA级健康介质]**。全盘未见地址回绕、位黑洞或电荷泄露异常，介质读写体质优良，可安心存储重要数据。\n", gb(self.announced_bytes)));
         }
 
         doc

@@ -915,3 +915,23 @@
      - 新增 test_discover_h2w_files_strict_filtering 单元测试，全面覆盖合法测试文件发现、非标文件与同名文件夹拦截以及清理后非标文件完好无损断言；
   5. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
 
+### 底层系统与硬件容灾极端异常场景全链路加固大成版交付记录 (2026-10-22)
+- 治理目标：针对突发硬件掉盘与拔盘 (Win32 Error 1167/1117/21/23)、磁盘写保护 (Error 19) 以及路径特殊字符与注入防御进行系统级极限容灾审计与代码加固。
+- 深度根因排查与架构加固成果：
+  1. Win32 错误码标准化提取与消除 HRESULT 负数失真 (src/core/direct_io.rs):
+     - 根因分析：windows-rs 底层将 Win32 错误码封装为 HRESULT (0x8007xxxx 负数 i32，如 112 映射为 -2147024784，1167 映射为 -2147023729)；
+     - 架构修复：在 direct_io.rs 中实现 parse_win32_code(hr: i32) -> u32，精准提取 Facility 7 的 low-16 位标准 Win32 错误码；所有 I/O 报错统一输出标准结构化标签 [Win32: {code}]；
+     - 补充针对 112、39、19、1167、1117、21、23 的单元测试覆盖；
+  2. 彻底根除掉盘误报成功的致命漏洞 (src/core/session.rs):
+     - 根因分析：原 execute_write 中使用 e.contains("112") 匹配磁盘已满，当短写错误提示中包含数字 112 (如 offset 112000000) 或底层返回 Error 1127 时，掉盘故障被误判为磁盘已满，误报测试成功；
+     - 架构修复：封装纯函数 is_disk_full_error(&str)，严格基于 [Win32: 112]、[Win32: 39] 与空间不足关键字进行精确匹配；
+     - 补充 test_is_disk_full_error_precision 单元测试，拦截所有包含 112 子串的非满盘错误；
+  3. 磁盘写保护 (Error 19) 与掉盘友好提示贯通 (src/core/direct_io.rs & devices.rs):
+     - 为 Error 19 (ERROR_WRITE_PROTECT) 补充针对性的友好提示：明确告知用户物理写保护开关或只读属性状态；
+     - 为 Error 1167、1117、21 明确标注设备未连接或突发掉盘故障；
+     - 消除 StorageTarget::open_block_io 无条件追加 "(需要管理员权限)" 引起的误导；
+  4. 句柄与独占锁 RAII 闭环与路径注入免疫确认 (src/core/probe.rs & fix.rs):
+     - 验证 DirectIoFile 与 VolumeLockGuard 在所有 I/O 失败分支中自动触发 Drop 调用 CloseHandle，彻底释放句柄与 FSCTL_LOCK_VOLUME 锁；
+     - 验证 UTF-16 宽字符支持带空格、中文路径；diskpart 脚本完全由数字与白名单参数构成，无命令注入隐患；
+  5. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+

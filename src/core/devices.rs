@@ -418,7 +418,7 @@ impl StorageTarget {
         let path = std::path::Path::new(&self.device.path);
         match DirectIoFile::open_raw_device(path) {
             Ok(file) => Ok((file, guard)),
-            Err(e) => Err(format!("打开底层物理设备失败 (需要管理员权限): {}", e)),
+            Err(e) => Err(format!("打开底层物理设备失败: {}", e)),
         }
     }
 }

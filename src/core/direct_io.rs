@@ -95,6 +95,7 @@ impl DirectIoFile {
                 let os_err = std::io::Error::last_os_error();
                 let code = os_err.raw_os_error().map(|c| c as u32).unwrap_or(0);
                 let friendly = match code {
+                    5 => " (访问被拒绝，请确认已以管理员身份运行)",
                     19 => " (目标磁盘处于写保护状态，请检查物理写保护开关或只读属性)",
                     1167 | 1117 | 21 => " (设备未连接或发生严重硬件掉盘故障)",
                     _ => "",
@@ -161,6 +162,7 @@ impl DirectIoFile {
                 let os_err = std::io::Error::last_os_error();
                 let code = os_err.raw_os_error().map(|c| c as u32).unwrap_or(0);
                 let friendly = match code {
+                    5 => " (访问被拒绝，请确认已以管理员身份运行)",
                     19 => " (目标物理设备处于写保护状态，请检查硬件写保护拨码开关)",
                     1167 | 1117 | 21 => " (设备未连接或发生严重硬件掉盘故障)",
                     _ => "",
