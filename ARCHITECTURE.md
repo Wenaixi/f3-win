@@ -111,7 +111,7 @@ FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH
 配合 `VirtualAlloc` 动态申请 4096 字节物理扇区严格对齐的内存缓冲区，确保每一个读写请求直接穿透内核驱动直达存储控制器硬件。
 
 ### 2. 系统盘绝对物理隔离体系
-为彻底杜绝破坏用户操作系统与主盘数据，系统建立五维安全防御：
+为防止误操作破坏操作系统与内部主盘数据，系统建立五维安全防御：
 1. **系统引导盘一票否决**：动态解析 `%SystemDrive%`、`windir` 及底层物理驱动器序号，无论任何情况均绝对禁止选择系统引导驱动器；
 2. **总线类型白名单校验**：通过 Win32 `IOCTL_STORAGE_QUERY_PROPERTY` 解析总线类型，仅对 `BusTypeUsb`、`BusTypeSd`、`BusTypeMmc` 移动介质放行，彻底隔离内置固定 SATA、NVMe 及 RAID 阵列；
 3. **RAII 卷独占锁闭环（VolumeLockGuard）**：破坏性测试启动前，对目标卷下发 `FSCTL_LOCK_VOLUME` 与 `FSCTL_DISMOUNT_VOLUME` 独占卸载卷挂载，防止文件系统并发写冲突；通过 Rust `Drop` 特质确保任务异常、中断或退出时排他锁 100% 自动解脱释放；
