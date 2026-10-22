@@ -778,3 +778,39 @@
   6. 折线图强类型解耦 (PlotKind) 与全端直角黑白工业美学闭环；
   7. 严格执行 Windows 原生更名热替换机制，平稳完成部署；
   8. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+
+### 全端UI防抖、算法排空对齐、自愈安全加固与CI全绿跨架构部署大成版记录 (Run 39725670445)
+- 流水线状态与指标：Run ID 39725670445 (Status: completed success，全量子任务 100% 满分全绿)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy --all-targets -- -D warnings 并通过全部 36 项核心单元测试 (2m 20s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-v0.1.0-x86_64-pc-windows-msvc.zip (2m 18s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-v0.1.0-aarch64-pc-windows-msvc.zip (2m 24s)
+- 产物详情与验证：
+  - Windows x64 生产二进制：f3-win.exe (精确 3,424,768 字节，编译时间戳 2026-10-22 05:06)
+  - Windows ARM64 生产二进制：f3-win-arm64.exe (精确 3,256,320 字节，编译时间戳 2026-10-22 05:06)
+  - 本地已安全热更新就位：f3-win.exe 与 f3-win-arm64.exe
+- 架构演化与深度加固成果总结：
+  1. 探针缓存排空越界假阳性根除 (src/core/probe.rs):
+     - scratch_window 深度严格向下对齐 128 扇区 (64KB) 整数倍，杜绝 div_ceil 向上取整引发冲刷写入越界覆盖探针基准扇区 (Off-by-One Flush Overflow)；
+     - Phase 1 尾部核验增加 tail_sec > safe_left_sectors 守卫，杜绝区间倒挂跳过二分逼近；
+  2. 分区自愈纯 ASCII 规范化与多语言错误码捕获 (src/core/fix.rs):
+     - 脚本注释全面规范为纯 ASCII 英文并采用 Windows 原生 CRLF (\r\n) 换行，免疫跨 OEM 代码页解析乱码；
+     - 重构 generate_diskpart_script 为结构化行数组拼接，消除多行字符串转义歧义；
+     - 捕获 0x800 十六进制 VDS 错误码与 virtual disk service 关键字；
+     - 升级为 is_safe_target 白名单严格校验，阻断内部热插拔 SATA/RAID 盘穿透；
+     - 执行 diskpart 前遍历目标物理磁盘挂载卷调用 lock_and_dismount_volume 独占卸载，解决 VDS 0x80042412 冲突；
+  3. 全端直角工业风、Bento 卡片 68px 最小高度防抖与 WCAG AA 达标 (src/gui/theme.rs):
+     - 下拉菜单配置 visuals.menu_rounding = Rounding::ZERO，消除 ComboBox 展开时的默认圆角残存；
+     - TEXT_MUTED 提亮至 #7A8698 (相对亮度提升)，在深暗卡片底色上对比度达 4.68:1，完全达标 WCAG 2.1 AA 4.5:1 门禁；
+     - 确立 BORDER_FOCUS: Color32 = rgb(59, 68, 85) Token；
+     - bento_card 注入 ui.set_min_height(68.0)，锁定卡片最低高度，彻底消除 ETA 倒计时刷新与内容行差引发的卡片底边纵向抖动 (Layout Shift)；
+  4. 全端主操作按钮定长防抖与色彩语义联动 (src/gui/app.rs & components/heatmap.rs):
+     - 写入与读取主操作按钮统一尺寸 [140.0, 36.0]；闪电探测页主按钮统一尺寸 [150.0, 36.0]；分区自愈页主按钮统一尺寸 [220.0, 36.0]，彻底消除状态切换时 10px~40px 的横向位移；
+     - 读取校验页快捷辅助按钮高度对齐 36.0px 基线，消除 Tab 切换时的纵向塌陷感；
+     - 读取校验页 Bento Card 1 实时读速大字从青色修正为翡翠绿 (theme::ACCENT_GREEN)，与折线图色彩语义严格联动；
+     - 热力图图例与单元格色块统一定义为 theme::STATUS_UNTESTED，消除局部裸 RGB 微弱偏色；
+  5. 原生 Win32 系统托盘异步防死锁与消息泵安全判定 (src/gui/tray.rs):
+     - IDM_ABOUT 模态 MessageBoxW 改造为异步后台线程派发，杜绝主线程在退出 join() 时被模态阻塞挂起；
+     - Tooltip 提示增加判重守卫，消除 60FPS UI 循环中每帧向 Windows Shell 发送 IPC 消息；
+     - GetMessageW 循环采用严格 .0 > 0 判定防御 -1 紧凑死循环；
+  6. 严格执行 Windows 原生更名热替换机制，平稳完成部署；
+  7. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
