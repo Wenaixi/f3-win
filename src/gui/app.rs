@@ -1001,15 +1001,16 @@ impl F3App {
 
         // 防呆勾选确认：测试前必须主动确认已备份并知悉需要重新格式化
         ui.add_enabled_ui(!is_busy, |ui| {
+            let label_color = if self.state.probe_backup_confirmed {
+                theme::TEXT_PRIMARY
+            } else {
+                theme::ACCENT_AMBER
+            };
             ui.checkbox(
                 &mut self.state.probe_backup_confirmed,
                 RichText::new("我已确认备份 U 盘内的所有重要文件，并知晓测试完毕后需要重新格式化 U 盘")
                     .size(12.0)
-                    .color(if self.state.probe_backup_confirmed {
-                        theme::TEXT_PRIMARY
-                    } else {
-                        theme::ACCENT_AMBER
-                    }),
+                    .color(label_color),
             );
         });
 
