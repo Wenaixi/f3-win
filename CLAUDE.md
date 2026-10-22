@@ -985,3 +985,24 @@
      - 探测启动条件统一收敛为 `inventory.active_target().is_some()`，实现外观、交互、快捷键 (F5) 与安全防呆全维度大统一；
   5. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
 
+### 修复底层磁盘访问字段与全端选择器大统一CI全绿双架构部署大成版记录 (Run 39801791516)
+- 流水线状态与指标：Run ID 39801791516 (Status: completed success，全量子任务 100% 满分全绿)
+  - Code Quality & Unit Tests：零警告通过 cargo clippy --all-targets -- -D warnings 并通过全部核心单元测试 (2m 17s)
+  - Build Release Binaries (x86_64-pc-windows-msvc)：成功生成部署产物 f3-win-v0.1.0-x86_64-pc-windows-msvc.zip (2m 10s)
+  - Build Release Binaries (aarch64-pc-windows-msvc)：成功生成部署产物 f3-win-v0.1.0-aarch64-pc-windows-msvc.zip (2m 02s)
+- 产物详情与验证：
+  - Windows x64 生产二进制：f3-win.exe / f3-win-v0.1.0.exe / f3-win-v0.1.0-x86_64.exe (精确 3,435,008 字节，SHA-256: 8fdad099fc359f5758d1c1ea57dff71392cfb26f71fdae6736d817e0a0fa64c3，编译时间戳 2026-10-22 15:12)
+  - Windows ARM64 生产二进制：f3-win-arm64.exe / f3-win-v0.1.0-arm64.exe (精确 3,265,536 字节，SHA-256: 5e7eee552da65955a68b561fe1921bc066c0204f00fff440c93cf9f825d77a90，编译时间戳 2026-10-22 15:12)
+  - 本地已安全热更新就位：f3-win.exe、f3-win-arm64.exe、f3-win-v0.1.0.exe、f3-win-v0.1.0-arm64.exe 与 f3-win-v0.1.0-x86_64.exe
+- 架构演化与核心飞跃总结：
+  1. 闪电探测底层物理设备访问字段规范化 (src/gui/app.rs)：
+     - 纠正了将 target.device.drive_index 与 target.device.vendor_id / product_id 误作为方法调用的类型失配，精准提取底层关联硬件信息；
+  2. egui 底层淡化蒸发与 ComboBox 隐形根治 (src/gui/theme.rs)：
+     - 将 visuals.widgets.noninteractive.weak_bg_fill 设为 SURFACE_BG，消灭了官方 egui 在 ui.set_enabled(false) 时底层调用 painter.set_fade_to_color 把画笔文字 Alpha 淡化为 0 的致命缺陷；
+  3. 移动卷枚举安全放行 (src/core/devices.rs)：
+     - 在保证系统引导卷 (C:) 绝对一票否决隔离的前提下，对底层句柄受限的 DRIVE_REMOVABLE 移动 U 盘安全放行，彻底根除正品移动盘识别不到的异常；
+  4. 下拉选择器直角微质感渲染 (src/gui/components/device_selector.rs)：
+     - 彻底剔除 ui.add_enabled，受保护卷以暗灰呈现带 [锁定保护] 与解释气泡，合规移动 U 盘纯白高亮呈现，宽度拓宽至 480px；
+  5. 严格执行 Windows 原生更名热替换机制，平稳完成部署；
+  6. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+
