@@ -190,17 +190,22 @@ impl F3FixPlan {
 
     // 生成标准的 Windows diskpart 脚本内容 (采用 CRLF 与 ASCII 注释免疫跨代码页乱码)
     pub fn generate_diskpart_script(&self) -> String {
-        format!(
-            "REM F3-Win Auto-generated Safe Partition Fix Script\r\n\            REM Announced: {} bytes ({:.2} GB)\r\n\            REM Real Physical: {} bytes ({:.2} GB)\r\n\            REM Safe Partition: {} MB\r\n\            rescan\r\n\            select disk {}\r\n\            attributes disk clear readonly\r\n\            clean\r\n\            convert mbr\r\n\            create partition primary size={}\r\n\            format fs={} quick\r\n\            assign\r\n",
-            self.announced_bytes,
-            self.announced_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
-            self.real_bytes,
-            self.real_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
-            self.safe_partition_mb,
-            self.disk_index,
-            self.safe_partition_mb,
-            self.file_system,
-        )
+        let lines = [
+            "REM F3-Win Auto-generated Safe Partition Fix Script".to_string(),
+            format!("REM Announced: {} bytes ({:.2} GB)", self.announced_bytes, self.announced_bytes as f64 / (1024.0 * 1024.0 * 1024.0)),
+            format!("REM Real Physical: {} bytes ({:.2} GB)", self.real_bytes, self.real_bytes as f64 / (1024.0 * 1024.0 * 1024.0)),
+            format!("REM Safe Partition: {} MB", self.safe_partition_mb),
+            "rescan".to_string(),
+            format!("select disk {}", self.disk_index),
+            "attributes disk clear readonly".to_string(),
+            "clean".to_string(),
+            "convert mbr".to_string(),
+            format!("create partition primary size={}", self.safe_partition_mb),
+            format!("format fs={} quick", self.file_system),
+            "assign".to_string(),
+            String::new(),
+        ];
+        lines.join("\r\n")
     }
 
     // 将脚本保存到指定文件
