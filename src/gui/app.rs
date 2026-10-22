@@ -909,11 +909,13 @@ impl F3App {
 
         if let Some(target) = self.state.inventory.active_target() {
             ui.add_space(2.0);
+            let dev_name = format!("{} {}", target.device.vendor_id, target.device.product_id).trim().to_string();
+            let dev_name = if dev_name.is_empty() { "通用存储设备".to_string() } else { dev_name };
             ui.label(
                 RichText::new(format!(
                     "已自动关联底层物理磁盘: PhysicalDrive{} ({})",
-                    target.disk_index(),
-                    target.product_name()
+                    target.device.drive_index,
+                    dev_name
                 ))
                 .size(11.5)
                 .color(theme::TEXT_MUTED),
