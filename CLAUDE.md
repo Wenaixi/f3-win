@@ -965,3 +965,23 @@
   5. 严格执行 Windows 原生更名热替换机制，平稳完成部署；
   6. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
 
+### ComboBox文字隐形根治、移动卷安全放行与全端选择器大统一交付记录 (2026-10-22)
+- 治理目标：系统化排查并根除 ComboBox 下拉列表展开后文字隐形空白、移动 U 盘在部分 USB 桥接下无法识别或误判锁定、以及闪电探测页面选择器与读写页面风格不一致等问题。
+- 根因定位与技术事实：
+  1. egui 官方源码底层画笔淡化蒸发 (src/gui/theme.rs):
+     - 官方 egui 0.29.1 在 `ui.set_enabled(false)` 时，内部调用 `self.painter.set_fade_to_color(Some(self.visuals().fade_out_to_color()))`，而 `fade_out_to_color()` 直接返回 `self.widgets.noninteractive.weak_bg_fill`；
+     - 原代码将 `weak_bg_fill` 设为 `Color32::TRANSPARENT`，导致所有被禁用的控件在绘制时画笔文字颜色的 Alpha 通道被 100% 混色淡化至 0，文字完全透明蒸发，表现为全黑空白浮层；
+     - 修复：将 `weak_bg_fill` 重置为不透明的 `SURFACE_BG`，彻底消灭文字淡化蒸发的底层诱因；
+  2. 移动卷枚举安全门禁加固 (src/core/devices.rs):
+     - 在确保 C: 盘与系统引导物理磁盘绝对一票否决硬隔离的前提下，当底层物理磁盘句柄查询因权限或特定 USB 桥接芯片受阻时，若 Win32 `GetDriveTypeW` 明确确认为可移动介质 (`DRIVE_REMOVABLE`) 且非系统引导卷，予以安全放行；彻底消灭合规正品 U 盘在读写页面“识别不到”或被误锁死的 Bug；
+  3. 下拉列表项高对比度渲染与防抖拓展 (src/gui/components/device_selector.rs):
+     - 彻底剔除 `ui.add_enabled(is_safe, ...)`，杜绝调用端触发画笔淡化；
+     - 建立清晰严谨的对比度层级：受保护系统卷以稳重暗灰 `TEXT_MUTED` 呈现，附带醒目的 `[锁定保护]` 标识与 hover 安全隔离气泡解释，点击不触发选择；
+     - 合规移动 U 盘以纯白高亮 `TEXT_PRIMARY` 呈现，点击秒级选中；
+     - 下拉 ComboBox 宽度由 360px 拓宽至 480px，彻底消除盘符、卷标与容量文字挤压截断；支持空列表友好无障碍提示；
+  4. 闪电探测选择器与读写两端 100% 像素级大统一 (src/gui/app.rs):
+     - 闪电探测页废除独立的物理磁盘选择器，统一调用 `render_storage_volume_selector(ui, "probe_vol_combo", &mut self.state.inventory)`；
+     - 界面自动穿透并直观展示关联的底层物理设备（如 `PhysicalDriveX (SanDisk Cruzer)`）；
+     - 探测启动条件统一收敛为 `inventory.active_target().is_some()`，实现外观、交互、快捷键 (F5) 与安全防呆全维度大统一；
+  5. 全量代码、注释与记忆库绝对零 emoji 规范恪守。
+
