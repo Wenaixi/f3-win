@@ -23,6 +23,7 @@ pub struct F3App {
     prev_status: TaskStatus,
     tray: Option<TrayManager>,
     is_exiting: bool,
+    logo_texture: egui::TextureHandle,
 }
 
 impl F3App {
@@ -33,11 +34,21 @@ impl F3App {
             "F3 (管理员) - 闪存完整性测试就绪",
             cc.egui_ctx.clone(),
         ));
+        let logo_image = egui::ColorImage::from_rgba_unmultiplied(
+            [64, 64],
+            include_bytes!("../../assets/icon_64.rgba"),
+        );
+        let logo_texture = cc.egui_ctx.load_texture(
+            "f3_logo",
+            logo_image,
+            egui::TextureOptions::LINEAR,
+        );
         Self {
             state: AppState::default(),
             prev_status: TaskStatus::Idle,
             tray,
             is_exiting: false,
+            logo_texture,
         }
     }
 
@@ -260,7 +271,15 @@ impl eframe::App for F3App {
             .frame(top_frame)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("F3").strong().size(15.0).color(theme::TEXT_PRIMARY));
+                    let (logo_rect, logo_resp) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
+                    ui.painter().image(
+                        self.logo_texture.id(),
+                        logo_rect,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        Color32::WHITE,
+                    );
+                    logo_resp.on_hover_text("F3 (Fight Flash Fraud) Direct I/O");
+                    ui.add_space(4.0);
                     theme::badge_neutral(ui, "DIRECT I/O");
                     ui.add_space(8.0);
                     ui.separator();
