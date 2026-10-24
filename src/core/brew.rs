@@ -1,9 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use crate::core::algo::fill_buffer;
+use crate::core::algo::fill_sectors;
 use crate::core::aligned_buf::AlignedBuffer;
 use crate::core::devices::verify_target_path;
 use crate::core::direct_io::DirectIoFile;
@@ -271,7 +271,7 @@ where
     let mut aligned_buf = AlignedBuffer::new(block_size)?;
 
     // 填充抗硬件压缩的非线性伪随机数据
-    fill_buffer(aligned_buf.as_mut_slice(), 0, 0x5A5A_A5A5_1234_5678);
+    fill_sectors(aligned_buf.as_mut_slice(), 0, 0x5A5A_A5A5_1234_5678);
 
     let mut write_hist = BrewHistogram::new();
     let mut early_latencies = Vec::with_capacity(total_blocks / 6 + 1);
@@ -281,7 +281,7 @@ where
 
     // 3. 写入阶段 (Direct I/O 硬件直通)
     {
-        let mut file = DirectIoFile::create(&test_file_path)?;
+        let mut file = DirectIoFile::create_write(&test_file_path)?;
 
         for i in 0..total_blocks {
             if cancelled.load(Ordering::Relaxed) {

@@ -625,7 +625,7 @@ impl F3Probe {
             });
 
             Self::fill_super_block(buf.as_mut_slice(), mid_sec, session_salt, 0xBBBB_0000 | (mid_sec as u64 & 0xFFFF));
-            if let Err(e) = dev.write_at(buf.as_slice(), mid_sec * 512) {
+            if dev.write_at(buf.as_slice(), mid_sec * 512).is_err() {
                 right_sec = mid_sec;
                 continue;
             }

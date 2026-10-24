@@ -10,9 +10,9 @@ use std::sync::Arc;
 
 use crate::core::algo::SECTOR_SIZE;
 use crate::core::brew::{run_brew_benchmark, BrewConfig};
-use crate::core::devices::{self, verify_target_path, PhysicalDeviceInfo};
+use crate::core::devices::{self, verify_target_path, PhysicalDeviceInfo, VolumeInfo};
 use crate::core::direct_io::DirectIoFile;
-use crate::core::fix::{F3FixPlan, F3FixSafeExecutor};
+use crate::core::fix::{F3FixPlan, SafePartitionFixer};
 use crate::core::probe::{F3Probe, F3ProbeConfig, ProbeResult, ProbeTrap};
 use crate::core::session::{H2wConfig, H2wMode, H2wSession, H2wTelemetry};
 
@@ -75,7 +75,7 @@ fn render_progress_line(
     eta_secs: u64,
     extra: &str,
 ) {
-    let bar_width = 24;
+    let bar_width: usize = 24;
     let clamped_pct = pct.clamp(0.0, 1.0);
     let filled = (clamped_pct * bar_width as f32).round() as usize;
     let empty = bar_width.saturating_sub(filled);
@@ -407,7 +407,7 @@ fn run_cmd_read(args: &[String]) -> i32 {
             };
             let extra = format!(
                 "(损坏: {}, 覆写: {})",
-                t.stats.corrupted,
+                t.stats.bad,
                 t.stats.overwritten
             );
             render_progress_line("校验中", pct, t.speed_bps, t.eta_seconds, &extra);
@@ -431,11 +431,11 @@ fn run_cmd_read(args: &[String]) -> i32 {
             0.0
         };
         println!("平均读取速度: {:.2} MB/s", avg_speed);
-        println!("正确数据扇区: {} 扇区 ({})", t.stats.ok, format_bytes(t.stats.ok * SECTOR_SIZE as u64));
-        println!("损坏数据扇区: {} 扇区 ({})", t.stats.corrupted, format_bytes(t.stats.corrupted * SECTOR_SIZE as u64));
+        println!("正确数据扇区: {} 扇区 ({})", t.stats.good, format_bytes(t.stats.good * SECTOR_SIZE as u64));
+        println!("损坏数据扇区: {} 扇区 ({})", t.stats.bad, format_bytes(t.stats.bad * SECTOR_SIZE as u64));
         println!("覆写数据扇区: {} 扇区 ({})", t.stats.overwritten, format_bytes(t.stats.overwritten * SECTOR_SIZE as u64));
 
-        if t.stats.corrupted > 0 || t.stats.overwritten > 0 {
+        if t.stats.bad > 0 || t.stats.overwritten > 0 {
             println!();
             println!("【判定结果: 扩容假盘或物理损坏 (FAILED)】");
             if let Some(offset) = t.first_error_offset {
@@ -476,7 +476,7 @@ fn parse_disk_index(s: &str) -> Result<u32, String> {
             }
         }
     }
-    Err(format!("无法解析物理磁盘编号: '{}'。示例: '1' 或 '\\.\PhysicalDrive1'", s))
+    Err(format!(r"无法解析物理磁盘编号: '{}'。示例: '1' 或 '\.PhysicalDrive1'", s))
 }
 
 /// 子命令: probe
@@ -678,7 +678,7 @@ fn run_cmd_fix(args: &[String]) -> i32 {
         plan.file_system = fs;
     }
 
-    let executor = F3FixSafeExecutor::new(plan);
+    let executor = SafePartitionFixer::new(plan);
 
     if dry_run {
         println!("正在生成预演脚本 (Dry-Run)...");
@@ -735,7 +735,7 @@ fn run_cmd_fix(args: &[String]) -> i32 {
 fn run_cmd_brew(args: &[String]) -> i32 {
     if args.is_empty() || args[0].starts_with('-') {
         eprintln!("用法: f3-win brew <目录路径> [--blocks <数量>] [--size <KB>] [--no-read]");
-        eprintln!("示例: f3-win brew E:\ --blocks 1024");
+        eprintln!(r"示例: f3-win brew E:\ --blocks 1024");
         return 1;
     }
 
@@ -745,7 +745,7 @@ fn run_cmd_brew(args: &[String]) -> i32 {
         return 1;
     }
 
-    let mut blocks = 1024;
+    let mut blocks: usize = 1024;
     let mut block_size_kb = 64;
     let mut test_read = true;
 
@@ -754,7 +754,7 @@ fn run_cmd_brew(args: &[String]) -> i32 {
         match args[i].as_str() {
             "--blocks" => {
                 if i + 1 < args.len() {
-                    if let Ok(val) = args[i + 1].parse::<u64>() {
+                    if let Ok(val) = args[i + 1].parse::<usize>() {
                         blocks = val.clamp(16, 65536);
                     }
                     i += 1;
@@ -780,7 +780,7 @@ fn run_cmd_brew(args: &[String]) -> i32 {
     println!("=== F3-Win 闪存硬件时延画像 (f3brew) ===");
     println!("目标路径: {:?}", target_dir);
     println!("块大小: {} KB ({} 字节)", block_size_kb, block_size);
-    println!("总块数: {} (总量: {})", blocks, format_bytes(blocks * block_size as u64));
+    println!("总块数: {} (总量: {})", blocks, format_bytes((blocks as u64) * block_size as u64));
     println!("读校验: {}", if test_read { "开启" } else { "跳过" });
     println!("正在启动 Direct I/O 无缓存延迟画像采样...");
 
@@ -789,22 +789,24 @@ fn run_cmd_brew(args: &[String]) -> i32 {
         block_size,
         total_blocks: blocks,
         test_read,
+        test_filename: "f3_brew_benchmark.tmp".to_string(),
     };
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
     let (tx, rx) = crossbeam_channel::unbounded();
 
     let benchmark_thread = std::thread::spawn(move || {
-        run_brew_benchmark(config, cancel_flag, tx)
+        run_brew_benchmark(&config, cancel_flag, move |p| {
+            let _ = tx.send(p);
+        })
     });
 
     while let Ok(progress) = rx.recv() {
         let phase_str = match progress.phase {
             crate::core::brew::BrewPhase::Writing => "写入采样",
-            crate::core::brew::BrewPhase::FlushingCache => "冲刷缓存",
+            crate::core::brew::BrewPhase::Flushing => "冲刷缓存",
             crate::core::brew::BrewPhase::Reading => "回读采样",
             crate::core::brew::BrewPhase::Completed => "分析完成",
-            crate::core::brew::BrewPhase::Failed => "采样失败",
         };
         let pct = if progress.total_blocks > 0 {
             progress.current_block as f32 / progress.total_blocks as f32
@@ -818,31 +820,7 @@ fn run_cmd_brew(args: &[String]) -> i32 {
 
     match benchmark_thread.join() {
         Ok(Ok(res)) => {
-            println!("=== 写入延迟直方图统计 ===");
-            println!("写入吞吐量: {:.2} MB/s", res.write_throughput_mbps);
-            println!("最小写入延迟: {:.3} ms | 最大写入延迟: {:.3} ms | 平均写入延迟: {:.3} ms",
-                res.write_histogram.min_ms, res.write_histogram.max_ms, res.write_histogram.avg_ms);
-            println!("{}", res.write_histogram.render_ascii_chart());
-
-            if let Some(read_hist) = &res.read_histogram {
-                println!("=== 读取延迟直方图统计 ===");
-                if let Some(r_speed) = res.read_throughput_mbps {
-                    println!("读取吞吐量: {:.2} MB/s", r_speed);
-                }
-                println!("最小读取延迟: {:.3} ms | 最大读取延迟: {:.3} ms | 平均读取延迟: {:.3} ms",
-                    read_hist.min_ms, read_hist.max_ms, read_hist.avg_ms);
-                println!("{}", read_hist.render_ascii_chart());
-            }
-
-            if let Some(cliff) = res.slc_cliff_detected_at_block {
-                println!();
-                println!("【闪存物理特性诊断: 检测到模拟 SLC 缓存耗尽断崖】");
-                println!("断崖发生位置: 约第 {} 个测试块 (写入量约 {})", cliff, format_bytes((cliff as u64) * (block_size as u64)));
-                println!("主控在耗尽 SLC 缓冲区后，写入延迟发生 3 倍以上陡增，暴露底层 TLC/QLC 颗粒真实原始速率。");
-            } else {
-                println!();
-                println!("【闪存物理特性诊断: 写入延迟分布平稳，未观察到明显 SLC 断崖】");
-            }
+            println!("{}", res.format_report());
             0
         }
         Ok(Err(e)) => {
@@ -861,7 +839,7 @@ fn run_cmd_list() -> i32 {
     println!("=== F3-Win 存储设备与逻辑卷清单 ===");
     println!();
     println!("--- 物理磁盘 (Physical Drives) ---");
-    let drives = devices::enumerate_physical_drives();
+    let drives = PhysicalDeviceInfo::enumerate_devices();
     if drives.is_empty() {
         println!("(未检测到物理磁盘)");
     } else {
@@ -877,7 +855,7 @@ fn run_cmd_list() -> i32 {
 
     println!();
     println!("--- 可用逻辑卷 (Logical Volumes) ---");
-    let volumes = devices::enumerate_volumes();
+    let volumes = VolumeInfo::enumerate_volumes();
     if volumes.is_empty() {
         println!("(未检测到可用逻辑卷)");
     } else {
