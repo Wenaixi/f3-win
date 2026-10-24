@@ -372,23 +372,36 @@ impl StorageTarget {
 
     // 执行物理探测前置准备：验证安全性，并独占锁定该磁盘上的全部挂载卷
     pub fn prepare_for_probe(&self) -> Result<VolumeLockGuard, String> {
+        self.prepare_for_probe_with_force(false)
+    }
+
+    // 执行物理探测前置准备 (支持可选 --force 跳过总线白名单，但对系统主盘/引导盘保持绝对硬隔离拦截)
+    pub fn prepare_for_probe_with_force(&self, force: bool) -> Result<VolumeLockGuard, String> {
         // Zero-TOCTOU 零时差现场硬件总线复核：杜绝拔插时间差导致的物理设备漂移
         let live_dev = PhysicalDeviceInfo::query_by_index(self.device.drive_index)
             .ok_or_else(|| format!("目标物理磁盘 PhysicalDrive{} 已断开连接", self.device.drive_index))?;
 
         let sys_disk_idx = get_system_drive_disk_number();
         let is_sys_disk = live_dev.drive_index == 0 || sys_disk_idx == Some(live_dev.drive_index);
-        if !live_dev.is_safe_target || is_sys_disk {
+        let sys_drive = std::env::var("SystemDrive")
+            .ok()
+            .and_then(|s| s.chars().next())
+            .unwrap_or('C')
+            .to_ascii_uppercase();
+        let contains_system_drive = self.device.mounted_volumes.iter().any(|&c| c.to_ascii_uppercase() == sys_drive)
+            || self.volumes.iter().any(|v| v.drive_letter.to_ascii_uppercase() == sys_drive);
+
+        if is_sys_disk || contains_system_drive {
             return Err(format!(
-                "安全硬隔离拦截：PhysicalDrive{} 未通过现场硬件总线核验 (系统主盘/引导盘或内部固定介质)",
+                "安全硬隔离拦截：PhysicalDrive{} 包含系统引导主盘 (%SystemDrive%)，绝对禁止执行底层覆写测试",
                 live_dev.drive_index
             ));
         }
 
-        if !self.is_safe_for_raw_probe() {
+        if !live_dev.is_safe_target && !force {
             return Err(format!(
-                "目标磁盘 PhysicalDrive{} 未通过安全核验 (系统主盘或固定磁盘已锁定)",
-                self.device.drive_index
+                "安全硬隔离拦截：PhysicalDrive{} 未通过现场硬件总线核验 (系统内部固定介质，需 --force 显式跳过白名单)",
+                live_dev.drive_index
             ));
         }
 
@@ -420,7 +433,12 @@ impl StorageTarget {
     // 一站式打开底层物理磁盘并独占锁定卸载其挂载的所有逻辑卷
     // 返回 DirectIoFile (满足 BlockIo 接缝) 与 RAII 独占锁守卫 VolumeLockGuard
     pub fn open_block_io(&self) -> Result<(DirectIoFile, VolumeLockGuard), String> {
-        let guard = self.prepare_for_probe()?;
+        self.open_block_io_with_force(false)
+    }
+
+    // 一站式打开底层物理磁盘并独占锁定卸载其挂载的所有逻辑卷 (支持 force 跳过移动总线白名单)
+    pub fn open_block_io_with_force(&self, force: bool) -> Result<(DirectIoFile, VolumeLockGuard), String> {
+        let guard = self.prepare_for_probe_with_force(force)?;
         let path = std::path::Path::new(&self.device.path);
         match DirectIoFile::open_raw_device(path) {
             Ok(file) => Ok((file, guard)),
@@ -940,5 +958,26 @@ mod tests {
         // 3. 验证本地安全相对路径放行
         let safe_rel = std::path::Path::new("temp_test_dir");
         assert!(verify_target_path(safe_rel).is_ok(), "合规普通相对路径放行");
+    }
+
+    #[test]
+    fn test_storage_target_system_drive_force_intercept() {
+        let dev = PhysicalDeviceInfo {
+            drive_index: 0,
+            path: r"\\.\PhysicalDrive0".to_string(),
+            vendor_id: "Internal".to_string(),
+            product_id: "NVMe".to_string(),
+            serial_number: "NVME001".to_string(),
+            bus_type: StorageBusType::Nvme,
+            total_bytes: 1024 * 1024 * 1024 * 1024,
+            is_removable: false,
+            is_safe_target: false,
+            warning: Some("系统主盘已锁定".to_string()),
+            mounted_volumes: vec!['C'],
+        };
+        let target = StorageTarget::new(dev, Vec::new());
+        // 即使用户传入 force = true，系统引导盘也必须零容忍被硬拦截！
+        assert!(target.prepare_for_probe_with_force(true).is_err(), "系统盘即使带 force 绝不可锁定卸载");
+        assert!(target.open_block_io_with_force(true).is_err(), "系统盘即使带 force 绝不可打开 BlockIo");
     }
 }

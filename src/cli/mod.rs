@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use crate::core::algo::SECTOR_SIZE;
 use crate::core::brew::{run_brew_benchmark, BrewConfig};
-use crate::core::devices::{verify_target_path, PhysicalDeviceInfo, VolumeInfo};
+use crate::core::devices::{verify_target_path, PhysicalDeviceInfo, StorageDeviceManager, VolumeInfo};
 use crate::core::direct_io::DirectIoFile;
 use crate::core::fix::{F3FixPlan, SafePartitionFixer};
 use crate::core::probe::{F3Probe, F3ProbeConfig, ProbeResult, ProbeTrap};
@@ -500,15 +500,17 @@ fn run_cmd_probe(args: &[String]) -> i32 {
     let force = args.iter().any(|a| a == "--force");
 
     println!("=== F3-Win 物理跳跃探针 (f3probe) ===");
-    println!("正在查询 PhysicalDrive{} 硬件属性...", disk_index);
+    println!("正在查询 PhysicalDrive{} 硬件属性并获取设备快照...", disk_index);
 
-    let dev_info = match PhysicalDeviceInfo::query_by_index(disk_index) {
-        Some(info) => info,
+    let mgr = StorageDeviceManager::new();
+    let target = match mgr.get_target_for_device(disk_index) {
+        Some(t) => t,
         None => {
             eprintln!("错误: 找不到 PhysicalDrive{}，请确认磁盘编号是否正确且介质未断开。", disk_index);
             return 1;
         }
     };
+    let dev_info = &target.device;
 
     println!("设备名称: {}", dev_info.display_name());
     println!("标称容量: {}", format_bytes(dev_info.total_bytes));
@@ -527,26 +529,29 @@ fn run_cmd_probe(args: &[String]) -> i32 {
 
     println!();
     println!("【警告】探针测试将直接对底层物理扇区进行采样测试，测试完成后请格式化该磁盘！");
-    println!("开始执行双相几何跳跃探针探测...");
+    println!("正在对磁盘挂载卷执行独占锁定并卸载文件系统...");
+
+    let (mut dev, _volume_guard) = match target.open_block_io_with_force(force) {
+        Ok(pair) => pair,
+        Err(e) => {
+            eprintln!("无法独占锁定并打开物理设备: {}", e);
+            return 1;
+        }
+    };
+
+    println!("卷独占锁定成功，开始执行双相几何跳跃探针探测...");
 
     let total_sectors = dev_info.total_bytes / 512;
     let config = F3ProbeConfig { total_sectors };
     let cancel_flag = Arc::new(AtomicBool::new(false));
     let probe = F3Probe::new(config, cancel_flag);
 
-    let dev_path = format!(r"\.\PhysicalDrive{}", disk_index);
-    let mut dev = match DirectIoFile::open_raw_device(Path::new(&dev_path)) {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("无法打开物理设备: {}", e);
-            return 1;
-        }
-    };
-
     let (tx, rx) = crossbeam_channel::unbounded();
 
     let probe_thread = std::thread::spawn(move || {
-        probe.run(&mut dev, tx)
+        let res = probe.run(&mut dev, tx);
+        drop(_volume_guard);
+        res
     });
 
     while let Ok(t) = rx.recv() {

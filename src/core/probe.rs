@@ -229,9 +229,14 @@ impl F3Probe {
     }
 
     /// 绝对低位物理写穿冲刷 (Overwhelm Cache):
-    /// 彻底废除在高位虚无区的排空盲目写入！
-    /// 强制在已验证合规的低位物理扇区 [scratch_sec, scratch_sec + count) 注入大剂量白噪声流，
-    /// 真正逼迫闪存主控将 SRAM 与 SLC 模拟缓存中的脏数据刷入物理闪存颗粒。
+    /// 强行向低位安全空闲扇区区段注入大容量白噪声，物理击穿主控芯片内置的模拟 SLC 缓存区。
+    ///
+    /// 【空间绝对正交防线 (Spatial Orthogonality Invariant)】:
+    /// S_sentinel ∩ S_ladder ∩ S_scratch = ∅
+    /// 1. 冲刷区间上限严格硬限制在 FENCE_UPPER_LIMIT_SECTORS (64MB) 之下；
+    /// 2. 显式避让 SENTINEL_SECTORS 所有的低位哨兵超级块；
+    /// 3. 显式避让 STORM_LADDER 所有的阶梯探针；
+    /// 4. 扇区对齐自适应 4Kn 物理介质 (向下对齐 8 扇区 / 4096 字节)。
     fn overwhelm_cache(
         &self,
         file: &mut impl BlockIo,
@@ -242,17 +247,36 @@ impl F3Probe {
         let block_sectors = (buf.len() / SECTOR_SIZE) as u64;
         let total_blocks = count.div_ceil(block_sectors);
 
+        // 冲刷上限严格硬限制在低位防线边界 (131,072 - 128 = 130,944 扇区)，
+        // 绝对杜绝侵入高位阶梯探针区 (STORM_LADDER[0] = 131,072) 与边界哨兵
+        let upper_fence = FENCE_UPPER_LIMIT_SECTORS.saturating_sub(SUPER_BLOCK_SECTORS);
+        if scratch_sec >= upper_fence {
+            return Ok(());
+        }
+        let scratch_span = upper_fence - scratch_sec;
+        if scratch_span < block_sectors {
+            return Ok(());
+        }
+
         for b in 0..total_blocks {
             if self.cancel_flag.load(Ordering::Acquire) {
                 return Err("用户中止了探测任务".to_string());
             }
 
-            let start_sec = scratch_sec + b * block_sectors;
-            // 避开低位哨兵超级块，严禁冲刷排空白噪声误伤哨兵雷区
-            if SENTINEL_SECTORS.iter().any(|&s| start_sec < s + SUPER_BLOCK_SECTORS && start_sec + block_sectors > s) {
+            // 在 [scratch_sec, upper_fence) 安全区间内循环映射写入
+            let offset_in_span = (b * block_sectors) % scratch_span;
+            let start_sec = (scratch_sec + offset_in_span) & !7; // 4Kn 向下对齐 8 扇区 (4096字节)
+            let end_sec = start_sec + block_sectors;
+
+            // 严格扇区正交性检查：避开所有哨兵、阶梯探针与越界扇区
+            let touches_sentinel = SENTINEL_SECTORS.iter().any(|&s| start_sec < s + SUPER_BLOCK_SECTORS && end_sec > s);
+            let touches_ladder = STORM_LADDER.iter().any(|&s| start_sec < s + SUPER_BLOCK_SECTORS && end_sec > s);
+            if touches_sentinel || touches_ladder || end_sec > upper_fence {
                 continue;
             }
-            let mut prng = (start_sec ^ 0xDEAD_BEEF_CAFE_BABE)
+
+            // 每次使用与块序号 b 绑定的不可逆高熵伪随机数，迫使主控 FTL 写入全新物理闪存页
+            let mut prng = ((start_sec ^ ((b as u64) << 32)) ^ 0xDEAD_BEEF_CAFE_BABE)
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1);
 
@@ -263,7 +287,9 @@ impl F3Probe {
             }
 
             let sectors_to_write = block_sectors.min(count.saturating_sub(b * block_sectors));
-            let write_bytes = (sectors_to_write as usize) * SECTOR_SIZE;
+            // 4Kn 扇区写入长度向上对齐至 8 扇区 (4096 字节)
+            let write_sectors_aligned = ((sectors_to_write + 7) / 8) * 8;
+            let write_bytes = (write_sectors_aligned as usize) * SECTOR_SIZE;
 
             file.write_at(&buf.as_slice()[..write_bytes], start_sec * 512)
                 .map_err(|e| format!("物理写穿排空 LBA {} 失败: {}", start_sec, e))?;
@@ -363,8 +389,8 @@ impl F3Probe {
                 valid_ladder_points.push(step);
             }
         }
-        // 追加标称容量末尾超级块
-        let tail_sec = total_sectors.saturating_sub(SUPER_BLOCK_SECTORS);
+        // 追加标称容量末尾超级块 (4Kn 向下对齐至 8 扇区边界)
+        let tail_sec = (total_sectors.saturating_sub(SUPER_BLOCK_SECTORS)) & !7;
         if tail_sec > FENCE_UPPER_LIMIT_SECTORS && !valid_ladder_points.contains(&tail_sec) {
             valid_ladder_points.push(tail_sec);
         }
@@ -419,11 +445,11 @@ impl F3Probe {
         });
 
         let flush_depth = (total_sectors / 32).clamp(CACHE_FLUSH_MIN_SECTORS, CACHE_FLUSH_MAX_SECTORS);
-        // 使用哨兵区域内部的安全空隙进行写穿排空 (例如 16MB 到 32MB 区间)
+        // 使用低位防线内部的安全空闲扇区进行写穿排空 (严格限制在 16MB ~ 64MB 低位区间)
         let scratch_start = 32_768 + SUPER_BLOCK_SECTORS;
-        let scratch_avail = total_sectors.saturating_sub(scratch_start).min(flush_depth);
-        if scratch_avail > 0 {
-            if let Err(e) = self.overwhelm_cache(dev, &mut buf, scratch_start, scratch_avail) {
+        let max_safe_sec = (FENCE_UPPER_LIMIT_SECTORS.saturating_sub(SUPER_BLOCK_SECTORS)).min(total_sectors.saturating_sub(SUPER_BLOCK_SECTORS));
+        if max_safe_sec > scratch_start {
+            if let Err(e) = self.overwhelm_cache(dev, &mut buf, scratch_start, flush_depth) {
                 let is_cancel = self.cancel_flag.load(Ordering::Acquire) || e.contains("用户中止");
                 let phase = if is_cancel {
                     "探测任务已由用户手动中止".to_string()
@@ -640,7 +666,11 @@ impl F3Probe {
                 return Err(msg);
             }
 
-            let mid_sec = left_sec + ((right_sec - left_sec) / 2);
+            // 4Kn 对齐：二分中点向下对齐至 8 扇区 (4096 字节)
+            let mid_sec = (left_sec + ((right_sec - left_sec) / 2)) & !7;
+            if mid_sec <= left_sec || mid_sec >= right_sec {
+                break;
+            }
             let span = right_sec.saturating_sub(left_sec);
             let progress = 0.80 + (0.18 * (1.0 - span as f32 / total_sectors as f32));
 
@@ -798,5 +828,89 @@ mod tests {
         assert_eq!(res.trap, ProbeTrap::WrapAround);
         let real_mb = res.real_size / (1024 * 1024);
         assert!((78..=82).contains(&real_mb), "实测容量应收敛于 80MB 附近 (±2MB)，实测: {} MB", real_mb);
+    }
+
+    #[test]
+    fn test_probe_128gb_honest_device_not_misidentified_as_64mb() {
+        // 关键根因防回归验证：模拟真实 128GB (115.47 GB 物理容量，例如金士顿 DataTraveler 128GB) 正品介质
+        // 验证 Phase 2 缓存冲刷决不会摧毁 STORM_LADDER[0] (64MB / LBA 131,072)
+        // 彻底根除正品盘被误判为 0.06 GB 扩容假盘的假阳性缺陷！
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let total_sectors = 115 * 1024 * 1024 * 1024 / 512;
+        let config = F3ProbeConfig { total_sectors };
+        let probe = F3Probe::new(config, cancel_flag);
+        let mut dev = MemoryBlockDevice::new(total_sectors * 512);
+        let (tx, _rx) = crossbeam_channel::unbounded();
+
+        let res = probe.run(&mut dev, tx).expect("探测应顺利执行完成");
+        assert!(!res.is_fake, "128GB 正品盘绝对不得被误判为 0.06GB / 64MB 假盘");
+        assert_eq!(res.trap, ProbeTrap::None);
+        assert_eq!(res.real_size, res.announced_size, "正品盘实测容量必须等于标称容量");
+    }
+
+    #[test]
+    fn test_sentinel_ladder_scratch_spatial_orthogonality() {
+        // 扇区空间拓扑严格正交不变式数学验证：
+        // S_sentinel ∩ S_ladder ∩ S_scratch = ∅
+        
+        // 1. 验证 Sentinel 与 Ladder 不相交
+        for &s in SENTINEL_SECTORS.iter() {
+            assert!(
+                s + SUPER_BLOCK_SECTORS <= FENCE_UPPER_LIMIT_SECTORS,
+                "哨兵必须严格限制在低位保护防线 64MB (LBA 131,072) 以内"
+            );
+            for &l in STORM_LADDER.iter() {
+                let s_end = s + SUPER_BLOCK_SECTORS;
+                let l_end = l + SUPER_BLOCK_SECTORS;
+                assert!(
+                    s_end <= l || l_end <= s,
+                    "哨兵 LBA [{}, {}) 与阶梯探针 LBA [{}, {}) 存在重叠冲突！",
+                    s, s_end, l, l_end
+                );
+            }
+        }
+
+        // 2. 遍历多种典型存储容量 (1GB, 4GB, 32GB, 64GB, 115GB, 128GB, 512GB, 1TB, 8TB)
+        let test_sizes_gb: &[u64] = &[1, 4, 32, 64, 115, 128, 512, 1024, 8192];
+        for &sz in test_sizes_gb {
+            let total_sectors = sz * 1024 * 1024 * 1024 / 512;
+            let flush_depth = (total_sectors / 32).clamp(CACHE_FLUSH_MIN_SECTORS, CACHE_FLUSH_MAX_SECTORS);
+            let scratch_start = 32_768 + SUPER_BLOCK_SECTORS;
+            let upper_fence = FENCE_UPPER_LIMIT_SECTORS.saturating_sub(SUPER_BLOCK_SECTORS);
+            let avail = upper_fence.saturating_sub(scratch_start);
+            let write_sectors = flush_depth.min(avail) & !7;
+            let scratch_end = scratch_start + write_sectors;
+
+            // 冲刷区间上限绝不能侵入 64MB 以上高位阶梯区
+            assert!(
+                scratch_end <= FENCE_UPPER_LIMIT_SECTORS,
+                "容量 {} GB 下冲刷结束扇区 {} 越界侵入了高位阶梯区 (>= {})",
+                sz, scratch_end, FENCE_UPPER_LIMIT_SECTORS
+            );
+
+            // 验证与首个阶梯探针绝对无交集
+            assert!(
+                scratch_end <= STORM_LADDER[0],
+                "容量 {} GB 下冲刷扇区上限 {} 覆写了首个阶梯探针 STORM_LADDER[0]={}",
+                sz, scratch_end, STORM_LADDER[0]
+            );
+
+            // 验证 4Kn 对齐
+            assert_eq!(write_sectors % 8, 0, "写入扇区数必须按 8 扇区 (4Kn) 对齐");
+            assert_eq!(scratch_start % 8, 0, "起始扇区必须按 8 扇区 (4Kn) 对齐");
+        }
+    }
+
+    #[test]
+    fn test_4kn_alignment_invariants() {
+        // 验证 4Kn (4096 字节 = 8 个 512 字节扇区) 对齐在整个算法中的完备性
+        assert_eq!(SUPER_BLOCK_SECTORS % 8, 0, "SUPER_BLOCK_SECTORS 必须是 8 的倍数");
+        for &s in SENTINEL_SECTORS.iter() {
+            assert_eq!(s % 8, 0, "哨兵扇区 LBA {} 必须是 8 的倍数", s);
+        }
+        for &l in STORM_LADDER.iter() {
+            assert_eq!(l % 8, 0, "阶梯扇区 LBA {} 必须是 8 的倍数", l);
+        }
+        assert_eq!(FENCE_UPPER_LIMIT_SECTORS % 8, 0, "FENCE_UPPER_LIMIT_SECTORS 必须是 8 的倍数");
     }
 }
