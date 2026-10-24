@@ -276,7 +276,7 @@ impl F3Probe {
             }
 
             // 每次使用与块序号 b 绑定的不可逆高熵伪随机数，迫使主控 FTL 写入全新物理闪存页
-            let mut prng = ((start_sec ^ ((b as u64) << 32)) ^ 0xDEAD_BEEF_CAFE_BABE)
+            let mut prng = ((start_sec ^ (b << 32)) ^ 0xDEAD_BEEF_CAFE_BABE)
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1);
 
@@ -288,7 +288,7 @@ impl F3Probe {
 
             let sectors_to_write = block_sectors.min(count.saturating_sub(b * block_sectors));
             // 4Kn 扇区写入长度向上对齐至 8 扇区 (4096 字节)
-            let write_sectors_aligned = ((sectors_to_write + 7) / 8) * 8;
+            let write_sectors_aligned = sectors_to_write.div_ceil(8) * 8;
             let write_bytes = (write_sectors_aligned as usize) * SECTOR_SIZE;
 
             file.write_at(&buf.as_slice()[..write_bytes], start_sec * 512)

@@ -12,7 +12,6 @@ use std::sync::Arc;
 use crate::core::algo::SECTOR_SIZE;
 use crate::core::brew::{run_brew_benchmark, BrewConfig};
 use crate::core::devices::{verify_target_path, PhysicalDeviceInfo, StorageDeviceManager, VolumeInfo};
-use crate::core::direct_io::DirectIoFile;
 use crate::core::fix::{F3FixPlan, SafePartitionFixer};
 use crate::core::probe::{F3Probe, F3ProbeConfig, ProbeResult, ProbeTrap};
 use crate::core::session::{H2wConfig, H2wMode, H2wSession, H2wTelemetry};
