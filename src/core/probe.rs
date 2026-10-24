@@ -334,7 +334,7 @@ impl F3Probe {
                 break;
             }
 
-            Self::fill_super_block(buf.as_mut_slice(), sec, session_salt, 0x5A5A_0000 | (sec as u64 & 0xFFFF));
+            Self::fill_super_block(buf.as_mut_slice(), sec, session_salt, 0x5A5A_0000 | (sec & 0xFFFF));
             dev.write_at(buf.as_slice(), sec * 512)
                 .map_err(|e| {
                     let err = format!("布设哨兵栅栏 LBA {} 失败: {}", sec, e);
@@ -391,7 +391,7 @@ impl F3Probe {
                 error: None,
             });
 
-            Self::fill_super_block(buf.as_mut_slice(), sec, session_salt, 0xA5A5_0000 | (sec as u64 & 0xFFFF));
+            Self::fill_super_block(buf.as_mut_slice(), sec, session_salt, 0xA5A5_0000 | (sec & 0xFFFF));
             dev.write_at(buf.as_slice(), sec * 512)
                 .map_err(|e| {
                     let err = format!("风暴布雷写入 LBA {} 失败: {}", sec, e);
@@ -469,7 +469,7 @@ impl F3Probe {
                 .map_err(|e| format!("回读哨兵栅栏 LBA {} 失败: {}", sec, e))?;
 
             let is_ok = r_len == SUPER_BLOCK_BYTES
-                && Self::verify_super_block(buf.as_slice(), sec, session_salt, 0x5A5A_0000 | (sec as u64 & 0xFFFF));
+                && Self::verify_super_block(buf.as_slice(), sec, session_salt, 0x5A5A_0000 | (sec & 0xFFFF));
 
             if !is_ok {
                 // 哨兵损坏，断定发生物理地址回绕
@@ -511,7 +511,7 @@ impl F3Probe {
                 .map_err(|e| format!("回读核验探针 LBA {} 失败: {}", sec, e))?;
 
             let is_ok = r_len == SUPER_BLOCK_BYTES
-                && Self::verify_super_block(buf.as_slice(), sec, session_salt, 0xA5A5_0000 | (sec as u64 & 0xFFFF));
+                && Self::verify_super_block(buf.as_slice(), sec, session_salt, 0xA5A5_0000 | (sec & 0xFFFF));
 
             if !is_ok {
                 first_failed_idx = Some(idx);
@@ -574,6 +574,7 @@ impl F3Probe {
     }
 
     /// 二分逼近与精细定界收敛 (Bisection Refinement)
+    #[allow(clippy::too_many_arguments)]
     fn refine_and_finalize(
         &self,
         dev: &mut impl BlockIo,
@@ -624,7 +625,7 @@ impl F3Probe {
                 error: None,
             });
 
-            Self::fill_super_block(buf.as_mut_slice(), mid_sec, session_salt, 0xBBBB_0000 | (mid_sec as u64 & 0xFFFF));
+            Self::fill_super_block(buf.as_mut_slice(), mid_sec, session_salt, 0xBBBB_0000 | (mid_sec & 0xFFFF));
             if dev.write_at(buf.as_slice(), mid_sec * 512).is_err() {
                 right_sec = mid_sec;
                 continue;
@@ -633,7 +634,7 @@ impl F3Probe {
 
             buf.as_mut_slice().fill(0);
             let read_ok = match dev.read_at(buf.as_mut_slice(), mid_sec * 512) {
-                Ok(bytes) => bytes == SUPER_BLOCK_BYTES && Self::verify_super_block(buf.as_slice(), mid_sec, session_salt, 0xBBBB_0000 | (mid_sec as u64 & 0xFFFF)),
+                Ok(bytes) => bytes == SUPER_BLOCK_BYTES && Self::verify_super_block(buf.as_slice(), mid_sec, session_salt, 0xBBBB_0000 | (mid_sec & 0xFFFF)),
                 Err(_) => false,
             };
 

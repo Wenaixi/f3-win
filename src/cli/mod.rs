@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_match)]
 //! F3-Win 纯标准库零依赖无头 CLI 引擎与子命令分发器 (Dual-mode CLI Engine)
 //!
 //! 深度实现与上游 f3 官方工具链 (f3write, f3read, f3probe, f3fix, f3brew) 100% 兼容的控制台模式，
@@ -223,35 +224,29 @@ fn run_cmd_write(args: &[String]) -> i32 {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "--max-size" => {
-                if i + 1 < args.len() {
-                    if let Ok(val) = args[i + 1].parse::<u64>() {
-                        max_gb = Some(val);
-                    }
-                    i += 1;
+            "--max-size" if i + 1 < args.len() => {
+                if let Ok(val) = args[i + 1].parse::<u64>() {
+                    max_gb = Some(val);
                 }
+                i += 1;
             }
-            "--salt" => {
-                if i + 1 < args.len() {
-                    let s = &args[i + 1];
-                    let parsed = if s.starts_with("0x") || s.starts_with("0X") {
-                        u64::from_str_radix(&s[2..], 16)
-                    } else {
-                        s.parse::<u64>()
-                    };
-                    if let Ok(val) = parsed {
-                        salt = val;
-                    }
-                    i += 1;
+            "--salt" if i + 1 < args.len() => {
+                let s = &args[i + 1];
+                let parsed = if s.starts_with("0x") || s.starts_with("0X") {
+                    u64::from_str_radix(&s[2..], 16)
+                } else {
+                    s.parse::<u64>()
+                };
+                if let Ok(val) = parsed {
+                    salt = val;
                 }
+                i += 1;
             }
-            "--chunk-size" => {
-                if i + 1 < args.len() {
-                    if let Ok(val) = args[i + 1].parse::<usize>() {
-                        chunk_mb = val.clamp(1, 64);
-                    }
-                    i += 1;
+            "--chunk-size" if i + 1 < args.len() => {
+                if let Ok(val) = args[i + 1].parse::<usize>() {
+                    chunk_mb = val.clamp(1, 64);
                 }
+                i += 1;
             }
             _ => {}
         }
@@ -344,19 +339,17 @@ fn run_cmd_read(args: &[String]) -> i32 {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "--salt" => {
-                if i + 1 < args.len() {
-                    let s = &args[i + 1];
-                    let parsed = if s.starts_with("0x") || s.starts_with("0X") {
-                        u64::from_str_radix(&s[2..], 16)
-                    } else {
-                        s.parse::<u64>()
-                    };
-                    if let Ok(val) = parsed {
-                        salt = val;
-                    }
-                    i += 1;
+            "--salt" if i + 1 < args.len() => {
+                let s = &args[i + 1];
+                let parsed = if s.starts_with("0x") || s.starts_with("0X") {
+                    u64::from_str_radix(&s[2..], 16)
+                } else {
+                    s.parse::<u64>()
+                };
+                if let Ok(val) = parsed {
+                    salt = val;
                 }
+                i += 1;
             }
             "--auto-cleanup" => {
                 auto_cleanup = true;
@@ -752,21 +745,17 @@ fn run_cmd_brew(args: &[String]) -> i32 {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "--blocks" => {
-                if i + 1 < args.len() {
-                    if let Ok(val) = args[i + 1].parse::<usize>() {
-                        blocks = val.clamp(16, 65536);
-                    }
-                    i += 1;
+            "--blocks" if i + 1 < args.len() => {
+                if let Ok(val) = args[i + 1].parse::<usize>() {
+                    blocks = val.clamp(16, 65536);
                 }
+                i += 1;
             }
-            "--size" => {
-                if i + 1 < args.len() {
-                    if let Ok(val) = args[i + 1].parse::<usize>() {
-                        block_size_kb = val.clamp(4, 4096);
-                    }
-                    i += 1;
+            "--size" if i + 1 < args.len() => {
+                if let Ok(val) = args[i + 1].parse::<usize>() {
+                    block_size_kb = val.clamp(4, 4096);
                 }
+                i += 1;
             }
             "--no-read" => {
                 test_read = false;

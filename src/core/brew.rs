@@ -240,7 +240,7 @@ impl BrewResult {
 
         report.push_str(&self.write_histogram.render_ascii_chart("Direct I/O 写入延迟分布"));
         if let Some(ref rh) = self.read_histogram {
-            report.push_str("\n");
+            report.push('\n');
             report.push_str(&rh.render_ascii_chart("Direct I/O 读取延迟分布"));
         }
 
@@ -448,17 +448,10 @@ mod tests {
 
     #[test]
     fn test_slc_cache_jump_detection() {
-        let mut early = Vec::new();
-        let mut late = Vec::new();
-
         // 模拟 SLC 阶段：平均 500 us (0.5 ms)
-        for _ in 0..100 {
-            early.push(500u64);
-        }
+        let early = vec![500u64; 100];
         // 模拟 TLC/QLC 颗粒穿透阶段：平均 15000 us (15 ms, 30 倍膨胀)
-        for _ in 0..100 {
-            late.push(15000u64);
-        }
+        let late = vec![15000u64; 100];
 
         let first_avg = early.iter().sum::<u64>() as f64 / early.len() as f64;
         let last_avg = late.iter().sum::<u64>() as f64 / late.len() as f64;
