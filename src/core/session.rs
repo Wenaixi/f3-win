@@ -804,6 +804,7 @@ impl H2wSession {
                 &tracker,
             ));
             let _ = Self::cleanup_h2w_files(&self.config.target_dir);
+            crate::core::salt::SaltRegistry::unregister_salt(&self.config.target_dir.to_string_lossy());
         }
 
         let mut t = self.make_telemetry_with_tracker(
