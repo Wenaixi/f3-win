@@ -3,6 +3,36 @@
 本文件记录 F3-Win 项目的所有重要版本变更。
 格式基于 [Keep a Changelog 1.1.0](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-10-24
+
+重大功能与架构演进版本。全面落地纯标准库零额外依赖的无头 CLI 双模引擎（100% 深度对齐上游 f3write / f3read / f3probe / f3fix / f3brew 工具链并支持自动化脚本集成）、块级硬件响应时延画像与 SLC 缓存耗尽断崖诊断引擎、网络共享驱动器与 UNC 路径前置安全硬隔离防御体系，并重构探针回绕反解算法与缓存排空避让逻辑。
+
+### Added
+- **纯标准库零额外依赖的无头 CLI 双模调度器 (`src/cli/mod.rs`)**：
+  - 深度实现与上游官方 f3 命令行工具链的 100% 对齐，提供 `f3-win write`、`read`、`probe`、`fix`、`brew`、`list`、`--version` 与 `--help` 子命令；
+  - 具备动态父控制台吸附（`AttachConsole`）与无黑框静默启动特性：控制台直接调用时输出单行平滑 ASCII 进度条，资源管理器双击则优雅进入 GUI；
+  - 支持可执行文件重命名透明分发机制（如直接命名为 `f3write.exe` / `f3read.exe` 即可原生兼容旧脚本）；
+  - 引入按需特权审查与分级授权：普通文件系统级读写校验完全无需管理员提权即可直接执行，仅底层物理裸盘探测与分区重建在缺失管理员权限时提示提权；
+- **块级硬件时延画像与 SLC 缓存耗尽侦测引擎 (`src/core/brew.rs`)**：
+  - 忠实移植并超越原版 `f3brew` 架构，通过 Direct I/O 硬件直通无缓存模式测量块级写入、缓存冲刷与回读纳秒级时间戳；
+  - 动态统计微秒级分桶延迟分布直方图，输出 ASCII 柱状分布图与中位数、极大值、极小值；
+  - 引入首尾采样块时延比对状态机，自动诊断闪存芯片的 SLC 模拟缓存耗尽断崖与 FTL 垃圾回收阻塞；
+- **网络共享驱动器与 UNC 路径前置安全硬隔离 (`src/core/devices.rs`)**：
+  - 新增 `verify_target_path` 路径安全守卫，在测试发起前置入口硬拦截 `\\server\share` 等网络 UNC 路径与 `DRIVE_REMOTE`（网络映射盘）；
+  - 在存储卷清单中为网络共享盘标注 `[网络共享映射盘[锁定]]` 并强制关闭安全测试标志，杜绝网络文件缓存干扰与破坏 NAS/服务器资产风险；
+- **探针低位哨兵避让与回绕容量直接反解算法 (`src/core/probe.rs`)**：
+  - 在 Phase 2 的 32MB 白噪声缓存冲刷（`overwhelm_cache`）中增加 `SENTINEL_SECTORS` 避让检测，彻底消除冲刷排空误伤 20MB/24MB 哨兵扇区的缺陷；
+  - 在 Phase 3 哨兵回读校验中，从被覆写损坏扇区首 8 字节直接解析覆盖源 LBA，当 `found_sec > sec` 时精准推导物理回绕周期 `real_sec = found_sec - sec`，大幅加速非 2 次幂回绕假盘的定界收敛。
+
+### Changed
+- **版本规范升级**：工程版本全面晋级为 `v0.3.0`，自动贯穿 Cargo.toml、CLI 帮助文档、Win32 托盘中枢及司法维权存证报告；
+- **模块导出与公共接口对齐**：导出 `SafePartitionFixer` 并规范分区自愈事务执行生命周期，规范 `algo::fill_sectors`、`DirectIoFile::create_write` 与 `VolumeInfo::enumerate_volumes` 核心接口；
+- **代码质量与 Lint 规范加固**：全面消灭冗余类型转换与单字符字符串追加告警，通过模式匹配守卫与 `allow(clippy::collapsible_match)` 提升代码健壮性。
+
+### Fixed
+- **探针哨兵冲刷排空误判修复**：彻底修复原版探针在执行 32MB 缓存穿透冲刷时误写低位哨兵超级块，导致合规正品 U 盘被误判为回绕假盘的严重漏洞；
+- **非 2 次幂回绕容量误判消除**：彻底修复哨兵扇区被覆写时盲目将当前扇区当作设备上限引发的容量虚低问题。
+
 ## [0.2.1] - 2026-10-23
 
 聚焦于闪电探测数据安全防呆闭环、窗口生命周期退出机制优化与设备刷新交互体验的维护版本。
@@ -108,6 +138,7 @@ F3-Win 首个正式发布版本。将开源闪存扩容盘检测工具 F3 (Fight
 - **极简瑞士平面几何 F3 品牌标识**：纯白字母 F 与电光青数字 3 负空间互锁，集成 45 度硅片标准切角。
 - **多规格原生图标资产**：覆盖 16x16 至 256x256 全规格 7 档 Windows PE 图标与超清透明底 PNG。
 
+[0.3.0]: https://github.com/Wenaixi/f3-win/releases/tag/v0.3.0
 [0.2.1]: https://github.com/Wenaixi/f3-win/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Wenaixi/f3-win/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Wenaixi/f3-win/releases/tag/v0.1.0

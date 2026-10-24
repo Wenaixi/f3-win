@@ -90,15 +90,18 @@ f3-win/
 │   ├── icon.png                   # 高清矢量源图
 │   └── icon_64.rgba               # 编译期零开销嵌入的 RGBA 原始像素矩阵
 ├── src/
-│   ├── main.rs                    # 程序主入口、管理员令牌检测与 UAC 提权
+│   ├── main.rs                    # 程序主入口、CLI / GUI 双模分发与管理员令牌检测
+│   ├── cli/                       # 纯标准库无头 CLI 引擎 (深度对齐上游 f3 工具链)
+│   │   └── mod.rs                 # 控制台动态吸附、平滑 ASCII 进度条与子命令调度
 │   ├── core/                      # 系统核心驱动与算法业务层
 │   │   ├── mod.rs
 │   │   ├── direct_io.rs           # Win32 Direct I/O 底层无缓冲读写与 4Kn 自适应
 │   │   ├── algo.rs                # 双通道不可逆非线性雪崩 PRF 算法与 PRNG 引擎
-│   │   ├── probe.rs               # 双向对流探针、32MB 缓存冲刷与跳跃二分状态机
+│   │   ├── probe.rs               # 双向对流探针、32MB 缓存冲刷、哨兵避让与回绕反解
+│   │   ├── brew.rs                # 块级硬件时延画像、微秒分桶直方图与 SLC 耗尽诊断
 │   │   ├── session.rs             # H2W 读写会话状态机、分卷轮转与短写精准捕获
 │   │   ├── speed.rs               # Welford 方差、P² 在线分位数与 SLC 耗尽推断
-│   │   ├── devices.rs             # StorageInventory 资产清单与系统盘绝对安全防御
+│   │   ├── devices.rs             # StorageInventory 资产清单、网络映射盘隔离与系统盘防御
 │   │   ├── fix.rs                 # SafePartitionFixer 事务型分区自愈与 diskpart 驱动
 │   │   ├── salt.rs                # 动态随机盐原子注册表
 │   │   ├── report.rs              # 司法级维权存证报告引擎与 Hex 对照生成
@@ -133,7 +136,41 @@ f3-win/
 - **运行方式**：直接双击运行 `f3-win.exe` 单文件绿色程序（体积仅约 3.4MB）；
 - **权限说明**：程序自带 `requireAdministrator` 清单，启动时若未以管理员运行，会自动拉起系统 UAC 对话框完成提权，以确保具备访问底层物理裸盘与卷独占锁的安全权限。
 
-### 2. 源码构建与离线单元测试（面向开发者与技术审查）
+### 2. 无头命令行使用指南 (CLI Mode / 脚本自动化)
+
+`f3-win` 内部集成了基于纯 Rust 标准库打造的无头 CLI 引擎，零额外三方依赖，与上游官方 `f3` 命令行工具链保持 100% 行为对齐：
+- **无黑框与动态控制台吸附**：在 Windows Terminal / PowerShell / CMD 中直接键入命令时，通过 Win32 `AttachConsole` 动态复用父控制台标准输出并展示平滑单行 ASCII 进度条；直接双击可执行文件则优雅进入 GUI；
+- **文件名透明重命名分发**：支持将二进制重命名为 `f3write.exe`、`f3read.exe`、`f3probe.exe`、`f3fix.exe`、`f3brew.exe`，直接作为原有 Linux 自动化测试脚本在 Windows 下的原生替代品；
+- **分级安全授权**：文件系统级读写校验（`write` / `read` / `brew`）完全无需管理员权限；仅底层物理裸盘探测与分区重写（`probe` / `fix`）会在缺失权限时提示提权；
+- **前置安全硬隔离**：所有子命令在前置入口自动拦截网络 UNC 共享路径（`\\server\share`）与映射网络驱动器，彻底避免网络缓存干扰与破坏远程资产风险。
+
+#### 常用命令集
+
+```powershell
+# 1. 枚举系统可用存储资产（标红锁定系统主盘与网络共享盘）
+f3-win list
+
+# 2. 写入填充测试（支持指定最大测试容量与扇区块大小）
+f3-win write E:\
+f3-win write E:\ --max-size 16G --chunk-size 2M
+
+# 3. 读取并校验数据一致性（自动检测损坏、篡改与覆写扇区）
+f3-win read E:\
+
+# 4. 闪电跳跃探测（快速测定物理容量边界，耗时数分钟）
+# 支持传入驱动器盘符 (E:\) 或物理磁盘序号 (1 或 \\.\PhysicalDrive1)
+f3-win probe E:\
+f3-win probe 1
+
+# 5. 分区自愈重写（根据探测出的安全物理容量重建 MBR 分区）
+f3-win fix 1
+f3-win fix 1 --diskpart
+
+# 6. 硬件块级时延画像（纳秒级块 I/O 耗时分布与 SLC 缓存耗尽断崖诊断）
+f3-win brew E:\ --blocks 1024
+```
+
+### 3. 源码构建与离线单元测试（面向开发者与技术审查）
 
 #### 环境准备
 - 安装 Rust 稳定版工具链（2021 Edition 或更高版本）：

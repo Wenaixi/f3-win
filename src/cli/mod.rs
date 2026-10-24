@@ -161,8 +161,11 @@ pub fn dispatch() -> Option<i32> {
 /// 打印主帮助文档
 fn print_help() {
     println!(
-r#"F3-Win (Fight Flash Fraud for Windows) v0.2.1
-极速闪存扩容盘检测、物理探针与分区自愈修复工具
+        "F3-Win (Fight Flash Fraud for Windows) v{}\n极速闪存扩容盘检测、物理探针与分区自愈修复工具",
+        env!("CARGO_PKG_VERSION")
+    );
+    println!(
+r#"
 
 用法:
     f3-win <子命令> [参数...]
@@ -199,7 +202,7 @@ r#"F3-Win (Fight Flash Fraud for Windows) v0.2.1
 
 /// 打印版本信息
 fn print_version() {
-    println!("f3-win v0.2.1 (Windows Native Rust + Direct I/O)");
+    println!("f3-win v{} (Windows Native Rust + Direct I/O)", env!("CARGO_PKG_VERSION"));
     println!("源码仓库: https://github.com/Wenaixi/f3-win");
     println!("兼容标准: f3write/f3read/f3probe/f3fix/f3brew (upstream 100% compatible)");
 }
