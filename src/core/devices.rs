@@ -16,7 +16,13 @@ use windows::Win32::System::Ioctl::{
 };
 use crate::core::direct_io::DirectIoFile;
 
-const DRIVE_REMOVABLE: u32 = 2;
+pub const DRIVE_UNKNOWN: u32 = 0;
+pub const DRIVE_NO_ROOT_DIR: u32 = 1;
+pub const DRIVE_REMOVABLE: u32 = 2;
+pub const DRIVE_FIXED: u32 = 3;
+pub const DRIVE_REMOTE: u32 = 4;
+pub const DRIVE_CDROM: u32 = 5;
+pub const DRIVE_RAMDISK: u32 = 6;
 const IOCTL_STORAGE_GET_DEVICE_NUMBER: u32 = 0x002D1080;
 
 #[repr(C)]
@@ -532,6 +538,7 @@ pub struct VolumeInfo {
     pub label: String,
     pub file_system: String,
     pub is_removable: bool,
+    pub is_network: bool,
     pub free_bytes: u64,
     pub total_bytes: u64,
     pub is_safe_target: bool,
@@ -539,7 +546,9 @@ pub struct VolumeInfo {
 
 impl VolumeInfo {
     pub fn display_name(&self) -> String {
-        let kind = if !self.is_safe_target {
+        let kind = if self.is_network {
+            "网络共享映射盘[锁定]"
+        } else if !self.is_safe_target {
             "系统或内部磁盘[锁定]"
         } else if self.is_removable {
             "可移动 U 盘"
@@ -574,11 +583,13 @@ impl VolumeInfo {
                 wide.push(0);
 
                 let drive_type = unsafe { GetDriveTypeW(PCWSTR(wide.as_ptr())) };
-                if drive_type == 0 || drive_type == 1 {
+                if drive_type == DRIVE_UNKNOWN || drive_type == DRIVE_NO_ROOT_DIR {
                     continue;
                 }
 
                 let is_removable = drive_type == DRIVE_REMOVABLE;
+                let is_network = drive_type == DRIVE_REMOTE;
+                let is_cdrom = drive_type == DRIVE_CDROM;
 
                 let mut vol_name = [0u16; 260];
                 let mut fs_name = [0u16; 260];
@@ -620,7 +631,8 @@ impl VolumeInfo {
                 let sys_disk_idx = get_system_drive_disk_number();
                 let is_sys_disk = disk_num == Some(0) || (sys_disk_idx.is_some() && disk_num == sys_disk_idx);
 
-                let is_safe = if is_sys_letter || is_sys_disk {
+                // 安全隔离熔断法则：网络共享盘、光盘介质、系统引导盘一律绝对硬隔离！
+                let is_safe = if is_network || is_cdrom || is_sys_letter || is_sys_disk {
                     false
                 } else if let Some(d_idx) = disk_num {
                     if let Some(dev_info) = PhysicalDeviceInfo::query_by_index(d_idx) {
@@ -640,6 +652,7 @@ impl VolumeInfo {
                     label,
                     file_system,
                     is_removable,
+                    is_network,
                     free_bytes: free_avail,
                     total_bytes,
                     is_safe_target: is_safe,
@@ -650,6 +663,52 @@ impl VolumeInfo {
         volumes.sort_by_key(|v| (!v.is_safe_target, !v.is_removable));
         volumes
     }
+}
+
+/// 路径安全前置核验：硬拦截 UNC 网络共享路径（如 \\server\share）与网络映射盘符 (DRIVE_REMOTE)
+pub fn verify_target_path(path: &std::path::Path) -> Result<(), String> {
+    let path_str = path.to_string_lossy();
+
+    // 1. 硬拦截 UNC 网络共享路径与网络重定向路径 (\\ 或 // 开头)
+    if path_str.starts_with(r"\\") || path_str.starts_with("//") {
+        return Err(format!(
+            "安全硬隔离拦截：'{}' 是 UNC 网络共享路径，禁止执行闪存物理测速与扇区探测",
+            path_str
+        ));
+    }
+
+    // 2. 检测 Windows 盘符并查询其驱动器介质类型
+    let chars: Vec<char> = path_str.chars().collect();
+    if chars.len() >= 2 && chars[1] == ':' && chars[0].is_ascii_alphabetic() {
+        let letter = chars[0].to_ascii_uppercase();
+        let sys_letter = get_system_drive_letter();
+        if letter == sys_letter {
+            return Err(format!(
+                "安全硬隔离拦截：盘符 {}: 是系统引导主盘，禁止执行破坏性测试或大容量全盘填充",
+                letter
+            ));
+        }
+
+        let root_str = format!("{}:\\", letter);
+        let mut wide: Vec<u16> = root_str.encode_utf16().collect();
+        wide.push(0);
+
+        let drive_type = unsafe { GetDriveTypeW(PCWSTR(wide.as_ptr())) };
+        if drive_type == DRIVE_REMOTE {
+            return Err(format!(
+                "安全硬隔离拦截：盘符 {}: 是网络共享映射驱动器 (DRIVE_REMOTE)，禁止执行闪存直通测试",
+                letter
+            ));
+        }
+        if drive_type == DRIVE_CDROM {
+            return Err(format!(
+                "安全硬隔离拦截：盘符 {}: 是光盘介质驱动器 (DRIVE_CDROM)，不支持读写测试",
+                letter
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn extract_sz(buf: &[u8], offset: usize) -> String {
@@ -861,5 +920,25 @@ mod tests {
         dev.mounted_volumes = vec!['E']; // 移除系统盘 C:，赋予合规移动卷 E:
         let target_usb = StorageTarget::new(dev, Vec::new());
         assert!(target_usb.is_safe_for_raw_probe(), "合规移动 U 盘必须允许探测");
+    }
+
+    #[test]
+    fn test_verify_target_path() {
+        // 1. 验证 UNC 路径被坚决阻断
+        let unc1 = std::path::Path::new(r"\\192.168.1.100\share\usb");
+        assert!(verify_target_path(unc1).is_err(), "反斜杠 UNC 必须被拦截");
+
+        let unc2 = std::path::Path::new("//nas.local/storage/flash");
+        assert!(verify_target_path(unc2).is_err(), "正斜杠 UNC 必须被拦截");
+
+        // 2. 验证系统盘引导盘被坚决阻断
+        let sys_letter = get_system_drive_letter();
+        let sys_path_str = format!("{}:\\test_f3", sys_letter);
+        let sys_path = std::path::Path::new(&sys_path_str);
+        assert!(verify_target_path(sys_path).is_err(), "系统引导盘必须被拦截");
+
+        // 3. 验证本地安全相对路径放行
+        let safe_rel = std::path::Path::new("temp_test_dir");
+        assert!(verify_target_path(safe_rel).is_ok(), "合规普通相对路径放行");
     }
 }

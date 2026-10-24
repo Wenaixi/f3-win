@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod cli;
 mod core;
 mod gui;
 
@@ -41,6 +42,11 @@ fn ensure_administrator_elevation() {
 }
 
 fn main() -> eframe::Result<()> {
+    // 优先尝试分发 CLI 命令行子命令 (标准库零依赖，秒级响应)
+    if let Some(exit_code) = cli::dispatch() {
+        std::process::exit(exit_code);
+    }
+
     ensure_administrator_elevation();
 
     // 内嵌 64x64 极简品牌像素矩阵，零运行时解码依赖与开销
