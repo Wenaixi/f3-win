@@ -97,7 +97,7 @@ f3-win/
 │   │   ├── mod.rs
 │   │   ├── direct_io.rs           # Win32 Direct I/O 底层无缓冲读写与 4Kn 自适应
 │   │   ├── algo.rs                # 双通道不可逆非线性雪崩 PRF 算法与 PRNG 引擎
-│   │   ├── probe.rs               # 双向对流探针、32MB 缓存冲刷、哨兵避让与回绕反解
+│   │   ├── probe.rs               # 双向对流探针、拓扑正交冲刷、4Kn自适应与回绕反解
 │   │   ├── brew.rs                # 块级硬件时延画像、微秒分桶直方图与 SLC 耗尽诊断
 │   │   ├── session.rs             # H2W 读写会话状态机、分卷轮转与短写精准捕获
 │   │   ├── speed.rs               # Welford 方差、P² 在线分位数与 SLC 耗尽推断
@@ -183,7 +183,7 @@ f3-win brew E:\ --blocks 1024
 本项目内置了基于内存模拟块设备（`MemoryBlockDevice`）的深度仿真测试套件，涵盖 PRNG 序列、SIMD 比对、物理回绕、位黑洞假盘、缓存排空窗口及状态机生命周期。无需插入真实物理设备或提权即可执行全量测试：
 
 ```bash
-# 运行全部 36 项核心单元测试（严格断言全绿通过）
+# 运行全部 40 项核心单元测试（严格断言全绿通过）
 cargo test --all-targets
 ```
 

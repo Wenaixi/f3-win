@@ -3,6 +3,31 @@
 本文件记录 F3-Win 项目的所有重要版本变更。
 格式基于 [Keep a Changelog 1.1.0](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.3.1] - 2026-10-25
+
+核心探针算法空间拓扑正交性加固、4Kn 物理大扇区自适应与 CLI 卷锁独占闭环维护版本。彻底根除正品 128GB 金士顿等大容量闪存介质被探针自残覆写误判为 0.06 GB 扩容假盘的假阳性缺陷，构筑扇区拓扑严格正交防线并实现全生命周期卷锁保护。
+
+### Fixed
+- **彻底根除 128GB 正品闪存介质误判 0.06GB (64MB) 假阳性缺陷 (`src/core/probe.rs`)**：
+  - 深度反解并消除探针自残踩踏根因：在 115GB 以上大容量介质上，缓存冲刷深度饱和至 64MB (131,072 扇区)，原有冲刷循环未避让阶梯探针，导致首个阶梯探针 (LBA 131,072 / 64MB) 被白噪声覆写抹杀引发假阳性；
+  - 确立扇区空间拓扑绝对正交防线 (Spatial Orthogonality Invariant)：严格保障 S_sentinel ∩ S_ladder ∩ S_scratch = ∅ 恒成立，冲刷写入上限硬限制在低位防线边界 (130,944 扇区) 之下，绝对杜绝侵入 64MB 以上高位阶梯区；
+  - 引入低位安全区间循环映射与块绑定伪随机数机制，迫使主控 FTL 写入物理闪存页，兼顾缓存击穿与探针绝对安全。
+- **4Kn 原生大物理扇区全流程自适应对齐 (`src/core/probe.rs`)**：
+  - 将冲刷写入起始扇区、二分逼近中点 (`mid_sec`) 与标称末尾探针 (`tail_sec`) 统一向下对齐至 8 扇区 (4096 字节) 边界；
+  - 冲刷写入长度向上对齐至 8 扇区，消除 Windows 4Kn 物理介质下偶发的 Win32 Error 87 (参数错误)；
+  - 二分逼近中点增加边界收敛保护，杜绝无限死循环。
+- **CLI 模式底层物理探针卷独占锁定与安全熔断闭环 (`src/cli/mod.rs`, `src/core/devices.rs`)**：
+  - 修复 CLI 探针直接打开原始设备未锁定挂载卷导致 Win32 Error 5 (拒绝访问) 的缺陷；
+  - CLI 通过 `StorageTarget::open_block_io_with_force` 统一获取 `(DirectIoFile, VolumeLockGuard)`，探测线程生命周期内全程持有卷锁守卫；
+  - 确立系统主盘硬隔离熔断：即使指定 `--force` 跳过移动总线白名单，也绝对阻断系统主盘 (disk 0, 引导盘, 包含 `%SystemDrive%`) 的物理覆写与锁定。
+
+### Added
+- **自动化防回归测试套件 (`src/core/probe.rs`, `src/core/devices.rs`)**：
+  - 仿真真实 128GB (115.47GB 扇区) 正品闪存介质，自动化断言 100% 判定为正品，绝不误判 0.06GB；
+  - 多容量 (1GB~8TB) 扇区空间拓扑正交性遍历断言测试；
+  - 4Kn 原生扇区 (8 扇区 / 4096B) 对齐全量常量与变量数学断言；
+  - 系统引导主盘 `--force` 硬拦截安全断言。
+
 ## [0.3.0] - 2026-10-24
 
 重大功能与架构演进版本。全面落地纯标准库零额外依赖的无头 CLI 双模引擎（100% 深度对齐上游 f3write / f3read / f3probe / f3fix / f3brew 工具链并支持自动化脚本集成）、块级硬件响应时延画像与 SLC 缓存耗尽断崖诊断引擎、网络共享驱动器与 UNC 路径前置安全硬隔离防御体系，并重构探针回绕反解算法与缓存排空避让逻辑。
@@ -138,6 +163,7 @@ F3-Win 首个正式发布版本。将开源闪存扩容盘检测工具 F3 (Fight
 - **极简瑞士平面几何 F3 品牌标识**：纯白字母 F 与电光青数字 3 负空间互锁，集成 45 度硅片标准切角。
 - **多规格原生图标资产**：覆盖 16x16 至 256x256 全规格 7 档 Windows PE 图标与超清透明底 PNG。
 
+[0.3.1]: https://github.com/Wenaixi/f3-win/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Wenaixi/f3-win/releases/tag/v0.3.0
 [0.2.1]: https://github.com/Wenaixi/f3-win/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Wenaixi/f3-win/releases/tag/v0.2.0
