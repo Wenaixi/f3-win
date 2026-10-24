@@ -248,6 +248,10 @@ impl F3Probe {
             }
 
             let start_sec = scratch_sec + b * block_sectors;
+            // 避开低位哨兵超级块，严禁冲刷排空白噪声误伤哨兵雷区
+            if SENTINEL_SECTORS.iter().any(|&s| start_sec < s + SUPER_BLOCK_SECTORS && start_sec + block_sectors > s) {
+                continue;
+            }
             let mut prng = (start_sec ^ 0xDEAD_BEEF_CAFE_BABE)
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1);
@@ -473,7 +477,38 @@ impl F3Probe {
 
             if !is_ok {
                 // 哨兵损坏，断定发生物理地址回绕
-                return self.refine_and_finalize(dev, tx, announced_size, total_sectors, 0, sec, ProbeTrap::WrapAround, session_salt);
+                // 从被覆写的哨兵缓冲中提取出高位覆写者的源 LBA，精准反解回绕真实颗粒容量
+                let mut bytes = [0u8; 8];
+                bytes.copy_from_slice(&buf.as_slice()[0..8]);
+                let found_sec = u64::from_le_bytes(bytes);
+                let real_sec = if found_sec > sec {
+                    found_sec - sec
+                } else {
+                    sec
+                };
+                let real_size = (real_sec * 512).min(announced_size);
+                let summary_phase = format!(
+                    "检测到扩容盘 (类型: 物理回绕覆写)。标称 {:.2} GB，真实物理可用约 {:.2} GB",
+                    announced_size as f64 / (1024.0 * 1024.0 * 1024.0),
+                    real_size as f64 / (1024.0 * 1024.0 * 1024.0)
+                );
+                let result = ProbeResult {
+                    announced_size,
+                    real_size,
+                    is_fake: true,
+                    trap: ProbeTrap::WrapAround,
+                };
+                let _ = tx.send(ProbeTelemetry {
+                    progress_pct: 1.0,
+                    current_phase: summary_phase,
+                    is_finished: true,
+                    is_fake: true,
+                    announced_size_bytes: announced_size,
+                    real_size_bytes: real_size,
+                    trap: ProbeTrap::WrapAround,
+                    error: None,
+                });
+                return Ok(result);
             }
         }
 
