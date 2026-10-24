@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::core::algo::SECTOR_SIZE;
 use crate::core::brew::{run_brew_benchmark, BrewConfig};
-use crate::core::devices::{self, verify_target_path, PhysicalDeviceInfo, VolumeInfo};
+use crate::core::devices::{verify_target_path, PhysicalDeviceInfo, VolumeInfo};
 use crate::core::direct_io::DirectIoFile;
 use crate::core::fix::{F3FixPlan, SafePartitionFixer};
 use crate::core::probe::{F3Probe, F3ProbeConfig, ProbeResult, ProbeTrap};
@@ -866,7 +866,7 @@ fn run_cmd_list() -> i32 {
                 "[受限保护]"
             };
             let free_str = format!("{}/{}", format_bytes(v.free_bytes), format_bytes(v.total_bytes));
-            println!("  - {}: ({}) | {} | {} | {}", v.mount_point, v.file_system, free_str, v.display_name(), safe_tag);
+            println!(r"  - {}:\ ({}) | {} | {} | {}", v.drive_letter, v.file_system, free_str, v.display_name(), safe_tag);
         }
     }
     println!();
