@@ -484,7 +484,7 @@ pub fn sweep_page_size(
         }
     }
 
-    let estimated_page_kb = sweep_sizes_kb[best_idx].clamp(4, 32);
+    let estimated_page_kb = sweep_sizes_kb[best_idx].clamp(4, 128);
     let confidence = if max_jump > 0.0 {
         (0.70 + (max_jump / 50.0).clamp(0.0, 0.25)).min(0.95)
     } else {
@@ -537,18 +537,30 @@ pub fn analyze_erase_blocks_and_parallelism(
 
     let confidence = (primary_score * 0.95).clamp(0.65, 0.96);
 
-    // 分析多通道与多平面并行度 (通过第一主峰与次主峰比值)
+    // 分析多通道与多平面并行度 (引入谐波消除滤波 Harmonic Cancellation)
     let mut parallelism = 1;
     let mut arch_desc = "单通道单平面独立调度".to_string();
 
     if peaks.len() >= 2 {
-        let ratio = peaks[0].0 as f64 / peaks[1].0 as f64;
-        if (ratio - 2.0).abs() < 0.25 || (ratio - 0.5).abs() < 0.12 {
-            parallelism = 2;
-            arch_desc = "双通道交错 / 双平面并行 (Dual-Channel/Plane Interleave)".to_string();
-        } else if (ratio - 4.0).abs() < 0.35 || (ratio - 0.25).abs() < 0.08 {
-            parallelism = 4;
-            arch_desc = "四通道超块并行分配 (Quad-Channel Superblock Allocation)".to_string();
+        let p0 = peaks[0].0 as f64;
+        let p1 = peaks[1].0 as f64;
+        let min_p = p0.min(p1);
+        let max_p = p0.max(p1);
+        let harmonic_ratio = max_p / min_p;
+
+        // 若次峰恰为主峰的 2 倍或 3 倍整数倍谐波，判定为同一周期的天然谐振，不作为多通道凭证
+        let is_harmonic = (harmonic_ratio - 2.0).abs() < 0.15 || (harmonic_ratio - 3.0).abs() < 0.18;
+
+        if !is_harmonic {
+            // 互非整数倍谐波，表明存在独立的交错或超块调度周期
+            let ratio = p0 / p1;
+            if (ratio - 2.0).abs() < 0.25 || (ratio - 0.5).abs() < 0.12 {
+                parallelism = 2;
+                arch_desc = "双通道交错 / 双平面并行 (Dual-Channel/Plane Interleave)".to_string();
+            } else if (ratio - 4.0).abs() < 0.35 || (ratio - 0.25).abs() < 0.08 {
+                parallelism = 4;
+                arch_desc = "四通道超块并行分配 (Quad-Channel Superblock Allocation)".to_string();
+            }
         }
     }
 
@@ -706,10 +718,10 @@ where
         let (block_mb, block_conf, parallelism, arch, peaks) =
             analyze_erase_blocks_and_parallelism(&all_write_latencies, block_size);
 
-        // 6.3 自动换算零写放大最佳物理对齐扇区与 f3fix 推荐命令
-        let alignment_sec = 2048u64.max((block_mb as u64 * 1024 * 1024) / 512);
-        let target_str = config.target_dir.display().to_string();
-        let fix_cmd = format!("f3-win fix {} --first-sec {} (推荐按 {}MB 对齐)", target_str, alignment_sec, block_mb);
+        // 6.3 自动换算零写放大最佳物理对齐扇区 (确保向下兼容 4Kn 物理大扇区，8 扇区整倍数对齐)
+        let raw_sec = (block_mb as u64 * 1024 * 1024) / 512;
+        let alignment_sec = (2048u64.max(raw_sec) + 7) & !7;
+        let fix_cmd = format!("f3-win fix <物理盘号> (推荐按 {}MB / {} 扇区物理对齐)", block_mb, alignment_sec);
 
         Some(NandHardwareProfile {
             estimated_page_size_kb: page_size_kb,

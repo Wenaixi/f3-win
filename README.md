@@ -166,8 +166,9 @@ f3-win probe 1
 f3-win fix 1
 f3-win fix 1 --diskpart
 
-# 6. 硬件块级时延画像（纳秒级块 I/O 耗时分布与 SLC 缓存耗尽断崖诊断）
+# 6. 硬件微观时延与物理逆向画像（反解 Page/Erase Block 尺寸与通道交错调度）
 f3-win brew E:\ --blocks 1024
+f3-win brew E:\ --blocks 1024 --reverse
 ```
 
 ### 3. 源码构建与离线单元测试（面向开发者与技术审查）
