@@ -3,6 +3,24 @@
 本文件记录 F3-Win 项目的所有重要版本变更。
 格式基于 [Keep a Changelog 1.1.0](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.3.2] - 2026-10-25
+
+闪存物理微观参数逆向画像、时间序列自相关谐波滤波与版本架构淬炼版本。完成与上游 f3brew 核心逆向算法的全面对齐与升维超越，支持微观反解闪存物理 Page / Erase Block 规格与主控交错通道拓扑，并消除自相关自然谐波误判与扇区对齐瑕疵。
+
+### Added
+- **硬件级微观闪存参数逆向画像引擎 (`src/core/brew.rs`, `src/cli/mod.rs`)**：
+  - 对齐并超越上游 `f3brew` 的微观物理探测能力，新增 `--reverse` 逆向选项与 `NandHardwareProfile` 数据模型；
+  - **物理 Page 尺寸对数梯度差分逆向 (`sweep_page_size`)**：在 4KB 至 128KB 范围内进行对数阶梯扫描，结合 Direct I/O 微秒级耗时二阶差分突变点，精准反解真实 NAND Page 物理颗粒边界；
+  - **离散时间序列归一化自相关函数 (`compute_nacf`)**：构建数学 NACF 统计模型，从块写入时延时序数据中解算主控垃圾回收 (GC) 与擦除块 (Erase Block) 周期脉冲；
+  - **自相关峰值提取与谐波消除滤波 (`extract_nacf_peaks`)**：引入整倍数谐波消除算法，识别并滤除 2T/3T 天然共振峰，避免将单通道周期误判为多通道并行调度；
+  - **零写放大物理对齐扇区推导**：基于反解出的 Erase Block 尺寸，自动换算最优物理对齐扇区，并向下兼容 4Kn 物理大扇区（8 扇区整倍数）；
+  - **标准化推荐修复命令输出**：自动生成针对该硬件介质的零写放大 `f3-win fix <物理盘号>` 修复命令。
+
+### Fixed
+- **Page 尺寸反解 32KB 截断限制解除 (`src/core/brew.rs`)**：解除 `best_step_kb.clamp(4, 32)` 的上界限制，扩充至 128KB，完美兼容现代大页面 TLC/QLC 颗粒；
+- **自相关通道判定自然谐波误判消除 (`src/core/brew.rs`)**：消除纯单周期在 2T 处出现的天然谐振峰导致的双通道交错误判，多通道判定置信度大幅提升；
+- **推荐修复命令契约对齐与 4Kn 对齐保护 (`src/core/brew.rs`)**：规范推荐修复命令模板，移除虚构路径参数，严格保证扇区对齐至 4096 字节物理边界。
+
 ## [0.3.1] - 2026-10-25
 
 核心探针算法空间拓扑正交性加固、4Kn 物理大扇区自适应与 CLI 卷锁独占闭环维护版本。彻底根除正品 128GB 金士顿等大容量闪存介质被探针自残覆写误判为 0.06 GB 扩容假盘的假阳性缺陷，构筑扇区拓扑严格正交防线并实现全生命周期卷锁保护。
@@ -163,6 +181,7 @@ F3-Win 首个正式发布版本。将开源闪存扩容盘检测工具 F3 (Fight
 - **极简瑞士平面几何 F3 品牌标识**：纯白字母 F 与电光青数字 3 负空间互锁，集成 45 度硅片标准切角。
 - **多规格原生图标资产**：覆盖 16x16 至 256x256 全规格 7 档 Windows PE 图标与超清透明底 PNG。
 
+[0.3.2]: https://github.com/Wenaixi/f3-win/releases/tag/v0.3.2
 [0.3.1]: https://github.com/Wenaixi/f3-win/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Wenaixi/f3-win/releases/tag/v0.3.0
 [0.2.1]: https://github.com/Wenaixi/f3-win/releases/tag/v0.2.1
