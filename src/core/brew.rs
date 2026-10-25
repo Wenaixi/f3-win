@@ -114,21 +114,17 @@ impl BrewHistogram {
     /// 渲染精美的 ASCII 直方图图表
     pub fn render_ascii_chart(&self, title: &str) -> String {
         let mut out = String::new();
-        out.push_str(&format!("--- {} (样本数: {}) ---
-", title, self.sample_count));
+        out.push_str(&format!("--- {} (样本数: {}) ---\n", title, self.sample_count));
         out.push_str(&format!(
-            "最小时延: {:.3} ms | 平均时延: {:.3} ms | 最大时延: {:.3} ms
-",
+            "最小时延: {:.3} ms | 平均时延: {:.3} ms | 最大时延: {:.3} ms\n",
             self.min_ms(),
             self.avg_ms(),
             self.max_ms()
         ));
-        out.push_str("------------------------------------------------------------
-");
+        out.push_str("------------------------------------------------------------\n");
 
         if self.sample_count == 0 {
-            out.push_str("(无测试样本数据)
-");
+            out.push_str("(无测试样本数据)\n");
             return out;
         }
 
@@ -145,13 +141,11 @@ impl BrewHistogram {
             };
             let bar = "#".repeat(bar_len);
             out.push_str(&format!(
-                "{:>12} | {:<30} | {:>6} ({:>5.1}%)
-",
+                "{:>12} | {:<30} | {:>6} ({:>5.1}%)\n",
                 label, bar, count, pct
             ));
         }
-        out.push_str("------------------------------------------------------------
-");
+        out.push_str("------------------------------------------------------------\n");
         out
     }
 }
@@ -183,56 +177,44 @@ impl NandHardwareProfile {
     /// 渲染微观硬件画像 ASCII 视图
     pub fn render_ascii(&self) -> String {
         let mut out = String::new();
-        out.push_str("--- 闪存物理微观参数逆向画像 (NAND Hardware Reverse Profile) ---
-");
+        out.push_str("--- 闪存物理微观参数逆向画像 (NAND Hardware Reverse Profile) ---\n");
         out.push_str(&format!(
-            "推测物理 Page 尺寸      : {:>4} KB (置信度: {:>5.1}%)
-",
+            "推测物理 Page 尺寸      : {:>4} KB (置信度: {:>5.1}%)\n",
             self.estimated_page_size_kb,
             self.page_confidence * 100.0
         ));
         out.push_str(&format!(
-            "推测物理 Erase Block 尺寸: {:>4} MB (置信度: {:>5.1}%)
-",
+            "推测物理 Erase Block 尺寸: {:>4} MB (置信度: {:>5.1}%)\n",
             self.estimated_erase_block_size_mb,
             self.erase_block_confidence * 100.0
         ));
         out.push_str(&format!(
-            "主控通道与多平面并行度  : {:>4}x  (拓扑画像: {})
-",
+            "主控通道与多平面并行度  : {:>4}x  (拓扑画像: {})\n",
             self.estimated_parallelism,
             self.controller_architecture
         ));
         out.push_str(&format!(
-            "零写放大最佳物理对齐扇区: LBA {:<8} (对齐边界: {} MB)
-",
+            "零写放大最佳物理对齐扇区: LBA {:<8} (对齐边界: {} MB)\n",
             self.optimal_alignment_sec,
             self.estimated_erase_block_size_mb
         ));
-        out.push_str("------------------------------------------------------------
-");
+        out.push_str("------------------------------------------------------------\n");
         if !self.nacf_top_peaks.is_empty() {
-            out.push_str("时延周期自相关谱主极大峰 (NACF Dominant Peaks):
-");
+            out.push_str("时延周期自相关谱主极大峰 (NACF Dominant Peaks):\n");
             for (rank, (lag, score)) in self.nacf_top_peaks.iter().enumerate() {
                 let bar_len = (score.clamp(0.0, 1.0) * 25.0).round() as usize;
                 let bar = "=".repeat(bar_len);
                 out.push_str(&format!(
-                    "  [Rank {}] Lag {:>5} 块 | R={:>6.3} | {:<25}
-",
+                    "  [Rank {}] Lag {:>5} 块 | R={:>6.3} | {:<25}\n",
                     rank + 1, lag, score, bar
                 ));
             }
-            out.push_str("------------------------------------------------------------
-");
+            out.push_str("------------------------------------------------------------\n");
         }
         if !self.recommended_fix_cmd.is_empty() {
-            out.push_str("推荐物理对齐自愈修复命令:
-");
-            out.push_str(&format!("  {}
-", self.recommended_fix_cmd));
-            out.push_str("------------------------------------------------------------
-");
+            out.push_str("推荐物理对齐自愈修复命令:\n");
+            out.push_str(&format!("  {}\n", self.recommended_fix_cmd));
+            out.push_str("------------------------------------------------------------\n");
         }
         out
     }
@@ -302,12 +284,10 @@ impl BrewResult {
     /// 生成可打印的完整诊断报告
     pub fn format_report(&self) -> String {
         let mut report = String::new();
-        report.push_str("================ 闪存硬件 I/O 延迟画像 (f3brew) ================
-");
+        report.push_str("================ 闪存硬件 I/O 延迟画像 (f3brew) ================\n");
         let total_mb = self.total_bytes as f64 / (1024.0 * 1024.0);
         report.push_str(&format!(
-            "测试总容量: {:.2} MB | 块大小: {} KB | 采样块数: {}
-",
+            "测试总容量: {:.2} MB | 块大小: {} KB | 采样块数: {}\n",
             total_mb,
             self.block_size / 1024,
             self.total_blocks
@@ -319,40 +299,31 @@ impl BrewResult {
         if let Some(r_speed) = self.read_throughput_mb_s {
             report.push_str(&format!(" | 读取吞吐速度: {:.2} MB/s", r_speed));
         }
-        report.push_str("
-
-");
+        report.push_str("\n\n");
 
         if self.slc_cache_exhaustion_detected {
-            report.push_str("[SLC 缓存穿透警告] 监测到写入延迟发生显著跳跃：
-");
+            report.push_str("[SLC 缓存穿透警告] 监测到写入延迟发生显著跳跃：\n");
             report.push_str(&format!(
-                "  前 15% 缓存区平均时延: {:.2} ms -> 后 50% 物理颗粒平均时延: {:.2} ms (膨胀 {:.1} 倍)
-",
+                "  前 15% 缓存区平均时延: {:.2} ms -> 后 50% 物理颗粒平均时延: {:.2} ms (膨胀 {:.1} 倍)\n",
                 self.first_chunk_avg_us / 1000.0,
                 self.last_chunk_avg_us / 1000.0,
                 self.last_chunk_avg_us / self.first_chunk_avg_us.max(1.0)
             ));
-            report.push_str("  该特征符合闪存模拟 SLC 缓存耗尽、主控降速回写真实 TLC/QLC 颗粒的典型生理曲线。
-
-");
+            report.push_str("  该特征符合闪存模拟 SLC 缓存耗尽、主控降速回写真实 TLC/QLC 颗粒的典型生理曲线。\n\n");
         }
 
         if let Some(ref prof) = self.hardware_profile {
             report.push_str(&prof.render_ascii());
-            report.push('
-');
+            report.push('\n');
         }
 
         report.push_str(&self.write_histogram.render_ascii_chart("Direct I/O 写入延迟分布"));
         if let Some(ref rh) = self.read_histogram {
-            report.push('
-');
+            report.push('\n');
             report.push_str(&rh.render_ascii_chart("Direct I/O 读取延迟分布"));
         }
 
-        report.push_str("=================================================================
-");
+        report.push_str("=================================================================\n");
         report
     }
 }
