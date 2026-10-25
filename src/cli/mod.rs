@@ -188,7 +188,7 @@ r#"
     f3-win read  <目录路径> [--salt <数值>] [--auto-cleanup]
     f3-win probe <物理盘号或路径> [--force]
     f3-win fix   <物理盘号> [--real-size <字节数>] [--fs <exfat|fat32|ntfs>] [--dry-run] [-y]
-    f3-win brew  <目录路径> [--blocks <数量>] [--size <KB>] [--no-read]
+    f3-win brew  <目录路径> [--blocks <数量>] [--size <KB>] [--no-read] [--reverse]
 
 示例:
     f3-win write E:    f3-win write E: --max-size 32 --salt 0x12345678
@@ -734,8 +734,8 @@ fn run_cmd_fix(args: &[String]) -> i32 {
 /// 子命令: brew
 fn run_cmd_brew(args: &[String]) -> i32 {
     if args.is_empty() || args[0].starts_with('-') {
-        eprintln!("用法: f3-win brew <目录路径> [--blocks <数量>] [--size <KB>] [--no-read]");
-        eprintln!(r"示例: f3-win brew E:\ --blocks 1024");
+        eprintln!("用法: f3-win brew <目录路径> [--blocks <数量>] [--size <KB>] [--no-read] [--reverse]");
+        eprintln!(r"示例: f3-win brew E:\ --blocks 1024 --reverse");
         return 1;
     }
 
@@ -748,6 +748,7 @@ fn run_cmd_brew(args: &[String]) -> i32 {
     let mut blocks: usize = 1024;
     let mut block_size_kb = 64;
     let mut test_read = true;
+    let mut reverse_nand = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -767,6 +768,9 @@ fn run_cmd_brew(args: &[String]) -> i32 {
             "--no-read" => {
                 test_read = false;
             }
+            "--reverse" | "-R" => {
+                reverse_nand = true;
+            }
             _ => {}
         }
         i += 1;
@@ -778,6 +782,7 @@ fn run_cmd_brew(args: &[String]) -> i32 {
     println!("块大小: {} KB ({} 字节)", block_size_kb, block_size);
     println!("总块数: {} (总量: {})", blocks, format_bytes((blocks as u64) * block_size as u64));
     println!("读校验: {}", if test_read { "开启" } else { "跳过" });
+    println!("物理逆向: {}", if reverse_nand { "开启 (Page/Block/通道调度全推算)" } else { "关闭" });
     println!("正在启动 Direct I/O 无缓存延迟画像采样...");
 
     let config = BrewConfig {
@@ -786,6 +791,7 @@ fn run_cmd_brew(args: &[String]) -> i32 {
         total_blocks: blocks,
         test_read,
         test_filename: "f3_brew_benchmark.tmp".to_string(),
+        reverse_nand,
     };
 
     let cancel_flag = Arc::new(AtomicBool::new(false));
@@ -802,6 +808,7 @@ fn run_cmd_brew(args: &[String]) -> i32 {
             crate::core::brew::BrewPhase::Writing => "写入采样",
             crate::core::brew::BrewPhase::Flushing => "冲刷缓存",
             crate::core::brew::BrewPhase::Reading => "回读采样",
+            crate::core::brew::BrewPhase::Reversing => "物理逆向",
             crate::core::brew::BrewPhase::Completed => "分析完成",
         };
         let pct = if progress.total_blocks > 0 {
